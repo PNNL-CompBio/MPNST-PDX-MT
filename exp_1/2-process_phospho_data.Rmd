@@ -143,8 +143,7 @@ show(msnid)
 
 
 ```{r map_mod_sites}
-#path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
-#path_to_FASTA <- gsub("\\\\","/",path_to_FASTA)
+
 path_to_FASTA_gene <- remap_accessions_uniprot_to_gene_fasta(fst_dms_pth)
 
 library(Biostrings)
@@ -154,7 +153,6 @@ msnid <- map_mod_sites(msnid, fst,
                        peptide_mod_col = "peptide", 
                        mod_char = "*",
                        site_delimiter = "lower")
-# msnid <- apply_filter(msnid, "!is.na(PepLocFirst)")
 head(psms(msnid))
 
 save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))

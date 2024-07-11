@@ -5,9 +5,6 @@ output: html_document
 
 Preliminary summary
 
-
-
-
 ```{r include=FALSE}
 library(MSnSet.utils)
 library(dplyr)
@@ -19,6 +16,7 @@ phospho_crosstab <- read.table("../proteomics/data/phospho_data/Chr8_UMN1_crosst
 phospho_crosstab_prot <- read.table("../proteomics/data/phospho_data/Chr8_UMN1_crosstab_phospho_siteID_prot_original.txt", sep = "\t")
 
 meta <- read_excel("../proteomics/data/PDX Proteomics Exp1 metadata.xlsx") 
+
 # add unique identifier
 meta$Tube <- paste(meta$PDX, meta$Drug, meta$`Time point (hr)`, "hr", sep = "_")
 tube.types <- unique(meta$Tube)

@@ -4,9 +4,6 @@ output: html_document
 date: "2022-11-14"
 ---
 
-
-
-
 ---
 title: "Ex1 Phospho proteomics"
 output: html_document
@@ -312,24 +309,4 @@ write.table(crosstab,
             sep="\t")
 
 ```
-
-
-```{r}
-
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
