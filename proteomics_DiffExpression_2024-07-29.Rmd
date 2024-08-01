@@ -6,6 +6,9 @@ output: html_document
 ---
 ```{r}
 library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(ggfortify)
 ```
 
 
@@ -33,35 +36,103 @@ dim(correctedProteomics)
 
 ```
 
-# remove outliers
+# prior outliers
 
 ```{r}
 outliers <- c( "JH.2.002_DMSO_3_hr_rep3" , "JH.2.002_Vorinostat_3_hr_rep1", "MN.2_Mirdametinib_24_hr_rep2")
 ```
 
+# reshape to long to do extra filtering and plot summary
 
-### DMSO
+Here I moved the data to long form to easily summarize, filter, and plot.
+
+```{r remove outliers reshape}
+library(dplyr)
+#noOutliersCorrectedProteomics <- dplyr::select(correctedProteomics, -one_of(outliers))
+
+samps<-colnames(correctedProteomics)
+longProt<-correctedProteomics|>
+  tibble::rownames_to_column('gene')|>
+  tidyr::pivot_longer(cols=all_of(samps),names_to='condition',values_to='logRatio')|>
+  tidyr::separate(condition,into=c('sample','drug','time','unit','rep'),sep='_',remove=FALSE)
+
+##quick summary of distributions 
+ggplot(longProt,aes(x=condition,y=logRatio,fill=drug))+geom_violin()+theme(axis.text.x = element_text(angle = 90))
+
+
+##what if we filter by logratio?
+outliers<-subset(longProt,abs(logRatio)>5)|>
+  group_by(condition)|>
+  summarize(numOut=n())|>
+  arrange(numOut)|>
+  subset(numOut>1)
+  
+print(outliers)
+```
+I decided that maybe the samples with large LFCs are outliers and removed those. This doesn't always seem to be the case, some outliers just look like regular samples. 
+
+```{r plot outliers}
+
+##collect sample metadata, annotate our outliers
+meta<-longProt|>
+  dplyr::select(condition,sample,drug,time)|>
+  distinct()|>
+  mutate(isOutlier=condition%in%outliers$condition)|>
+  tibble::column_to_rownames('condition')
+
+
+
+pc<-prcomp(t(correctedProteomics))
+autoplot(pc,data = meta,color='drug',shape='isOutlier')
+autoplot(pc,data = meta,color='time',shape='isOutlier')+facet_grid(sample~drug)
+```
+
+Now we can see that these outliers are off and filter them out.
+
+```{r remove outliers}
+longProt<-longProt|>
+  subset(!condition%in%outliers$condition)
+meta<-meta|>
+  subset(!isOutlier)
+
+noOutliersCorrectedProteomics<-longProt|>
+  dplyr::select(condition,gene,logRatio)|>
+  tidyr::pivot_wider(names_from=condition,values_from=logRatio)|>
+  tibble::column_to_rownames('gene')|>
+  as.matrix()
+
+pc2<-prcomp(t(noOutliersCorrectedProteomics))
+
+autoplot(pc2,data = meta,color='drug',shape='sample')
+autoplot(pc2,data = meta,color='drug',shape='sample')+facet_grid(~time)
+
+```
+Now the result is much more divided by sample, which we expect.
+
+### Differential expression
+
+Here is Ruby's funnction to do the differential expression
 
 ```{r}
-noOutliersCorrectedProteomics <- dplyr::select(correctedProteomics, -one_of(outliers))
 
-
-DMSO0 <- dplyr::select(noOutliersCorrectedProteomics, contains('DMSO_0_'))
-DMSO0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('DMSO_0.5'))
-DMSO3 <- dplyr::select(noOutliersCorrectedProteomics, contains('DMSO_3'))
-DMSO24 <- dplyr::select(noOutliersCorrectedProteomics, contains('DMSO_24'))
-
-Mirda0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('Mirdametinib_0.5'))
-Mirda3 <- dplyr::select(noOutliersCorrectedProteomics, contains('Mirdametinib_3'))
-Mirda24 <- dplyr::select(noOutliersCorrectedProteomics, contains('Mirdametinib_24'))
-
-Vorino0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('Vorinostat_0.5'))
-Vorino3 <- dplyr::select(noOutliersCorrectedProteomics, contains('Vorinostat_3'))
-Vorino24 <- dplyr::select(noOutliersCorrectedProteomics, contains('Vorinostat_24'))
-
-Selu0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('Selumetinib_0.5'))
-Tramet0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('Trametinib_0.5'))
-
+# ##lets put all matrices we need in a list
+# 
+# DMSO0 <- dplyr::select(noOutliersCorrectedProteomics, contains('DMSO_0_'))
+# DMSO0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('DMSO_0.5'))
+# DMSO3 <- dplyr::select(noOutliersCorrectedProteomics, contains('DMSO_3'))
+# DMSO24 <- dplyr::select(noOutliersCorrectedProteomics, contains('DMSO_24'))
+# 
+# Mirda0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('Mirdametinib_0.5'))
+# Mirda3 <- dplyr::select(noOutliersCorrectedProteomics, contains('Mirdametinib_3'))
+# Mirda24 <- dplyr::select(noOutliersCorrectedProteomics, contains('Mirdametinib_24'))
+# 
+# Vorino0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('Vorinostat_0.5'))
+# Vorino3 <- dplyr::select(noOutliersCorrectedProteomics, contains('Vorinostat_3'))
+# Vorino24 <- dplyr::select(noOutliersCorrectedProteomics, contains('Vorinostat_24'))
+# 
+# Selu0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('Selumetinib_0.5'))
+# Tramet0.5 <- dplyr::select(noOutliersCorrectedProteomics, contains('Trametinib_0.5'))
+# 
 
 
 
@@ -84,17 +155,17 @@ factorInfo$time <- as.factor(factorInfo$time)
 # rownames have already been assigned
 proSet <- Biobase::ExpressionSet(as.matrix(data))
 
-# log2 transformation if distribution isn't normal
-ex <- Biobase::exprs(proSet)
-qx <- as.numeric(quantile(ex, c(0., 0.25, 0.5, 0.75, 0.99, 1.0),
-                          na.rm = TRUE
-))
-LogC <- (qx[5] > 100) ||
-  (qx[6] - qx[1] > 50 && qx[2] > 0)
-if (LogC) {
-  ex[which(ex <= 0)] <- NaN
-  Biobase::exprs(proSet) <- log2(ex)
-}
+ # log2 transformation if distribution isn't normal
+ ex <- Biobase::exprs(proSet)
+ qx <- as.numeric(quantile(ex, c(0., 0.25, 0.5, 0.75, 0.99, 1.0),
+                           na.rm = TRUE
+ ))
+ LogC <- (qx[5] > 100) ||
+   (qx[6] - qx[1] > 50 && qx[2] > 0)
+ if (LogC) {
+   ex[which(ex <= 0)] <- NaN
+   Biobase::exprs(proSet) <- log2(ex)
+ }
 
 
 proSet$sample <- factorInfo$sample
@@ -120,29 +191,90 @@ return(list(deg, nDiffExpressed))
 }
 ```
 
-# compare 1/2 hour to 0 timepoint, all drugs and DMSO
+# Compare all time points and conditions
 
+A loop through the data frame calculates all the conditions and adds them to a new data frame.
 
 
 ```{r}
-DMSOresult <- getNdiffExpressedGenes(cbind(DMSO0, DMSO0.5), formula = ~ time + sample + 0, analysisContrast ='time0.5-time0') 
-Mirdaresult <-getNdiffExpressedGenes(cbind(DMSO0, Mirda0.5), formula = ~ time + sample + 0,analysisContrast ='time0.5-time0')
-Seluresult <-getNdiffExpressedGenes(cbind(DMSO0, Selu0.5),formula = ~ time + sample + 0, analysisContrast ='time0.5-time0')
-Traresult <-getNdiffExpressedGenes(cbind(DMSO0, Tramet0.5), formula = ~ time + sample + 0,analysisContrast ='time0.5-time0') 
-Vorinoresult <-getNdiffExpressedGenes(cbind(DMSO0, Vorino0.5), formula = ~ time + sample + 0,analysisContrast ='time0.5-time0') 
+##created for loop to calculate all diff ex stats
+t0dat<-data.frame()
+ddat<-data.frame()
+for(d in c('DMSO','Mirdametinib','Selumetinib','Vorinostat')){
+  for(tv in c('0.5','3','24')){
+    for(s in c('JH.2.002','MN.2')){
+      ##get matrix of values of sample at condition
+      tmat<-longProt|>
+        subset(sample==s)|>
+        subset(drug==d)|>
+        subset(time==tv)|>
+        select(gene,condition,logRatio)|>
+        distinct()|>
+        tidyr::pivot_wider(names_from='condition',values_from='logRatio')|>tibble::column_to_rownames('gene')
+      if(nrow(tmat)==0)##there is no data for this
+        next
+      ##matrix of values at DMSO 0
+      cmat<-longProt|>
+        subset(sample==s)|>
+        subset(drug=='DMSO')|>
+        subset(time=='0')|>
+        select(gene,condition,logRatio)|>
+        distinct()|>
+        tidyr::pivot_wider(names_from='condition',values_from='logRatio')|>tibble::column_to_rownames('gene')
+  
+      if(d!='DMSO'){    
+        #matrix of values at DMSO same time
+        dmat<-longProt|>
+          subset(sample==s)|>
+          subset(drug=='DMSO')|>
+          subset(time==tv)|>
+          select(gene,condition,logRatio)|>
+          distinct()|>
+          tidyr::pivot_wider(names_from='condition',values_from='logRatio')|>tibble::column_to_rownames('gene')
+        ## get result compared to DMSO
+        res<-getNdiffExpressedGenes(cbind(dmat,tmat), formula = ~ trt  + 0, analysisContrast =paste0('trt',d,'-trtDMSO')) 
+        tres<-res[[1]]|>mutate(time=tv,drug=d,samp=s)|>
+          tibble::rownames_to_column('Gene')
+        ddat<-rbind(ddat,tres)
+      }
+           ##first get restult compare to t0
+        res<-getNdiffExpressedGenes(cbind(cmat,tmat), formula = ~ time  + 0, analysisContrast =paste0('time',tv,'-time0')) 
+        tres<-res[[1]]|>mutate(time=tv,drug=d,samp=s)|>
+          tibble::rownames_to_column('Gene')
+        t0dat<-rbind(t0dat,tres)
+      
+    }
+  }
+}
 
-halfhour <- c("DMSO" = DMSOresult[[2]], "Mirdametinib" = Mirdaresult[[2]], "Selumetinib" = Seluresult[[2]], "Trametinib" = Traresult[[2]], "Vorinostat" = Vorinoresult[[2]])
+t0counts = t0dat|>subset(adj.P.Val<0.1)|>group_by(time,drug,samp)|>summarize(DiffEx=n())
+print(t0counts)
+ggplot(t0counts,aes(x=drug,y=DiffEx,fill=samp))+geom_bar(stat='identity',position='dodge')+facet_grid(~time)
+
+
+
+dcounts = ddat|>subset(adj.P.Val<0.1)|>group_by(time,drug,samp)|>summarize(DiffEx=n())
+print(dcounts)
+ggplot(dcounts,aes(x=drug,y=DiffEx,fill=samp))+geom_bar(stat='identity',position='dodge')+facet_grid(~time)
+
+#DMSOresult <- getNdiffExpressedGenes(cbind(DMSO0, DMSO0.5), formula = ~ time + sample + 0, analysisContrast ='time0.5-time0') 
+#Mirdaresult <-getNdiffExpressedGenes(cbind(DMSO0, Mirda0.5), formula = ~ time + sample + 0,analysisContrast ='time0.5-time0')
+#Seluresult <-getNdiffExpressedGenes(cbind(DMSO0, Selu0.5),formula = ~ time + sample + 0, analysisContrast ='time0.5-time0')
+#Traresult <-getNdiffExpressedGenes(cbind(DMSO0, Tramet0.5), formula = ~ time + sample + 0,analysisContrast ='time0.5-time0') 
+#Vorinoresult <-getNdiffExpressedGenes(cbind(DMSO0, Vorino0.5), formula = ~ time + sample + 0,analysisContrast ='time0.5-time0') 
+
+#halfhour <- c("DMSO" = DMSOresult[[2]], "Mirdametinib" = Mirdaresult[[2]], "Selumetinib" = Seluresult[[2]], "Trametinib" = Traresult[[2]], "Vorinostat" = Vorinoresult[[2]])
 ```
 
 ### compare 3 hour to 0 timepoint, all drugs and DMSO
 
 
 ```{r}
-DMSOresult <- getNdiffExpressedGenes(cbind(DMSO0, DMSO3), formula = ~ time + sample + 0,analysisContrast ='time3-time0') #1
-Mirdaresult <-getNdiffExpressedGenes(cbind(DMSO0, Mirda3), formula = ~ time + sample + 0,analysisContrast ='time3-time0')  #309
-Vorinoresult <-getNdiffExpressedGenes(cbind(DMSO0, Vorino3), formula = ~ time + sample + 0, analysisContrast ='time3-time0')  #0
+#DMSOresult <- getNdiffExpressedGenes(cbind(DMSO0, DMSO3), formula = ~ time + sample + 0,analysisContrast ='time3-time0') #1
+#Mirdaresult <-getNdiffExpressedGenes(cbind(DMSO0, Mirda3), formula = ~ time + sample + 0,analysisContrast ='time3-time0')  #309
+#Vorinoresult <-getNdiffExpressedGenes(cbind(DMSO0, Vorino3), formula = ~ time + sample + 0, analysisContrast ='time3-time0')  #0
 
-threeHrs <- c("DMSO" = DMSOresult[[2]], "Mirdametinib" = Mirdaresult[[2]], "Vorinostat"= Vorinoresult[[2]])
+#threeHrs <- c("DMSO" = DMSOresult[[2]], "Mirdametinib" = Mirdaresult[[2]], "Vorinostat"= Vorinoresult[[2]])
 
 ```
 
@@ -151,90 +283,89 @@ threeHrs <- c("DMSO" = DMSOresult[[2]], "Mirdametinib" = Mirdaresult[[2]], "Vori
 
 
 ```{r}
-DMSOresult <- getNdiffExpressedGenes(cbind(DMSO0, DMSO24), formula = ~ time + sample + 0, analysisContrast ='time24-time0') #381
-Mirdaresult <-getNdiffExpressedGenes(cbind(DMSO0, Mirda24), formula = ~ time + sample + 0, analysisContrast ='time24-time0')  #939
-Vorinoresult <-getNdiffExpressedGenes(cbind(DMSO0, Vorino24), formula = ~ time + sample + 0, analysisContrast ='time24-time0') #219 
-twentyFourHrs <-c('DMSO' =DMSOresult[[2]], 'Mirdametinib'=Mirdaresult[[2]], "Vorinostat" =Vorinoresult[[2]])
+#DMSOresult <- getNdiffExpressedGenes(cbind(DMSO0, DMSO24), formula = ~ time + sample + 0, analysisContrast ='time24-time0') #381
+#Mirdaresult <-getNdiffExpressedGenes(cbind(DMSO0, Mirda24), formula = ~ time + sample + 0, analysisContrast ='time24-time0')  #939
+#Vorinoresult <-getNdiffExpressedGenes(cbind(DMSO0, Vorino24), formula = ~ time + sample + 0, analysisContrast ='time24-time0') #219 
+#twentyFourHrs <-c('DMSO' =DMSOresult[[2]], 'Mirdametinib'=Mirdaresult[[2]], "Vorinostat" =Vorinoresult[[2]])
 
 ```
 
 
 ```{r}
-plotData <- data.frame('diffexprCounts' = c(halfhour, threeHrs, twentyFourHrs), time = c(rep(0.5 ,5), rep(3,3), rep(24,3)), drug = c("DMSO", "Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat", rep(c("DMSO", "Mirdametinib", "Vorinostat"), 2)))
 
-ggplot2::ggplot(plotData, aes(x=factor(time, level=c('0.5', '3', '24')), fill=drug, y=diffexprCounts))+ 
-  geom_bar(position='dodge', stat='identity')+
-  geom_text(aes(label=diffexprCounts), position=position_dodge(width=0.9), vjust=-0.25)+ 
-  ggtitle('Differentially expressed phospho-sites compared to DMSO at 0 timepoint')+
-  xlab("Timepoint, in hours")+
-  ylab("# of Differentially Expressed Proteins")+
-  theme_bw()
+#plotData <- data.frame('diffexprCounts' = c(halfhour, threeHrs, twentyFourHrs), time = c(rep(0.5 ,5), rep(3,3), rep(24,3)), drug = c("DMSO", "Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat", rep(c("DMSO", "Mirdametinib", "Vorinostat"), 2)))
 
-
-ggplot2::ggplot(plotData, aes(x=drug, fill=drug, y=diffexprCounts))+ 
-  geom_col() + 
-  facet_grid(~time) + 
-  geom_text(aes(label=diffexprCounts), position=position_dodge(width=0.9), vjust=-0.25) +
-  ggtitle('Differentially expressed phospho-sites compared to DMSO at 0 timepoint')+
-  #xlab("Timepoint, in hours")+
-  ylab("# of Differentially Expressed Proteins")+
-  theme_bw()+
-  theme(axis.text.x = element_text(angle = 90)) 
-
-
+#ggplot2::ggplot(plotData, aes(x=factor(time, level=c('0.5', '3', '24')), fill=drug, y=diffexprCounts))+ 
+#   geom_bar(position='dodge', stat='identity')+
+#   geom_text(aes(label=diffexprCounts), position=position_dodge(width=0.9), vjust=-0.25)+ 
+#   ggtitle('Differentially expressed phospho-sites compared to DMSO at 0 timepoint')+
+#   xlab("Timepoint, in hours")+
+#   ylab("# of Differentially Expressed Proteins")+
+#   theme_bw()
+# 
+# 
+# ggplot2::ggplot(plotData, aes(x=drug, fill=drug, y=diffexprCounts))+ 
+#   geom_col() + 
+#   facet_grid(~time) + 
+#   geom_text(aes(label=diffexprCounts), position=position_dodge(width=0.9), vjust=-0.25) +
+#   ggtitle('Differentially expressed phospho-sites compared to DMSO at 0 timepoint')+
+#   #xlab("Timepoint, in hours")+
+#   ylab("# of Differentially Expressed Proteins")+
+#   theme_bw()+
+#   theme(axis.text.x = element_text(angle = 90)) 
 ```
 
 ## Compare all drugs individually at timepoint 1/2 hour to DMSO at 1/2 hour
 
 ```{r}
-Mirdaresult <- getNdiffExpressedGenes(cbind(Mirda0.5, DMSO0.5), formula = ~ trt + sample + 0, analysisContrast ='trtMirdametinib-trtDMSO') #53
-Seluresult <- getNdiffExpressedGenes(cbind(Selu0.5, DMSO0.5), formula = ~ trt + sample + 0, analysisContrast ='trtSelumetinib-trtDMSO') #5 
-Trametresult <- getNdiffExpressedGenes(cbind(Tramet0.5, DMSO0.5), formula = ~ trt + sample + 0, analysisContrast ='trtTrametinib-trtDMSO') #15 
-Vorinoresult <- getNdiffExpressedGenes(cbind(Vorino0.5, DMSO0.5), formula = ~ trt + sample + 0, analysisContrast ='trtVorinostat-trtDMSO') #0
-
-halfhour <- c("Mirdametinib" = Mirdaresult[[2]], "Selumetinib" = Seluresult[[2]], "Trametinib" = Traresult[[2]], "Vorinostat" = Vorinoresult[[2]])
+# Mirdaresult <- getNdiffExpressedGenes(cbind(Mirda0.5, DMSO0.5), formula = ~ trt + sample + 0, analysisContrast ='trtMirdametinib-trtDMSO') #53
+# Seluresult <- getNdiffExpressedGenes(cbind(Selu0.5, DMSO0.5), formula = ~ trt + sample + 0, analysisContrast ='trtSelumetinib-trtDMSO') #5 
+# Trametresult <- getNdiffExpressedGenes(cbind(Tramet0.5, DMSO0.5), formula = ~ trt + sample + 0, analysisContrast ='trtTrametinib-trtDMSO') #15 
+# Vorinoresult <- getNdiffExpressedGenes(cbind(Vorino0.5, DMSO0.5), formula = ~ trt + sample + 0, analysisContrast ='trtVorinostat-trtDMSO') #0
+# 
+# halfhour <- c("Mirdametinib" = Mirdaresult[[2]], "Selumetinib" = Seluresult[[2]], "Trametinib" = Traresult[[2]], "Vorinostat" = Vorinoresult[[2]])
 ```
 
 
 ## and at 3 hours
 ```{r}
-Mirdaresult <- getNdiffExpressedGenes(cbind(Mirda3, DMSO3), formula = ~ trt + sample + 0, analysisContrast ='trtMirdametinib-trtDMSO') #53
-
-Vorinoresult <- getNdiffExpressedGenes(cbind(Vorino3, DMSO3), formula = ~ trt + sample + 0, analysisContrast ='trtVorinostat-trtDMSO') #0
-
-threeHrs <- c("Mirdametinib" = Mirdaresult[[2]], "Vorinostat"= Vorinoresult[[2]])
+# Mirdaresult <- getNdiffExpressedGenes(cbind(Mirda3, DMSO3), formula = ~ trt + sample + 0, analysisContrast ='trtMirdametinib-trtDMSO') #53
+# 
+# Vorinoresult <- getNdiffExpressedGenes(cbind(Vorino3, DMSO3), formula = ~ trt + sample + 0, analysisContrast ='trtVorinostat-trtDMSO') #0
+# 
+# threeHrs <- c("Mirdametinib" = Mirdaresult[[2]], "Vorinostat"= Vorinoresult[[2]])
 ```
 
 ### and at 24 hours
 ```{r}
-Mirdaresult <- getNdiffExpressedGenes(cbind(Mirda24, DMSO24), formula = ~ trt + sample + 0, analysisContrast ='trtMirdametinib-trtDMSO') #53
-
-Vorinoresult <- getNdiffExpressedGenes(cbind(Vorino24, DMSO24), formula = ~ trt + sample + 0, analysisContrast ='trtVorinostat-trtDMSO') #0
-
-twentyfourHrs <- c("Mirdametinib" = Mirdaresult[[2]], "Vorinostat"= Vorinoresult[[2]])
+# Mirdaresult <- getNdiffExpressedGenes(cbind(Mirda24, DMSO24), formula = ~ trt + sample + 0, analysisContrast ='trtMirdametinib-trtDMSO') #53
+# 
+# Vorinoresult <- getNdiffExpressedGenes(cbind(Vorino24, DMSO24), formula = ~ trt + sample + 0, analysisContrast ='trtVorinostat-trtDMSO') #0
+# 
+# twentyfourHrs <- c("Mirdametinib" = Mirdaresult[[2]], "Vorinostat"= Vorinoresult[[2]])
 
 ```
 
 ```{r}
-plotData <- data.frame('diffexprCounts' = c(halfhour, threeHrs, twentyfourHrs), time = c(rep(0.5 ,4), rep(3,2), rep(24,2)), drug = c( "Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat", rep(c( "Mirdametinib", "Vorinostat"), 2)))
-
-ggplot2::ggplot(plotData, aes(x=drug, fill=drug, y=diffexprCounts))+ 
-  geom_col() + 
-  facet_grid(~time) + 
-  geom_text(aes(label=diffexprCounts), position=position_dodge(width=0.9), vjust=-0.25) +
-  
-  ggtitle('Differentially expressed proteins comparing drug to DMSO at each timepoint')+
-  #xlab("Timepoint, in hours")+
-  ylab("# of Differentially Expressed Proteins")+
-  theme_bw()+
-  theme(axis.text.x = element_text(angle = 90))
-
-ggplot2::ggplot(plotData, aes(x=factor(time, level=c('0.5', '3', '24')), fill=drug, y=diffexprCounts))+ 
-  geom_bar(position='dodge', stat='identity')+
-  geom_text(aes(label=diffexprCounts), position=position_dodge(width=0.9), vjust=-0.25)+ 
-  ggtitle('Differentially expressed proteins comparing drug to DMSO at each timepoint')+
-  xlab("Timepoint, in hours")+
-  ylab("# of Differentially Expressed Proteins")+
-  theme_bw()
+# plotData <- data.frame('diffexprCounts' = c(halfhour, threeHrs, twentyfourHrs), time = c(rep(0.5 ,4), rep(3,2), rep(24,2)), drug = c( "Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat", rep(c( "Mirdametinib", "Vorinostat"), 2)))
+# 
+# ggplot2::ggplot(plotData, aes(x=drug, fill=drug, y=diffexprCounts))+ 
+#   geom_col() + 
+#   facet_grid(~time) + 
+#   geom_text(aes(label=diffexprCounts), position=position_dodge(width=0.9), vjust=-0.25) +
+#   
+#   ggtitle('Differentially expressed proteins comparing drug to DMSO at each timepoint')+
+#   #xlab("Timepoint, in hours")+
+#   ylab("# of Differentially Expressed Proteins")+
+#   theme_bw()+
+#   theme(axis.text.x = element_text(angle = 90))
+# 
+# ggplot2::ggplot(plotData, aes(x=factor(time, level=c('0.5', '3', '24')), fill=drug, y=diffexprCounts))+ 
+#   geom_bar(position='dodge', stat='identity')+
+#   geom_text(aes(label=diffexprCounts), position=position_dodge(width=0.9), vjust=-0.25)+ 
+#   ggtitle('Differentially expressed proteins comparing drug to DMSO at each timepoint')+
+#   xlab("Timepoint, in hours")+
+#   ylab("# of Differentially Expressed Proteins")+
+#   theme_bw()
 
 ```
