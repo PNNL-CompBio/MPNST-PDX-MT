@@ -143,8 +143,15 @@ show(msnid)
 
 
 ```{r map_mod_sites}
+# before 20240731:
+# #path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
+# #path_to_FASTA <- gsub("\\\\","/",path_to_FASTA)
+# path_to_FASTA_gene <- remap_accessions_uniprot_to_gene_fasta(fst_dms_pth)
 
-path_to_FASTA_gene <- remap_accessions_uniprot_to_gene_fasta(fst_dms_pth)
+# after 20240731:
+path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
+path_to_FASTA <- gsub("\\\\","/",path_to_FASTA)
+path_to_FASTA_gene <- remap_accessions_uniprot_to_gene_fasta(path_to_FASTA)
 
 library(Biostrings)
 fst <- readAAStringSet(path_to_FASTA_gene)
@@ -153,6 +160,7 @@ msnid <- map_mod_sites(msnid, fst,
                        peptide_mod_col = "peptide", 
                        mod_char = "*",
                        site_delimiter = "lower")
+# msnid <- apply_filter(msnid, "!is.na(PepLocFirst)")
 head(psms(msnid))
 
 save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))
@@ -213,6 +221,12 @@ write.table(signif(crosstab, 5),
             file=file.path(data_folder, paste(crosstab_prefix, "crosstab_phospho_siteID_original.txt", sep="_")),
             quote=F, sep="\t")
 
+# before 20240731:
+# 23614    66
+
+# after 20240731:
+# 23922    66
+
 ```
 
 
@@ -227,6 +241,12 @@ dim(crosstab)
 write.table(signif(crosstab, 5),
             file=file.path(data_folder, paste(crosstab_prefix, "crosstab_phospho_peptide_original.txt", sep="_")),
             quote=F, sep="\t")
+
+# before 20240731:
+# 26857    66
+
+# after 20240731:
+# 27193    66
 
 ```
 

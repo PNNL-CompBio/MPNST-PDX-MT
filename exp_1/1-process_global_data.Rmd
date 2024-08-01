@@ -114,10 +114,57 @@ show(msnid)
 
 
 ```{r protein_level_filter }
-fst_dms_pth_2 <- remap_fasta_entry_names(fst_dms_pth, conv, "^.*\\|(.+?)(-\\d+)?\\|.*")
+# before 20240731
+#fst_dms_pth_2 <- remap_fasta_entry_names(fst_dms_pth, conv, "^.*\\|(.+?)(-\\d+)?\\|.*") 
+
+# ## peptide density and accession filter
+# msnid <- compute_num_peptides_per_1000aa(msnid, fst_dms_pth_2)
+# msnid <- filter_msgf_data_protein_level(msnid, 0.01)
+# show(msnid)
+# 
+# 
+# msnid_prot <- compute_num_peptides_per_1000aa(msnid_prot, fst_dms_pth)
+# msnid_prot <- filter_msgf_data_protein_level(msnid_prot, 0.01)
+# show(msnid_prot)
+
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 296095 at 0.066 % FDR
+# #peptides: 54333 at 0.13 % FDR
+# #accessions: 6011 at 0.99 % FDR
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 443918 at 0.12 % FDR
+# #peptides: 93262 at 0.19 % FDR
+# #accessions: 25370 at 0.99 % FDR
+
+# after 20240731
+# easier to just do it without the function:
+conversion_table <- conv
+mySequences <- readAAStringSet(fst_dms_pth)
+names(mySequences) <- sub(" .*$", "\\1", names(mySequences))
+prot_lengths <- data.frame(seq_name = names(mySequences), 
+                           seq_length = width(mySequences), stringsAsFactors = FALSE)
+by_ <- "seq_name"
+names(by_) <- colnames(conversion_table)[1]
+conversion_table <- conversion_table %>% inner_join(prot_lengths, 
+                                                    by = by_) %>% group_by_at(colnames(conversion_table)[2]) %>% 
+  dplyr::slice(which.max(seq_length))
+conversion_table <- conversion_table %>% select(-seq_length) %>% 
+  distinct() %>% group_by_at(colnames(conversion_table)[1]) %>% 
+  top_n(1, dplyr::desc(!!as.name(colnames(conversion_table)[2])))
+conversion_vec <- conversion_table %>% pull(2)
+names(conversion_vec) <- conversion_table %>% pull(1)
+mySequences <- mySequences[names(conversion_vec)]
+names(mySequences) <- conversion_vec[names(mySequences)]
+path_to_FASTA_remapped <- gsub("\\.fasta.*", "_remapped.fasta", 
+                               fst_dms_pth)
+writeXStringSet(mySequences, path_to_FASTA_remapped, compress = grepl("[.]gz$", fst_dms_pth))
 
 ## peptide density and accession filter
-msnid <- compute_num_peptides_per_1000aa(msnid, fst_dms_pth_2)
+msnid <- compute_num_peptides_per_1000aa(msnid, path_to_FASTA_remapped)
 msnid <- filter_msgf_data_protein_level(msnid, 0.01)
 show(msnid)
 
@@ -125,6 +172,20 @@ show(msnid)
 msnid_prot <- compute_num_peptides_per_1000aa(msnid_prot, fst_dms_pth)
 msnid_prot <- filter_msgf_data_protein_level(msnid_prot, 0.01)
 show(msnid_prot)
+
+
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 393851 at 0.00076 % FDR
+# #peptides: 84784 at 0.0024 % FDR
+# #accessions: 10245 at 0.02 % FDR
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 443918 at 0.12 % FDR
+# #peptides: 93262 at 0.19 % FDR
+# #accessions: 25370 at 0.99 % FDR
 
 ```
 
@@ -140,6 +201,34 @@ msnid_prot <- infer_parsimonious_accessions(msnid_prot, unique_only=FALSE)
 show(msnid)
 show(msnid_prot)
 
+# before 20240731
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 290470 at 0.064 % FDR
+# #peptides: 53508 at 0.11 % FDR
+# #accessions: 5536 at 0.76 % FDR
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 425319 at 0.12 % FDR
+# #peptides: 89694 at 0.18 % FDR
+# #accessions: 10180 at 1.3 % FDR
+
+# after 20240731
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 386857 at 0.00078 % FDR
+# #peptides: 83683 at 0.0024 % FDR
+# #accessions: 9162 at 0.022 % FDR
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 425319 at 0.12 % FDR
+# #peptides: 89694 at 0.18 % FDR
+# #accessions: 10180 at 1.3 % FDR
+
 ```
 
 
@@ -153,6 +242,34 @@ msnid_prot <- apply_filter(msnid_prot, "!isDecoy")
 show(msnid_prot)
 
 save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))
+
+# before 20240731
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 290285 at 0 % FDR
+# #peptides: 53447 at 0 % FDR
+# #accessions: 5494 at 0 % FDR
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 424818 at 0 % FDR
+# #peptides: 89531 at 0 % FDR
+# #accessions: 10046 at 0 % FDR
+
+# after 20240731
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 386854 at 0 % FDR
+# #peptides: 83681 at 0 % FDR
+# #accessions: 9160 at 0 % FDR
+# MSnID object
+# Working directory: "."
+# #Spectrum Files:  48 
+# #PSMs: 424818 at 0 % FDR
+# #peptides: 89531 at 0 % FDR
+# #accessions: 10046 at 0 % FDR
 
 ```
 
@@ -215,6 +332,11 @@ dim(quant_cross_tab)
 
 write.table(quant_cross_tab, file=file.path(data_folder, paste(crosstab_prefix, "crosstab_global_gene_original.txt", sep="_")),
             quote=F, sep="\t")
+# before 20240731:
+# 5384   66
+
+# after 20240731:
+# 8736   66
 ```
 
 
@@ -254,6 +376,12 @@ dim(quant_cross_tab_prot)
 
 write.table(quant_cross_tab_prot, file=file.path(data_folder, paste(crosstab_prefix, "crosstab_global_prot_original.txt", sep="_")),
             quote=F, sep="\t")
+
+# before 20240731:
+# 8736   66
+
+# after 20240731:
+# 9633   66
 ```
 
 
