@@ -9,34 +9,31 @@ library(ggplot2)
 library(tidyr)
 library(dplyr)
 library(ggfortify)
-library(UpSetR)
 synapser::synLogin()
 #corrected global proteomics: syn61695507
 # corrected phospho proteomics: 'syn61695519'
-fileEntity <- synapser::synGet('syn61695507')
-origProt <- read.table(fileEntity$path, header = T)
+fileEntity <- synapser::synGet('syn61695519')
+origPhospho <- read.table(fileEntity$path, header = T)
 ```
 
-# Proteomics analysis
-Here we evaluate the first evaluate the proteomics data derived from the PDX-MT experiments.
 
-### Remove NAs
-Proteins that are missing >50% of their data are removed from this analysis. However we retain the rest and impute them using the mean value for that protein.
+### impute for NAs  - change to row mean 
 
-```{r remove NAs}
+
+```{r}
 # get the indices of NA's
-na_indices <- which(is.na(origProt), arr.ind = T)
+correctedProteomics<-origPhospho
+
+na_indices <- which(is.na(correctedProteomics), arr.ind = T)
 # replace unique row by row with the rowMeans(..., na.rm=T)
-correctedProteomics<-origProt
-correctedProteomics[na_indices] <- rowMeans(origProt, na.rm=T)[na_indices[,1]]
+correctedProteomics[na_indices] <- rowMeans(correctedProteomics, na.rm=T)[na_indices[,1]]
 #na_indices
 sum(is.na(correctedProteomics))
 dim(correctedProteomics)
 
 ```
 
-
-### Collect sample metdata
+# reshape to long to do extra filtering and plot summary
 
 Here I moved the data to long form to easily summarize, filter, and plot.
 
@@ -50,28 +47,15 @@ longProt<-correctedProteomics|>
   tidyr::pivot_longer(cols=all_of(samps),names_to='condition',values_to='logRatio')|>
   tidyr::separate(condition,into=c('sample','drug','time','unit','rep'),sep='_',remove=FALSE)
 
-##collect sample metadata, annotate our outliers
-meta<-longProt|>
-  dplyr::select(condition,sample,drug,time)|>
-  distinct()|>
-  mutate(isOutlier=condition%in%outliers$condition)|>
-  tibble::column_to_rownames('condition')
-print(meta)
-```
-
-First we check to see how the proteins are distributed across the samples
-```{r protein distribution}
 ##quick summary of distributions 
 ggplot(longProt,aes(x=condition,y=logRatio,fill=drug))+geom_violin()+theme(axis.text.x = element_text(angle = 90))
 ```
 
-Here we get a larger than expected dynamic range for some samples. This suggests that something is amiss. All of these values are the log ratio of what was in the sample compared to what was in the reference control.
-
-How does this look without NA imputation? Are there specific proteins that are worse than others?
+These look similar to the proteomics, but better as in there are fewer large fold change differences when we remove the NA values. Is it also driven by specific phosphosites?
 
 ```{r protein outliers}
 
-longOrig<-origProt|>
+longOrig<-origPhospho|>
   tibble::rownames_to_column('gene')|>
   tidyr::pivot_longer(cols=all_of(samps),names_to='condition',values_to='logRatio')|>
   tidyr::separate(condition,into=c('sample','drug','time','unit','rep'),sep='_',remove=FALSE)|>
@@ -91,11 +75,9 @@ longOrig|>
   ggplot(aes(x=gene,y=logRatio))+geom_violin()+theme(axis.text.x = element_text(angle = 90))
 
 ```
-While something is amiss with many proteins, COL19A1 is the biggest outlier - there are no samples with a regular amount. Could this protein come from another species? 
+It's more challenging to interpret this. CHGA is a marker of neuroendocrine tumors, so possibly a signal? Still we can remove a few samples to see if it helps
+```{r outliers}
 
-Either way we can remove some samples that have too many of these problematic proteins:
-
-```{r outlier list}
 ##what if we filter by logratio?
 outliers<-subset(longProt,abs(logRatio)>5)|>
   group_by(condition)|>
@@ -105,10 +87,19 @@ outliers<-subset(longProt,abs(logRatio)>5)|>
   
 print(outliers)
 ```
-I decided that maybe the samples with large LFCs are outliers and removed those. This doesn't always seem to be the case, some outliers just look like regular samples. 
+I decided that maybe the samples with large LFCs are outliers and removed those. This doesn't always seem to be the case, some outliers just look like regular samples, but are a bit off.
 
 ```{r plot outliers}
-#PCA plots
+
+##collect sample metadata, annotate our outliers
+meta<-longProt|>
+  dplyr::select(condition,sample,drug,time)|>
+  distinct()|>
+  mutate(isOutlier=condition%in%outliers$condition)|>
+  tibble::column_to_rownames('condition')
+
+
+
 pc<-prcomp(t(correctedProteomics))
 autoplot(pc,data = meta,color='drug',shape='isOutlier')
 autoplot(pc,data = meta,color='time',shape='isOutlier')+facet_grid(sample~drug)
@@ -119,6 +110,7 @@ Now we can see that these outliers are off and filter them out.
 ```{r remove outliers}
 longProt<-longProt|>
   subset(!condition%in%outliers$condition)
+
 meta<-meta|>
   subset(!isOutlier)
 
@@ -138,8 +130,7 @@ Now the result is much more divided by sample, which we expect.
 
 ## Differential expression
 
-Now we want to evaluate if proteins are differentially expressed. We create a simple function for differental expression using LIMMA iterate over all the conditions.
-
+We create a single function to compute differential expression using LIMMA.
 ```{r}
 # function to get N genes, adj.P.value < 0.05
 getNdiffExpressedGenes <- function(data, formula, analysisContrast){
@@ -192,8 +183,10 @@ return(list(deg, nDiffExpressed))
 }
 ```
 
+### Compare all time points and conditions
 
-We first check the results compared to time 0. A loop through the data frame calculates all the conditions and adds them to a new data frame, both comparing each value to time 0 and also each value to the DMSO at the same time point.
+A loop through the data frame calculates all the conditions and adds them to a new data frame.
+
 
 ```{r}
 ##created for loop to calculate all diff ex stats
@@ -248,27 +241,22 @@ for(d in c('DMSO','Mirdametinib','Selumetinib','Vorinostat')){
 
 t0counts = t0dat|>subset(adj.P.Val<0.1)|>group_by(time,drug,samp)|>summarize(DiffEx=n())
 print(t0counts)
-ggplot(t0counts,aes(x=drug,y=DiffEx,fill=samp))+geom_bar(stat='identity',position='dodge')+facet_grid(~time)+
-  ggtitle("Number of differentially expressed proteins compared to time 0")
-
+ggplot(t0counts,aes(x=drug,y=DiffEx,fill=samp))+geom_bar(stat='identity',position='dodge')+facet_grid(~time)
 ```
 
-DMSO seems to show a lot of changes, what happens when we only compare treated to DMSO? This tells us the biological differences.
+Again we see large changes that occur during DMSO treatment, but not as much, particularly at 3 hours.
 
-```{r DMSO comparison}
-
+```{r other changes}
 
 dcounts = ddat|>subset(adj.P.Val<0.1)|>group_by(time,drug,samp)|>summarize(DiffEx=n())
 print(dcounts)
-ggplot(dcounts,aes(x=drug,y=DiffEx,fill=samp))+geom_bar(stat='identity',position='dodge')+facet_grid(~time)+
-  ggtitle("Number of differentially expressed proteins compared to DMSO")
+ggplot(dcounts,aes(x=drug,y=DiffEx,fill=samp))+geom_bar(stat='identity',position='dodge')+facet_grid(~time)
+
 ```
-
-We dont get that many changes. Maybe the time point is too early? Vorinostat exhibits some changes. Let's do an upset plot to see if any proteins are shared across conditions.
-
+Here we see a few changes at .5 hours and more at 24. the 3 hour time point is not great. Let's do an upset plot to see if any proteins are shared across conditions.
 
 ```{r upset}
-
+library(UpSetR)
 ddat|>
   subset(adj.P.Val<0.1)|>
   select(Gene,drug,time,samp)|>
@@ -278,68 +266,74 @@ ddat|>
   tibble::column_to_rownames('Gene')|>
 #  as.matrix()|>
     upset()
-
-ddat|>
-  subset(drug=='Vorinostat')|>
-  subset(adj.P.Val<0.1)|>
-  group_by(Gene)|>
-  summarize(count=n())|>
-  subset(count>1)
-
 ```
 
-Indeed there are 9 proteins that are differentially expressed in both vorinostat conditions.
+There are 30 phosphosites shared during mirdametinib treatment, and 19 shared under vorinostat treatment. One phosphosites is shared across all treatments?
+
+```{r shared changes}
+
+ddat|>
+  subset(adj.P.Val<0.1)|>
+  group_by(Gene)|>summarize(count=n())|>
+  arrange(desc(count))
+```
+
+MAPK3 and MAPK1 exhibit changes in many conditions.
 
 ## Evaluate known target genes of various drugs
 
-While we are using a large p-value threshold, maybe the target genes we expect are just above the p-value, or due to noise are not differentially expressed. Let's check to see  how known proteins behave. 
-First we can evaluate MEK, the known target of Mirdametinib and Selumetinib.
+Here we can do some spot checking of known Mirdametinib target genes. First we can evaluate MEK, the known target
 .
 ```{r}
 
-genelist<-c('MAPK1','MAPK3','MAP2K1','MAP2K2','MAP2K4','MAP2K6')
+genelist<-lapply(c('MAPK1-','MAPK3','MAP2K1-','MAP2K2','MAP2K4','MAP2K6'),
+                 function(x) unique(longProt$gene[grep(x,longProt$gene)]))|>
+  unlist()
+
 mtargs<-subset(longProt,gene%in%genelist)
 
 ggplot(mtargs,aes(x=time,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
-ggsave('mekProteins.png')
+ggsave('mekPhoshpo.png',width=20)
+
 ddat|>subset(Gene%in%genelist)|>
   mutate(sig=(adj.P.Val<0.1))|>
   ggplot(aes(x=time,y=logFC,shape=sig,col=drug))+geom_point()+facet_grid(samp~Gene)
-ggsave('mekProteinsDiffEx.png')
+ggsave('mekPhosphoDiffex.png',width=20)
+
 ```
 
-Now we can look at those transcripts that we know change, particularly at the 8hr time point.
+
+This is exciting - MAPK1 is showing phosphorylation early on in Selumetinib treatment, and one Mirdametinib sample.MAPK3-T202 is showing consistent alteration.
+
+Any changes in the transcriptional targets?
 
 ```{r mek trans targets}
-genelist<-c('DUSP6','ETV5','SPRY2','SPRY4','EPHA4','ETV4','EPHA2','DUSP4','CCND1')
+genelist<-lapply(c('DUSP6','ETV5','SPRY2','SPRY4','EPHA4','ETV4','EPHA2','DUSP4','CCND1'),
+                    function(x) unique(longProt$gene[grep(x,longProt$gene)]))|>
+  unlist()
 
 mtargs<-subset(longProt,gene%in%genelist)
 
 ggplot(mtargs,aes(x=time,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
-ggsave('mekTransProts.png')
 
 ddat|>subset(Gene%in%genelist)|>
   mutate(sig=(adj.P.Val<0.1))|>
   ggplot(aes(x=time,y=logFC,shape=sig,col=drug))+geom_point()+facet_grid(samp~Gene)
-ggsave('mekTransDiffEx.png')
-#DMSOresult <- getNdiffExpressedGenes(cbind(DMSO0, DMSO3), formula = ~ time + sample + 0,analysisContrast ='time3-time0') #1
-#Mirdaresult <-getNdiffExpressedGenes(cbind(DMSO0, Mirda3), formula = ~ time + sample + 0,analysisContrast ='time3-time0')  #309
-#Vorinoresult <-getNdiffExpressedGenes(cbind(DMSO0, Vorino3), formula = ~ time + sample + 0, analysisContrast ='time3-time0')  #0
 
-#threeHrs <- c("DMSO" = DMSOresult[[2]], "Mirdametinib" = Mirdaresult[[2]], "Vorinostat"= Vorinoresult[[2]])
 ```
+Some downregulation of a phosphosite on SPRY2 in one sample
 
-Vorinostat is known to affect HDAC proteins. So we can plot those four here.
-
+### Evaluate known vorinostat targets
+here we can look at the HDACs that are affected by vorinostat
 ```{r hdac}
-hdacs<-c('HDAC1','HDAC2','HDAC3','HDAC6')
+hdacs<-lapply(c('HDAC1','HDAC2','HDAC3','HDAC6'),
+  function(x) unique(longProt$gene[grep(x,longProt$gene)]))|>
+  unlist()
 vtargs<-subset(longProt,gene%in%hdacs)
+
 ggplot(vtargs,aes(x=time,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
-ggsave("hdacProtExp.png")
 
 ddat|>subset(Gene%in%hdacs)|>
     mutate(sig=(adj.P.Val<0.1))|>
   ggplot(aes(x=time,y=logFC,col=drug,shape=sig))+geom_point()+facet_grid(samp~Gene)
-ggsave('hdacDiffExProt.png')
 ```
-
