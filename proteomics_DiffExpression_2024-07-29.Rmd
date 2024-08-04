@@ -54,7 +54,6 @@ longProt<-correctedProteomics|>
 meta<-longProt|>
   dplyr::select(condition,sample,drug,time)|>
   distinct()|>
-  mutate(isOutlier=condition%in%outliers$condition)|>
   tibble::column_to_rownames('condition')
 print(meta)
 ```
@@ -103,6 +102,11 @@ outliers<-subset(longProt,abs(logRatio)>5)|>
   arrange(numOut)|>
   subset(numOut>1)
   
+meta<-meta|>
+  tibble::rownames_to_column('condition')|>
+    mutate(isOutlier=condition%in%outliers$condition)|>
+  tibble::column_to_rownames('condition')
+
 print(outliers)
 ```
 I decided that maybe the samples with large LFCs are outliers and removed those. This doesn't always seem to be the case, some outliers just look like regular samples. 
@@ -132,7 +136,7 @@ pc2<-prcomp(t(noOutliersCorrectedProteomics))
 
 autoplot(pc2,data = meta,color='drug',shape='sample')
 autoplot(pc2,data = meta,color='drug',shape='sample')+facet_grid(~time)
-ggssave('protPCA.png')
+ggsave('protPCA.png')
 
 ```
 Now the result is much more divided by sample, which we expect.
