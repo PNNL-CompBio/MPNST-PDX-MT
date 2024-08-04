@@ -124,6 +124,7 @@ pc2<-prcomp(t(noOutliersCorrectedProteomics))
 
 autoplot(pc2,data = meta,color='drug',shape='sample')
 autoplot(pc2,data = meta,color='drug',shape='sample')+facet_grid(~time)
+ggsave('phosphoPCA.png')
 
 ```
 Now the result is much more divided by sample, which we expect.
@@ -285,20 +286,36 @@ MAPK3 and MAPK1 exhibit changes in many conditions.
 Here we can do some spot checking of known Mirdametinib target genes. First we can evaluate MEK, the known target
 .
 ```{r}
-
-genelist<-lapply(c('MAPK1-','MAPK3','MAP2K1-','MAP2K2','MAP2K4','MAP2K6'),
+erk<-c('MAPK1-','MAPK3-','MAPK2-')
+mek<-c('MAP2K1-','MAP2K2','MAP2K4','MAP2K6')
+genelist<-lapply(erk,
                  function(x) unique(longProt$gene[grep(x,longProt$gene)]))|>
   unlist()
 
 mtargs<-subset(longProt,gene%in%genelist)
 
 ggplot(mtargs,aes(x=time,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
-ggsave('mekPhoshpo.png',width=20)
+ggsave('erkPhoshpo.png',width=11)
 
 ddat|>subset(Gene%in%genelist)|>
   mutate(sig=(adj.P.Val<0.1))|>
   ggplot(aes(x=time,y=logFC,shape=sig,col=drug))+geom_point()+facet_grid(samp~Gene)
-ggsave('mekPhosphoDiffex.png',width=20)
+ggsave('erkPhosphoDiffex.png',width=11)
+
+genelist<-lapply(mek,
+                 function(x) unique(longProt$gene[grep(x,longProt$gene)]))|>
+  unlist()
+
+mtargs<-subset(longProt,gene%in%genelist)
+
+ggplot(mtargs,aes(x=time,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
+ggsave('mekPhoshpo.png',width=11)
+
+ddat|>subset(Gene%in%genelist)|>
+  mutate(sig=(adj.P.Val<0.1))|>
+  ggplot(aes(x=time,y=logFC,shape=sig,col=drug))+geom_point()+facet_grid(samp~Gene)
+ggsave('mekPhosphoDiffex.png',width=11)
+
 
 ```
 

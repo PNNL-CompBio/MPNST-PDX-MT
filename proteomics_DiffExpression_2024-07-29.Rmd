@@ -132,6 +132,7 @@ pc2<-prcomp(t(noOutliersCorrectedProteomics))
 
 autoplot(pc2,data = meta,color='drug',shape='sample')
 autoplot(pc2,data = meta,color='drug',shape='sample')+facet_grid(~time)
+ggssave('protPCA.png')
 
 ```
 Now the result is much more divided by sample, which we expect.
