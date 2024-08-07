@@ -1,6 +1,6 @@
 ---
-title: "global-phospho-proteomics-DiffExpression"
-author: "Ruby Fore"
+title: "Initial Proteomics analysis/QC"
+author: "Ruby Fore and Sara Gosline"
 date: "2024-07-29"
 output: html_document
 ---
