@@ -221,16 +221,17 @@ msnid.list[["Human"]] <- apply_filter(msnid.list[["Human"]], "!is.na(accession)"
 show(msnid.list[["Human"]])
 
 # group by unique peptide sequence since peptides may have multiple protein entries
+species <- names(msnid.list)
 for (i in species) {
   temp.psms <- psms(msnid.list[[i]])
+  message(i, " msnid before grouping by peptide")
+  show(msnid.list[[i]])
   og.colnames <- colnames(temp.psms)
-  temp.prot <- distinct(temp.psms[,c("peptide", "Protein", "accession", "pepSeq")])
-  #temp.psms <- aggregate(. ~ Dataset + FragMethod + Charge + MH + peptide + calculatedMassToCharge + )
-  numCols <- colnames(dplyr::select_if(temp.psms, is.numeric))
-  nonNumCols <- colnames(temp.psms)[!(colnames(temp.psms) %in% numCols)]
+  #numCols <- colnames(dplyr::select_if(temp.psms, is.numeric))
+  #nonNumCols <- colnames(temp.psms)[!(colnames(temp.psms) %in% numCols)]
   temp.psms.agg <- ddply(temp.psms, .(Dataset, FragMethod, spectrumFile, peptide, pepSeq, isDecoy), summarize,
-                         Protein = paste0(Protein, collapse = ", "),
-                         accession = paste0(accession, collapse = "|"),
+                         Protein = ifelse(length(unique(Protein)) > 1, paste0(unique(Protein), collapse = ", "), unique(Protein)),
+                         accession = ifelse(length(unique(accession)) > 1, paste0(unique(accession), collapse = "|"), unique(accession)),
                          ResultID = mean(ResultID, na.rm = TRUE),
                          Scan = mean(Scan, na.rm = TRUE),
                          SpecIndex = mean(SpecIndex, na.rm = TRUE),
@@ -254,13 +255,9 @@ for (i in species) {
                          spectrumID = mean(spectrumID, na.rm = TRUE),
                          msmsScore = mean(msmsScore, na.rm = TRUE),
                          absParentMassErrorPPM = mean(absParentMassErrorPPM, na.rm = TRUE))
-  temp.psms.agg <- temp.psms.agg[,og.colnames]
-  # temp.psms.agg <- aggregate(. ~ Dataset + FragMethod + peptide + isDecoy + spectrumFile + pepSeq,
-  #                        data = temp.psms, mean)
-  rownames(temp.psms) <- temp.psms$peptide
-  temp.data <- dplyr::select_if(temp.psms, is.numeric)
-  temp.psms <- temp.psms %>% group_by(peptide) %>%
-    summarise(across(everything(), mean))
+  psms(msnid.list[[i]]) <- temp.psms.agg[,og.colnames]
+  message(i, " msnid after grouping by peptide")
+  show(msnid.list[[i]])
 }
 
 ```
@@ -316,7 +313,6 @@ compute_num_peptides_per_1000aa_BG_nonHuman <- function(temp.msnid, fst_dms_pth)
   return(temp.msnid)
 }
 
-species <- names(msnid.list)
 for (i in species) {
   if (i == "Human") {
     msnid.list[[i]] <- compute_num_peptides_per_1000aa_BG_human(msnid.list[[i]], fst_dms_pth, refseq.uniprot)
@@ -326,6 +322,7 @@ for (i in species) {
   
   msnid.list[[i]] <- apply_filter(msnid.list[[i]], "!is.na(accession)")
   msnid.list[[i]] <- filter_msgf_data_protein_level(msnid.list[[i]], 0.01)
+  message(i, " after filtering at protein level based on # of peptides per 1000 AAs")
   show(msnid.list[[i]]) 
 }
 
