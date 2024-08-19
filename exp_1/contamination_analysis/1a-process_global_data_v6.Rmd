@@ -225,7 +225,7 @@ write.table(quant_cross_tab_prot, file=file.path(data_folder, paste(crosstab_pre
             quote=F, sep="\t") 
 message(length(rownames(quant_cross_tab_prot)[startsWith(rownames(quant_cross_tab_prot), "NP_")]), " human protein entries")
 message(length(rownames(quant_cross_tab_prot)[endsWith(rownames(quant_cross_tab_prot), "_MOUSE")]), " mouse protein entries")
-message(length(rownames(quant_cross_tab_prot)[startsWith(rownames(quant_cross_tab_prot), "_RAT")]), " rat protein entries")
+message(length(rownames(quant_cross_tab_prot)[endsWith(rownames(quant_cross_tab_prot), "_RAT")]), " rat protein entries")
 
 ```
 
