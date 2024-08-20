@@ -214,25 +214,31 @@ Look at known matrigel contaminants
 ```{r known contaminants}
 ## venn diagram
 # prep data for venn diagram
-venn.list <- list()
-
 organisms <- list("Mouse" = 10090, "Rat" = 10116)
 rat.contam <- c("collagen+type+i") # use + instead of space
 mouse.contam <- c("laminin", "collagen+iv", "enactin", "heparan+sulfate", "Transforming+growth+factor+beta", "TGFb") # use + instead of space
 contam.names <- list("Mouse" = mouse.contam, "Rat" = rat.contam)
 contam <- list()
+all.temp.results <- list()
 for (i in 1:length(organisms)) {
   temp.contam.names <- contam.names[[i]]
   temp.contam <- c()
+  organism.temp.results <- list()
   for (j in temp.contam.names) {
     download.file(paste0("https://rest.uniprot.org/uniprotkb/stream?fields=accession%2Creviewed%2Cid%2Cprotein_name%2Cgene_names%2Corganism_name%2Clength&format=xlsx&query=%28%28protein_name%3A%22",
                        j,"%22%29+AND+%28organism_id%3A", organisms[[i]],"%29%29"), "uniprot_temp.xlsx")
   temp.results <- readxl::read_excel("uniprot_temp.xlsx")
   temp.contam <- c(temp.contam, temp.results$Entry)
+  organism.temp.results[[j]] <- temp.results
   }
+  all.org.temp.results <- data.table::rbindlist(organism.temp.results, use.names = TRUE, idcol="Query")
+  all.temp.results[[names(organisms)[i]]] <- all.org.temp.results
   contam[[names(organisms)[i]]] <- unique(temp.contam)
 }
+all.uniprot.results <- data.table::rbindlist(all.temp.results, use.names = TRUE, idcol = "Organism")
+write.csv(all.uniprot.results, "Known_contaminants_UniProt_query.csv", row.names = FALSE)
 
+venn.list <- list()
 for (i in 1:length(contam)) {
   venn.list[[species[i+1]]] <- unique(all.prot[all.prot$Species == species[i] &
                                       all.prot$UniProt %in% contam[[i]] &
@@ -244,6 +250,7 @@ ggvenn::ggvenn(venn.list)
 ggplot2::ggsave("UniProt_Venn_mouse_rat_abundant_known_contaminants.pdf")
 # Venn diagram suggests there are none with rel abundance > contam.cutoff
 
+venn.list <- list()
 for (i in 1:length(contam)) {
   venn.list[[species[i+1]]] <- unique(all.prot[all.prot$Species == species[i] &
                                       all.prot$UniProt %in% contam[[i]],]$UniProt)
@@ -253,7 +260,6 @@ for (i in 1:length(contam)) {
 ggvenn::ggvenn(venn.list)
 ggplot2::ggsave("UniProt_Venn_mouse_rat_known_contaminants.pdf")
 # 0 mouse contaminants quantified
-
 ```
 Plot distribution before removing outliers
 ```{r distribution and PCA}
