@@ -190,7 +190,7 @@ for (i in 1:length(wang.species)) {
   contam <- wang[,paste("UniProt Accesion ", wang.species[i])]
   venn.list[[species[i]]] <- unique(all.prot[all.prot$Species == species[i] &
                                       all.prot$UniProt %in% contam &
-                                      all.prot$`Relative Abundance` > contam.cutoff,]$UniProt)
+                                      which(all.prot$`Relative Abundance` > contam.cutoff),]$UniProt)
 }
 
 # create venn diagram
@@ -215,7 +215,6 @@ Look at known matrigel contaminants
 ## venn diagram
 # prep data for venn diagram
 venn.list <- list()
-wang.species <- c("(CSRP, Human)", "(hc-MC, Mouse)") # must match order of species
 
 organisms <- list("Mouse" = 10090, "Rat" = 10116)
 rat.contam <- c("collagen+type+i") # use + instead of space
@@ -237,7 +236,7 @@ for (i in 1:length(organisms)) {
 for (i in 1:length(contam)) {
   venn.list[[species[i+1]]] <- unique(all.prot[all.prot$Species == species[i] &
                                       all.prot$UniProt %in% contam[[i]] &
-                                      all.prot$`Relative Abundance` > contam.cutoff,]$UniProt)
+                                      which(all.prot$`Relative Abundance` > contam.cutoff),]$UniProt)
 }
 
 # create venn diagram
