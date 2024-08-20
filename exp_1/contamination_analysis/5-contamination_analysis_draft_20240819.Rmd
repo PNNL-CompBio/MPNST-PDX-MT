@@ -1,0 +1,379 @@
+---
+title: "Global Proteomics Contamination Analysis"
+author: "Belinda Garana and Sara Gosline"
+date: "2024-08-13"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r include=FALSE}
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(readxl)
+library(synapser)
+library(reshape2)
+library(ggvenn)
+library(data.table)
+library(readxl)
+library(ggfortify)
+library(pheatmap)
+library(grid)
+library(httr)
+synapser::synLogin()
+
+species <- c("Human", "Mouse", "Rat")
+
+# get data by UniProt accession
+temp.crosstab <- read.table(synapser::synGet("syn62178150")$path) 
+print(dim(temp.crosstab))
+temp.crosstab$Protein <- rownames(temp.crosstab)
+all.prot <- na.omit(reshape2::melt(temp.crosstab, variable.name = "Sample",
+                           value.name = "Relative Abundance")|>
+  tidyr::separate(Sample,into=c('PDX','Drug','Timepoint (hrs)','Unit','Replicate'),sep='_',remove=FALSE))
+all.prot$Replicate <- substr(all.prot$Rep, nchar(all.prot$Replicate),
+                             nchar(all.prot$Replicate))
+all.prot$`Timepoint (hrs)` <- factor(all.prot$`Timepoint (hrs)`, levels = c("0", "0.5", "3", "24"))
+all.prot$Species <- "Human"
+all.prot[endsWith(all.prot$Protein, "_MOUSE"),]$Species <- "Mouse"
+all.prot[endsWith(all.prot$Protein, "_RAT"),]$Species <- "Rat"
+```
+
+load functions
+```{r include=FALSE}
+# query UniProt database
+isJobReady <- function(jobId) {
+  pollingInterval = 5
+  nTries = 20
+  for (i in 1:nTries) {
+    url <- paste("https://rest.uniprot.org/idmapping/status/", jobId, sep = "")
+    r <- GET(url = url, accept_json())
+    status <- content(r, as = "parsed")
+    if (!is.null(status[["results"]]) || !is.null(status[["failedIds"]])) {
+      return(TRUE)
+    }
+    if (!is.null(status[["messages"]])) {
+      print(status[["messages"]])
+      return (FALSE)
+    }
+    Sys.sleep(pollingInterval)
+  }
+  return(FALSE)
+}
+
+# get results from UniProt database
+getResultsURL <- function(redirectURL) {
+  if (grepl("/idmapping/results/", redirectURL, fixed = TRUE)) {
+    url <- gsub("/idmapping/results/", "/idmapping/stream/", redirectURL)
+  } else {
+    url <- gsub("/results/", "/results/stream/", redirectURL)
+  }
+}
+```
+
+Extract / convert to UniProt accessions
+```{r convert to UniProt}
+all.prot$UniProt <- all.prot$Protein
+
+# extract UniProt IDs from nonHUMAN accessions
+all.prot$UniProt <- sub("^.*\\|(.*)\\|.*$", "\\1", all.prot$Protein) 
+
+# get conversion for RefSeq to UniProt accessions
+if (file.exists("temp_uniprot.xlsx")) {
+  resultsTable <- readxl::read_excel("temp_uniprot.xlsx")
+} else {
+  files = list(
+    ids = paste(unique(all.prot[all.prot$Species == "Human",]$Protein), collapse=","),
+    from = "RefSeq_Protein",
+    to = "UniProtKB"
+  )
+  r <- POST(url = "https://rest.uniprot.org/idmapping/run", body = files, encode = "multipart", accept_json())
+  submission <- httr::content(r, as = "parsed")
+  
+  if (isJobReady(submission[["jobId"]])) {
+    url <- paste("https://rest.uniprot.org/idmapping/details/", submission[["jobId"]], sep = "")
+    r <- GET(url = url, accept_json())
+    details <- httr::content(r, as = "parsed")
+    url <- getResultsURL(details[["redirectURL"]])
+    url3 <- paste(url, "?format=xlsx", sep="")
+    r <- GET(url = url3, accept_json())
+    download.file(url3, "temp_uniprot.xlsx")
+    resultsTable <- readxl::read_excel("temp_uniprot.xlsx")
+    #print(head(resultsTable))
+  }
+}
+
+uniprot.results <- distinct(resultsTable[,c("From", "Entry", "Length")]) # no rows lost but there are multiple uniprot IDs for some proteins
+RefSeq <- unique(uniprot.results$From)
+refseq.uniprot <- data.frame(RefSeq)
+refseq.uniprot[,"UniProt"] <- NA
+for (i in 1:nrow(refseq.uniprot)) {
+  # collapse multiple uniprot accessions for each refseq
+  refseq.uniprot$UniProt[i] <- paste(uniprot.results[uniprot.results$From == RefSeq[i],]$Entry, collapse="|")
+  
+  # replace accession in all.prot
+  all.prot[all.prot$Species == "Human" & 
+             all.prot$Protein == refseq.uniprot$RefSeq[i], ]$UniProt <- refseq.uniprot$UniProt[i]
+}
+```
+
+Look at proteins highly abundant in each species
+```{r abundant proteins by species}
+contam.cutoff <- 5
+## venn diagram
+# prep data for venn diagram
+venn.list <- list()
+meta <- distinct(all.prot[,c('Sample','PDX','Drug','Timepoint (hrs)','Unit','Replicate')])
+for (i in species) {
+  temp.species.df <- na.omit(all.prot[all.prot$Species == i,])
+  temp.abundant.species.df <- temp.species.df[which(abs(temp.species.df$`Relative Abundance`) > contam.cutoff),]
+  venn.list[[i]] <- unique(temp.abundant.species.df$UniProt)
+  
+  # plot # of highly abundant proteins per sample
+  abundant.df <- ddply(temp.abundant.species.df, .(Sample),
+                  summarize, `# of Proteins with Relative Abundance > 5` = length(unique(UniProt)))
+  all.df <- ddply(temp.species.df, .(Sample),
+                  summarize, `# of Proteins` = length(unique(UniProt)))
+  if (nrow(abundant.df) > 0) {
+    bar.df <- merge(meta, abundant.df, all.y = TRUE)
+    ggplot(bar.df, aes(x=Replicate, 
+                       y = `# of Proteins with Relative Abundance > 5`, 
+                       fill=Drug)) +
+      geom_bar(stat='identity', position = 'dodge') + 
+      facet_grid(PDX ~ `Timepoint (hrs)`)
+    ggplot2::ggsave(paste0("N_abundant_proteins_per_sample_", i, ".pdf")) 
+  }
+  
+  # plot # of proteins per sample
+  if (nrow(all.df) > 0) {
+    bar.df <- merge(meta, all.df, all.y = TRUE)
+    ggplot(bar.df, aes(x=Replicate, 
+                       y = `# of Proteins`, 
+                       fill=Drug)) +
+      geom_bar(stat='identity', position = 'dodge') + 
+      facet_grid(PDX ~ `Timepoint (hrs)`)
+    ggplot2::ggsave(paste0("N_proteins_per_sample_", i, ".pdf")) 
+  }
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_human_mouse_rat_abundant.pdf")
+# Venn diagram suggests there are no UniProt accessions unique to any one of these species
+
+```
+```{r proteins unique to species}
+## venn diagram
+# prep data for venn diagram
+venn.list <- list()
+for (i in species) {
+  venn.list[[i]] <- unique(all.prot[all.prot$Species == i,]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_human_mouse_rat.pdf")
+# Venn diagram suggests there are no UniProt accessions unique to any one of these species
+```
+
+Look at known matrigel contaminants from Wang et al, 2022: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8733271/
+```{r contaminants in Wang et al}
+download.file(url="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8733271/bin/mmc3.xlsx", destfile = "Wang_matrigel_contaminants.xlsx")
+wang <- readxl::read_excel("Wang_matrigel_contaminants.xlsx", sheet=2)
+## venn diagram
+# prep data for venn diagram
+venn.list <- list()
+wang.species <- c("(CSRP, Human)", "(hc-MC, Mouse)") # must match order of species
+for (i in 1:length(wang.species)) {
+  contam <- wang[,paste("UniProt Accesion ", wang.species[i])]
+  venn.list[[species[i]]] <- unique(all.prot[all.prot$Species == species[i] &
+                                      all.prot$UniProt %in% contam &
+                                      all.prot$`Relative Abundance` > contam.cutoff,]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_human_mouse_abundant_Wang_contaminants.pdf")
+# Venn diagram suggests there are none with rel abundance > contam.cutoff
+
+for (i in 1:length(wang.species)) {
+  contam <- wang[,paste("UniProt Accesion ", wang.species[i])]
+  venn.list[[species[i]]] <- unique(all.prot[all.prot$Species == species[i] &
+                                      all.prot$UniProt %in% contam,]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_human_mouse_Wang_contaminants.pdf")
+# none quantified
+```
+
+Look at known matrigel contaminants
+```{r known contaminants}
+## venn diagram
+# prep data for venn diagram
+venn.list <- list()
+wang.species <- c("(CSRP, Human)", "(hc-MC, Mouse)") # must match order of species
+
+organisms <- list("Mouse" = 10090, "Rat" = 10116)
+rat.contam <- c("collagen+type+i") # use + instead of space
+mouse.contam <- c("laminin", "collagen+iv", "enactin", "heparan+sulfate", "TGFb") # use + instead of space
+contam.names <- list("Mouse" = mouse.contam, "Rat" = rat.contam)
+contam <- list()
+for (i in 1:length(organisms)) {
+  temp.contam.names <- contam.names[[i]]
+  temp.contam <- c()
+  for (j in temp.contam.names) {
+    download.file(paste0("https://rest.uniprot.org/uniprotkb/stream?fields=accession%2Creviewed%2Cid%2Cprotein_name%2Cgene_names%2Corganism_name%2Clength&format=xlsx&query=%28%28protein_name%3A%22",
+                       j,"%22%29+AND+%28organism_id%3A", organisms[[i]],"%29%29"), "uniprot_temp.xlsx")
+  temp.results <- readxl::read_excel("uniprot_temp.xlsx")
+  temp.contam <- c(temp.contam, temp.results$Entry)
+  }
+  contam[[names(organisms)[i]]] <- unique(temp.contam)
+}
+
+for (i in 1:length(contam)) {
+  venn.list[[species[i+1]]] <- unique(all.prot[all.prot$Species == species[i] &
+                                      all.prot$UniProt %in% contam[[i]] &
+                                      all.prot$`Relative Abundance` > contam.cutoff,]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_mouse_rat_abundant_known_contaminants.pdf")
+# Venn diagram suggests there are none with rel abundance > contam.cutoff
+
+for (i in 1:length(contam)) {
+  venn.list[[species[i+1]]] <- unique(all.prot[all.prot$Species == species[i] &
+                                      all.prot$UniProt %in% contam[[i]],]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_mouse_rat_known_contaminants.pdf")
+# 0 mouse contaminants quantified
+
+```
+Plot distribution before removing outliers
+```{r distribution and PCA}
+for (i in species) {
+  # distribution
+  ggplot(all.prot[all.prot$Species == i,],
+         aes(x=Replicate,y=`Relative Abundance`,fill=Drug))+geom_violin()+
+    facet_grid(PDX ~ `Timepoint (hrs)`) +
+    theme(axis.text.x = element_text(angle = 90))
+  ggsave(paste0(i, "_Global_prot_distribution_w_mouse_rat_w_outliers.pdf"))
+  
+  if (i != "Mouse") { # because mouse only has 1 protein
+   # PCA
+  meta <- distinct(all.prot[,c("Sample","PDX","Drug","Timepoint (hrs)","Unit","Replicate")])
+  rownames(meta) <- meta$Sample
+  global_crosstab <- reshape2::dcast(all.prot[all.prot$Species == i,], UniProt ~ Sample, value.var = "Relative Abundance")
+  rownames(global_crosstab) <- global_crosstab$UniProt
+  global_crosstab$UniProt <- NULL
+  complete.global <- as.matrix(global_crosstab[rowSums(is.na(global_crosstab)) == 0,])
+  
+  pc2<-prcomp(t(complete.global))
+  autoplot(pc2,data = meta,color='Drug',shape='PDX')
+  ggsave(paste0(i, "_Global_prot_PCA_w_mouse_rat_w_outliers.pdf"))
+
+  autoplot(pc2,data = meta,color='Drug',shape='PDX')+facet_grid(~`Timepoint (hrs)`)
+  ggsave(paste0(i, "_Global_prot_PCA_w_mouse_rat_w_outliers_facetTime.pdf")) 
+  }
+}
+
+```
+
+Identify outliers and check if cutoffs removed known contaminants
+```{r identify outliers}
+## identify outliers
+# across all proteins
+outliers <- unique(all.prot[which(abs(all.prot$`Relative Abundance`) > contam.cutoff),]$Sample)
+print(paste0("Outlier based on relative abundance > ", contam.cutoff, ": ", outliers))
+
+# remove all outliers
+filtered.prot <- all.prot[!(all.prot$Sample %in% outliers),]
+
+# save list of outliers
+outlier.df <- na.omit(data.frame(outliers, contam.cutoff))
+colnames(outlier.df) <- c("Sample", "general_cutoff")
+write.csv(outlier.df, "Outliers.csv")
+
+## plot distribution of outlier proteins
+# before outliers are removed
+outlier.prots <- all.prot[which(abs(all.prot$`Relative Abundance`) > contam.cutoff),] # 50
+for (i in unique(outlier.prots$Species)) {
+  n.outlier.prots <- length(unique(outlier.prots[outlier.prots$Species == i,]$UniProt))
+  print(paste(i, "has", n.outlier.prots, "proteins with relative abundance >", contam.cutoff))
+  
+  # boxplot
+  ggplot(all.prot[all.prot$Species == i &
+                    all.prot$UniProt %in% outlier.prots$UniProt,],
+         aes(x=`Timepoint (hrs)`, y=`Relative Abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(PDX ~ UniProt)
+  ggsave(paste0("Contaminants_boxplot_", i, ".pdf"), 
+         width = ifelse(n.outlier.prots > 40, 40, n.outlier.prots))
+  
+  # scatter plot
+  ggplot(all.prot[all.prot$Species == i &
+                    all.prot$UniProt %in% outlier.prots$UniProt,],
+         aes(x=`Timepoint (hrs)`, y=`Relative Abundance`, color = Drug, shape = Replicate)) +
+    geom_point() + facet_grid(PDX ~ UniProt)
+  ggsave(paste0("Contaminants_scatterPlot_", i, ".pdf"), 
+         width = ifelse(n.outlier.prots > 40, 40, n.outlier.prots))
+}
+outlier.list <- distinct(outlier.prots[,c("Species", "UniProt")])
+write.csv(outlier.list, "Outlier_proteins.csv", row.names = FALSE)
+
+# after outliers are removed
+for (i in unique(outlier.prots$Species)) {
+  n.outlier.prots <- length(unique(outlier.prots[outlier.prots$Species == i,]$UniProt))
+  
+  # boxplot
+  ggplot(filtered.prot[filtered.prot$Species == i &
+                    filtered.prot$UniProt %in% outlier.prots$UniProt,],
+         aes(x=`Timepoint (hrs)`, y=`Relative Abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(PDX ~ UniProt)
+  ggsave(paste0("Contaminants_boxplot_no_outliers_", i, ".pdf"), 
+         width = ifelse(n.outlier.prots > 40, 40, n.outlier.prots))
+  
+  # scatter plot
+  ggplot(filtered.prot[filtered.prot$Species == i &
+                    filtered.prot$UniProt %in% outlier.prots$UniProt,],
+         aes(x=`Timepoint (hrs)`, y=`Relative Abundance`, color = Drug, shape = Replicate)) +
+    geom_point() + facet_grid(PDX ~ UniProt)
+  ggsave(paste0("Contaminants_scatterPlot_no_outliers_", i, ".pdf"), 
+         width = ifelse(n.outlier.prots > 40, 40, n.outlier.prots))
+}
+```
+
+Re-do plots without outliers
+```{r distribution and PCA wo outliers}
+for (i in species) {
+  # distribution
+  ggplot(filtered.prot[filtered.prot$Species == i,],
+         aes(x=Replicate,y=`Relative Abundance`,fill=Drug))+geom_violin()+
+    facet_grid(PDX ~ `Timepoint (hrs)`) +
+    theme(axis.text.x = element_text(angle = 90))
+  ggsave(paste0(i, "_Global_prot_distribution_w_mouse_rat_wo_outliers.pdf"))
+  
+  if (i != "Mouse") { # because mouse only has 1 protein
+   # PCA
+  meta <- distinct(filtered.prot[,c("Sample","PDX","Drug","Timepoint (hrs)","Unit","Replicate")])
+  rownames(meta) <- meta$Sample
+  global_crosstab <- reshape2::dcast(filtered.prot[filtered.prot$Species == i,], UniProt ~ Sample, value.var = "Relative Abundance")
+  rownames(global_crosstab) <- global_crosstab$UniProt
+  global_crosstab$UniProt <- NULL
+  complete.global <- as.matrix(global_crosstab[rowSums(is.na(global_crosstab)) == 0,])
+  
+  pc2<-prcomp(t(complete.global))
+  autoplot(pc2,data = meta,color='Drug',shape='PDX')
+  ggsave(paste0(i, "_Global_prot_PCA_w_mouse_rat_wo_outliers.pdf"))
+
+  autoplot(pc2,data = meta,color='Drug',shape='PDX')+facet_grid(~`Timepoint (hrs)`)
+  ggsave(paste0(i, "_Global_prot_PCA_w_mouse_rat_wo_outliers_facetTime.pdf")) 
+  }
+}
+```
