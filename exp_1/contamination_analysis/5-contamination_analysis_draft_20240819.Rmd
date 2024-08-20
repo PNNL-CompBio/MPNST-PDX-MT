@@ -218,7 +218,7 @@ venn.list <- list()
 
 organisms <- list("Mouse" = 10090, "Rat" = 10116)
 rat.contam <- c("collagen+type+i") # use + instead of space
-mouse.contam <- c("laminin", "collagen+iv", "enactin", "heparan+sulfate", "TGFb") # use + instead of space
+mouse.contam <- c("laminin", "collagen+iv", "enactin", "heparan+sulfate", "Transforming+growth+factor+beta", "TGFb") # use + instead of space
 contam.names <- list("Mouse" = mouse.contam, "Rat" = rat.contam)
 contam <- list()
 for (i in 1:length(organisms)) {
