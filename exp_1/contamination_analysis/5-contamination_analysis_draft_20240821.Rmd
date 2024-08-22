@@ -1,0 +1,690 @@
+---
+title: "Global Proteomics Contamination Analysis"
+author: "Belinda Garana and Sara Gosline"
+date: "2024-08-13"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r include=FALSE}
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(readxl)
+library(synapser)
+library(reshape2)
+library(ggvenn)
+library(data.table)
+library(readxl)
+library(ggfortify)
+library(pheatmap)
+library(grid)
+library(httr)
+synapser::synLogin()
+
+species <- c("Human", "Mouse", "Rat")
+
+# get data by UniProt accession
+temp.crosstab <- read.table(synapser::synGet("syn62178150")$path) 
+print(dim(temp.crosstab))
+temp.crosstab$Protein <- rownames(temp.crosstab)
+all.prot <- na.omit(reshape2::melt(temp.crosstab, variable.name = "Sample",
+                           value.name = "Relative Abundance")|>
+  tidyr::separate(Sample,into=c('PDX','Drug','Timepoint (hrs)','Unit','Replicate'),sep='_',remove=FALSE))
+all.prot$Replicate <- substr(all.prot$Rep, nchar(all.prot$Replicate),
+                             nchar(all.prot$Replicate))
+all.prot$`Timepoint (hrs)` <- factor(all.prot$`Timepoint (hrs)`, levels = c("0", "0.5", "3", "24"))
+all.prot$Species <- "Human"
+all.prot[endsWith(all.prot$Protein, "_MOUSE"),]$Species <- "Mouse"
+all.prot[endsWith(all.prot$Protein, "_RAT"),]$Species <- "Rat"
+```
+
+load functions
+```{r include=FALSE}
+# query UniProt database
+isJobReady <- function(jobId) {
+  pollingInterval = 5
+  nTries = 20
+  for (i in 1:nTries) {
+    url <- paste("https://rest.uniprot.org/idmapping/status/", jobId, sep = "")
+    r <- GET(url = url, accept_json())
+    status <- content(r, as = "parsed")
+    if (!is.null(status[["results"]]) || !is.null(status[["failedIds"]])) {
+      return(TRUE)
+    }
+    if (!is.null(status[["messages"]])) {
+      print(status[["messages"]])
+      return (FALSE)
+    }
+    Sys.sleep(pollingInterval)
+  }
+  return(FALSE)
+}
+
+# get results from UniProt database
+getResultsURL <- function(redirectURL) {
+  if (grepl("/idmapping/results/", redirectURL, fixed = TRUE)) {
+    url <- gsub("/idmapping/results/", "/idmapping/stream/", redirectURL)
+  } else {
+    url <- gsub("/results/", "/results/stream/", redirectURL)
+  }
+}
+```
+
+Extract / convert to UniProt accessions
+```{r convert to UniProt}
+all.prot$UniProt <- all.prot$Protein
+
+# extract UniProt IDs from nonHUMAN accessions
+all.prot$UniProt <- sub("^.*\\|(.*)\\|.*$", "\\1", all.prot$Protein) 
+
+# get conversion for RefSeq to UniProt accessions
+if (file.exists("temp_uniprot.xlsx")) {
+  resultsTable <- readxl::read_excel("temp_uniprot.xlsx")
+} else {
+  files = list(
+    ids = paste(unique(all.prot[all.prot$Species == "Human",]$Protein), collapse=","),
+    from = "RefSeq_Protein",
+    to = "UniProtKB"
+  )
+  r <- POST(url = "https://rest.uniprot.org/idmapping/run", body = files, encode = "multipart", accept_json())
+  submission <- httr::content(r, as = "parsed")
+  
+  if (isJobReady(submission[["jobId"]])) {
+    url <- paste("https://rest.uniprot.org/idmapping/details/", submission[["jobId"]], sep = "")
+    r <- GET(url = url, accept_json())
+    details <- httr::content(r, as = "parsed")
+    url <- getResultsURL(details[["redirectURL"]])
+    url3 <- paste(url, "?format=xlsx", sep="")
+    r <- GET(url = url3, accept_json())
+    download.file(url3, "temp_uniprot.xlsx")
+    resultsTable <- readxl::read_excel("temp_uniprot.xlsx")
+    #print(head(resultsTable))
+  }
+}
+
+uniprot.results <- distinct(resultsTable[,c("From", "Entry", "Length")]) # no rows lost but there are multiple uniprot IDs for some proteins
+RefSeq <- unique(uniprot.results$From)
+refseq.uniprot <- data.frame(RefSeq)
+refseq.uniprot[,"UniProt"] <- NA
+for (i in 1:nrow(refseq.uniprot)) {
+  # collapse multiple uniprot accessions for each refseq
+  refseq.uniprot$UniProt[i] <- paste(uniprot.results[uniprot.results$From == RefSeq[i],]$Entry, collapse="|")
+  
+  # replace accession in all.prot
+  all.prot[all.prot$Species == "Human" & 
+             all.prot$Protein == refseq.uniprot$RefSeq[i], ]$UniProt <- refseq.uniprot$UniProt[i]
+}
+```
+
+Look at abundance distribution and identify proteins with z-score of 2+
+```{r distribution and z-score}
+hist(all.prot$`Relative Abundance`, xlab = "Relative Abundance")
+sd.rel.abundance <- sd(all.prot$`Relative Abundance`, na.rm = TRUE)
+mean.rel.abundance <- mean(all.prot$`Relative Abundance`, na.rm = TRUE)
+all.prot$zScore <- (all.prot$`Relative Abundance` - mean.rel.abundance)/sd.rel.abundance
+hist(all.prot$zScore, xlab = "z-score")
+# 
+# z.cutoff <- 2
+# z.loose.cutoff <- 3
+# z.looser.cutoff <- 4
+# z.loosest.cutoff <- 5
+# z.outliers <- all.prot[all.prot$zScore >= z.cutoff, ]
+# z.loose.outliers <- all.prot[all.prot$zScore >= z.loose.cutoff, ]
+# z.looser.outliers <- all.prot[all.prot$zScore >= z.looser.cutoff, ]
+# z.loosest.outliers <- all.prot[all.prot$zScore >= z.loosest.cutoff, ]
+# 
+# # cutoff 
+# perc.outlier.prots <- round(100*length(unique(z.outliers$Protein))/length(unique(all.prot$Protein)), 3)
+# perc.outlier.samples <- round(100*length(unique(z.outliers$Sample))/length(unique(all.prot$Sample)), 3)
+# message(perc.outlier.prots, "% of proteins have z >= ", z.cutoff, " across ", perc.outlier.samples, "% of samples") # 47.18% of proteins
+# 
+# human.outlier.prots <- unique(z.outliers$Protein[startsWith(z.outliers$Protein, "NP_")])
+# perc.outlier.human <- 100*length(human.outlier.prots)/length(unique(z.outliers$Protein))
+# mouse.outlier.prots <- unique(z.outliers$Protein[endsWith(z.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- 100*length(mouse.outlier.prots)/length(unique(z.outliers$Protein))
+# rat.outlier.prots <- unique(z.outliers$Protein[endsWith(z.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- 100*length(rat.outlier.prots)/length(unique(z.outliers$Protein))
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+# 
+# # loose cutoff
+# perc.outlier.prots <- 100*length(unique(z.loose.outliers$Protein))/length(unique(all.prot$Protein))
+# perc.outlier.samples <- 100*length(unique(z.loose.outliers$Sample))/length(unique(all.prot$Sample))
+# message(perc.outlier.prots, "% of proteins have z >= ", z.loose.cutoff, " across ", perc.outlier.samples, "% of samples") # 17.98% of proteins
+# 
+# human.outlier.prots <- unique(z.loose.outliers$Protein[startsWith(z.loose.outliers$Protein, "NP_")])
+# perc.outlier.human <- 100*length(human.outlier.prots)/length(unique(z.loose.outliers$Protein))
+# mouse.outlier.prots <- unique(z.loose.outliers$Protein[endsWith(z.loose.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- 100*length(mouse.outlier.prots)/length(unique(z.loose.outliers$Protein))
+# rat.outlier.prots <- unique(z.loose.outliers$Protein[endsWith(z.loose.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- 100*length(rat.outlier.prots)/length(unique(z.loose.outliers$Protein))
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+# 
+# # try looser cutoff
+# perc.outlier.prots <- 100*length(unique(z.looser.outliers$Protein))/length(unique(all.prot$Protein))
+# perc.outlier.samples <- 100*length(unique(z.looser.outliers$Sample))/length(unique(all.prot$Sample))
+# message(perc.outlier.prots, "% of proteins have z >= ", z.looser.cutoff, " across ", perc.outlier.samples, "% of samples") # 7.14% of proteins
+# 
+# human.outlier.prots <- unique(z.looser.outliers$Protein[startsWith(z.looser.outliers$Protein, "NP_")])
+# perc.outlier.human <- 100*length(human.outlier.prots)/length(unique(z.looser.outliers$Protein))
+# mouse.outlier.prots <- unique(z.looser.outliers$Protein[endsWith(z.looser.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- 100*length(mouse.outlier.prots)/length(unique(z.looser.outliers$Protein))
+# rat.outlier.prots <- unique(z.looser.outliers$Protein[endsWith(z.looser.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- 100*length(rat.outlier.prots)/length(unique(z.looser.outliers$Protein))
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+# 
+# # try loosest cutoff
+# perc.outlier.prots <- 100*length(unique(z.loosest.outliers$Protein))/length(unique(all.prot$Protein))
+# perc.outlier.samples <- 100*length(unique(z.loosest.outliers$Sample))/length(unique(all.prot$Sample))
+# message(perc.outlier.prots, "% of proteins have z >= ", z.loosest.cutoff, " across ", perc.outlier.samples, "% of samples") # 2.56% of proteins in 59 samples (still most)
+# 
+# human.outlier.prots <- unique(z.loosest.outliers$Protein[startsWith(z.loosest.outliers$Protein, "NP_")])
+# perc.outlier.human <- 100*length(human.outlier.prots)/length(unique(z.loosest.outliers$Protein))
+# mouse.outlier.prots <- unique(z.loosest.outliers$Protein[endsWith(z.loosest.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- 100*length(mouse.outlier.prots)/length(unique(z.loosest.outliers$Protein))
+# rat.outlier.prots <- unique(z.loosest.outliers$Protein[endsWith(z.loosest.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- 100*length(rat.outlier.prots)/length(unique(z.loosest.outliers$Protein))
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+# 
+# 
+# z.loosest.outlier.proteins.nonHuman <- ddply(z.loosest.outliers, .(Protein, UniProt), summarize,
+#                          mean_z = mean(zScore, na.rm = TRUE),
+#                          median_z = median(zScore, na.rm = TRUE),
+#                          max_z = max(zScore, na.rm = TRUE),
+#                          min_z = min(zScore, na.rm = TRUE),
+#                          sd_z = sd(zScore, na.rm = TRUE))
+# 
+# # how similar is z to relative abundance?
+# z.relA.test <- stats::cor.test(all.prot$`Relative Abundance`, all.prot$zScore) # correlation estimate = 1, p-value = 0
+# 
+# ## repeat analysis with rel abundance
+# ra.cutoff <- 2
+# ra.loose.cutoff <- 3
+# ra.looser.cutoff <- 4
+# ra.loosest.cutoff <- 5
+# 
+# ra.outliers <- all.prot[all.prot$`Relative Abundance` >= ra.cutoff, ]
+# ra.loose.outliers <- all.prot[all.prot$`Relative Abundance` >= ra.loose.cutoff, ]
+# ra.looser.outliers <- all.prot[all.prot$`Relative Abundance` >= ra.looser.cutoff, ]
+# ra.loosest.outliers <- all.prot[all.prot$`Relative Abundance` >= ra.loosest.cutoff, ]
+# 
+# # cutoff - 6.07% of proteins (468) have relative abundance >= 2 across 96.97% of samples
+# perc.outlier.prots <- 100*length(unique(ra.outliers$Protein))/length(unique(all.prot$Protein))
+# perc.outlier.samples <- 100*length(unique(ra.outliers$Sample))/length(unique(all.prot$Sample))
+# message(perc.outlier.prots, "% of proteins (", length(unique(ra.outliers$Protein)),") have relative abundance >= ", ra.cutoff, " across ", perc.outlier.samples, "% of samples")
+# 
+# human.outlier.prots <- unique(ra.outliers$Protein[startsWith(ra.outliers$Protein, "NP_")])
+# perc.outlier.human <- 100*length(human.outlier.prots)/length(unique(ra.outliers$Protein))
+# mouse.outlier.prots <- unique(ra.outliers$Protein[endsWith(ra.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- 100*length(mouse.outlier.prots)/length(unique(ra.outliers$Protein))
+# rat.outlier.prots <- unique(ra.outliers$Protein[endsWith(ra.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- 100*length(rat.outlier.prots)/length(unique(ra.outliers$Protein))
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+# 
+# # loose cutoff - 0.766% of proteins (59) have relative abundance >= 3 across 33.33% of samples
+# perc.outlier.prots <- 100*length(unique(ra.loose.outliers$Protein))/length(unique(all.prot$Protein))
+# perc.outlier.samples <- 100*length(unique(ra.loose.outliers$Sample))/length(unique(all.prot$Sample))
+# message(perc.outlier.prots, "% of proteins (", length(unique(ra.loose.outliers$Protein)),") have relative abundance >= ", ra.loose.cutoff, " across ", perc.outlier.samples, "% of samples")
+# 
+# human.outlier.prots <- unique(ra.loose.outliers$Protein[startsWith(ra.loose.outliers$Protein, "NP_")])
+# perc.outlier.human <- 100*length(human.outlier.prots)/length(unique(ra.loose.outliers$Protein))
+# mouse.outlier.prots <- unique(ra.loose.outliers$Protein[endsWith(ra.loose.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- 100*length(mouse.outlier.prots)/length(unique(ra.loose.outliers$Protein))
+# rat.outlier.prots <- unique(ra.loose.outliers$Protein[endsWith(ra.loose.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- 100*length(rat.outlier.prots)/length(unique(ra.loose.outliers$Protein))
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+# 
+# # try looser cutoff - 0.104% of proteins (8), 10.61% of samples
+# perc.outlier.prots <- 100*length(unique(ra.looser.outliers$Protein))/length(unique(all.prot$Protein))
+# perc.outlier.samples <- 100*length(unique(ra.looser.outliers$Sample))/length(unique(all.prot$Sample))
+# message(perc.outlier.prots, "% of proteins (", length(unique(ra.looser.outliers$Protein)),") have relative abundance >= ", ra.looser.cutoff, " across ", perc.outlier.samples, "% of samples") 
+# 
+# human.outlier.prots <- unique(ra.looser.outliers$Protein[startsWith(ra.looser.outliers$Protein, "NP_")])
+# perc.outlier.human <- 100*length(human.outlier.prots)/length(unique(ra.looser.outliers$Protein))
+# mouse.outlier.prots <- unique(ra.looser.outliers$Protein[endsWith(ra.looser.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- 100*length(mouse.outlier.prots)/length(unique(ra.looser.outliers$Protein))
+# rat.outlier.prots <- unique(ra.looser.outliers$Protein[endsWith(ra.looser.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- 100*length(rat.outlier.prots)/length(unique(ra.looser.outliers$Protein))
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+# 
+# # try loosest cutoff - 0.0260% of proteins (2), 4.55% of samples
+# perc.outlier.prots <- 100*length(unique(ra.loosest.outliers$Protein))/length(unique(all.prot$Protein))
+# perc.outlier.samples <- 100*length(unique(ra.loosest.outliers$Sample))/length(unique(all.prot$Sample))
+# message(perc.outlier.prots, "% of proteins (", length(unique(ra.loosest.outliers$Protein)),") have relative abundance >= ", ra.loosest.cutoff, " across ", perc.outlier.samples, "% of samples")
+# 
+# human.outlier.prots <- unique(ra.loosest.outliers$Protein[startsWith(ra.loosest.outliers$Protein, "NP_")])
+# perc.outlier.human <- 100*length(human.outlier.prots)/length(unique(ra.loosest.outliers$Protein))
+# mouse.outlier.prots <- unique(ra.loosest.outliers$Protein[endsWith(ra.loosest.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- 100*length(mouse.outlier.prots)/length(unique(ra.loosest.outliers$Protein))
+# rat.outlier.prots <- unique(ra.loosest.outliers$Protein[endsWith(ra.loosest.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- 100*length(rat.outlier.prots)/length(unique(ra.loosest.outliers$Protein))
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+
+# what if we calculate percentiles for rel abundance and z-score?
+all.prot$`Relative Abundance Percentile` <- 100*percent_rank(all.prot$`Relative Abundance`)
+all.prot$`zScore Percentile` <- 100*percent_rank(all.prot$`zScore`)
+write.csv(all.prot[,1:13], "Long_global_corrected.csv", row.names = FALSE)
+# percentile.df <- ddply(all.prot, .(`Relative Abundance Percentile`, `zScore Percentile`, `Relative Abundance`, zScore), summarize,
+#                        N_proteins = length(unique(Protein)),
+#                        N_human_proteins = length(unique(Protein[startsWith(Protein, "NP_")])),
+#                        N_mouse_proteins = length(unique(Protein[endsWith(Protein, "_MOUSE")])),
+#                        N_rat_proteins = length(unique(Protein[endsWith(Protein, "_RAT")])),
+#                        Proteins = paste0(unique(Protein), collapse=", "),
+#                        N_samples = length(unique(Sample)),
+#                        Samples = paste0(unique(Sample), collapse=", "))
+# percentile.df$Percent_proteins <- 100*percentile.df$N_proteins/length(unique(all.prot$Protein))
+# percentile.df$Percent_human_proteins <- 100*percentile.df$N_human_proteins/percentile.df$N_proteins
+# percentile.df$Percent_mouse_proteins <- 100*percentile.df$N_mouse_proteins/percentile.df$N_proteins
+# percentile.df$Percent_rat_proteins <- 100*percentile.df$N_rat_proteins/percentile.df$N_proteins
+# percentile.df$Percent_samples <- 100*percentile.df$N_proteins/length(unique(all.prot$Sample))
+# percentile.df <- ddply(all.prot, .(`Relative Abundance Percentile`, `zScore Percentile`, `Relative Abundance`, zScore), summarize)
+percentile.df <- distinct(all.prot[c("Relative Abundance Percentile", "zScore Percentile", "Relative Abundance", "zScore")])
+write.csv(percentile.df, "Percentiles_global_corrected.csv", row.names = FALSE)
+# 	95.00020% of data points have relative abundance <= 0.6657256 or equivalently z-score <= 1.411927
+# what if we define outlier proteins as z > 1.4? or rel abundance > 0.7? or percentile > 95?
+perc.based.cutoff <- 99.85
+perc.based.outliers <- all.prot[all.prot$`zScore Percentile` > perc.based.cutoff,]
+
+# 77.2744970798183% of proteins (5954) have percentile >= 95 across 100% of samples
+# 27.5275794938352% of proteins (2121) have percentile >= 99 across 100% of samples
+# 15.0421804023361% of proteins (1159) have percentile >= 99.5 across 100% of samples
+# 9.40947436729397% of proteins (725) have percentile >= 99.7 across 100% of samples
+# 6.48929266709929% of proteins (500) have percentile >= 99.8 across 96.969696969697% of samples
+# 6.49% of proteins (500) have percentile >= 99.8 across 96.97% of samples
+# 4.94% of proteins (381) have percentile >= 99.85 across 95.45% of samples
+# 3.19273199221285% of proteins (246) have percentile >= 99.9 across 93.9393939393939% of samples
+perc.outlier.prots <- round(100*length(unique(perc.based.outliers$Protein))/length(unique(all.prot$Protein)), 2)
+perc.outlier.samples <- round(100*length(unique(perc.based.outliers$Sample))/length(unique(all.prot$Sample)), 2)
+message(perc.outlier.prots, "% of proteins (", length(unique(perc.based.outliers$Protein)),") have percentile >= ", perc.based.cutoff, " across ", perc.outlier.samples, "% of samples")
+
+# 82.8182734296271% of outlier proteins were human, 15.1326839099765% were mouse, and 2.04904266039637% were rat
+# 73.9273927392739% of outlier proteins were human, 22.960867515323% were mouse, and 3.11173974540311% were rat
+# 70.1466781708369% of outlier proteins were human, 26.48835202761% were mouse, and 3.36496980155306% were rat
+# 68.9655172413793% of outlier proteins were human, 27.448275862069% were mouse, and 3.58620689655172% were rat
+# 68.8% of outlier proteins were human, 27.2% were mouse, and 4% were rat
+# 68.8% of outlier proteins were human, 27.2% were mouse, and 4% were rat
+# 69.55% of outlier proteins were human, 26.25% were mouse, and 4.2% were rat
+# 68.6991869918699% of outlier proteins were human, 26.0162601626016% were mouse, and 5.28455284552845% were rat
+human.outlier.prots <- unique(perc.based.outliers$Protein[startsWith(perc.based.outliers$Protein, "NP_")])
+perc.outlier.human <- round(100*length(human.outlier.prots)/length(unique(perc.based.outliers$Protein)), 2)
+mouse.outlier.prots <- unique(perc.based.outliers$Protein[endsWith(perc.based.outliers$Protein, "_MOUSE")])
+perc.outlier.mouse <- round(100*length(mouse.outlier.prots)/length(unique(perc.based.outliers$Protein)), 2)
+rat.outlier.prots <- unique(perc.based.outliers$Protein[endsWith(perc.based.outliers$Protein, "_RAT")])
+perc.outlier.rat <- round(100*length(rat.outlier.prots)/length(unique(perc.based.outliers$Protein)), 2)
+message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+
+perc.based.outlier.proteins <- ddply(perc.based.outliers, .(Protein, UniProt), summarize,
+                                     mean_percentile = mean(`zScore Percentile`, na.rm = TRUE),
+                                     median_percentile = median(`zScore Percentile`, na.rm = TRUE),
+                                     max_percentile = max(`zScore Percentile`, na.rm = TRUE),
+                                     min_percentile = min(`zScore Percentile`, na.rm = TRUE),
+                                     sd_percentile = sd(`zScore Percentile`, na.rm = TRUE),
+                                     mean_z = mean(zScore, na.rm = TRUE),
+                                     median_z = median(zScore, na.rm = TRUE),
+                                     max_z = max(zScore, na.rm = TRUE),
+                                     min_z = min(zScore, na.rm = TRUE),
+                                     sd_z = sd(zScore, na.rm = TRUE),
+                                     mean_rel_abundance = mean(`Relative Abundance`, na.rm = TRUE),
+                                     median_rel_abundance = median(`Relative Abundance`, na.rm = TRUE),
+                                     max_rel_abundance = max(`Relative Abundance`, na.rm = TRUE),
+                                     min_rel_abundance = min(`Relative Abundance`, na.rm = TRUE),
+                                     sd_rel_abundance = sd(`Relative Abundance`, na.rm = TRUE))
+perc.based.outlier.proteins$Species <- "Human"
+perc.based.outlier.proteins[endsWith(perc.based.outlier.proteins$Protein, "_MOUSE"),]$Species <- "Mouse"
+perc.based.outlier.proteins[endsWith(perc.based.outlier.proteins$Protein, "_RAT"),]$Species <- "Rat"
+contam.cutoff <- min(perc.based.outliers$`Relative Abundance`, na.rm = TRUE) # 2.11299828040314
+
+# # just select top 5% of proteins
+# n.top5Perc <- ceiling(0.05*length(unique(all.prot$Protein))) # 385.25 rounded up to 386
+# perc.based.outliers <- all.prot %>% slice_max(`zScore Percentile`, n=n.top5Perc) # 386
+# 
+# # 2.63% of proteins (203) have are in the top 5% of proteins across 90.91% of samples
+# perc.outlier.prots <- round(100*length(unique(perc.based.outliers$Protein))/length(unique(all.prot$Protein)), 2)
+# perc.outlier.samples <- round(100*length(unique(perc.based.outliers$Sample))/length(unique(all.prot$Sample)), 2)
+# message(perc.outlier.prots, "% of proteins (", length(unique(perc.based.outliers$Protein)),") have are in the top 5% of proteins across ", perc.outlier.samples, "% of samples")
+# 
+# # 68.97% of outlier proteins were human, 25.62% were mouse, and 5.42% were rat
+# human.outlier.prots <- unique(perc.based.outliers$Protein[startsWith(perc.based.outliers$Protein, "NP_")])
+# perc.outlier.human <- round(100*length(human.outlier.prots)/length(unique(perc.based.outliers$Protein)), 2)
+# mouse.outlier.prots <- unique(perc.based.outliers$Protein[endsWith(perc.based.outliers$Protein, "_MOUSE")])
+# perc.outlier.mouse <- round(100*length(mouse.outlier.prots)/length(unique(perc.based.outliers$Protein)), 2)
+# rat.outlier.prots <- unique(perc.based.outliers$Protein[endsWith(perc.based.outliers$Protein, "_RAT")])
+# perc.outlier.rat <- round(100*length(rat.outlier.prots)/length(unique(perc.based.outliers$Protein)), 2)
+# message(perc.outlier.human, "% of outlier proteins were human, ", perc.outlier.mouse, "% were mouse, and ", perc.outlier.rat, "% were rat")
+# 
+# 
+# 
+# all.prot[,c("Human_protein", "Mouse_protein", "Rat_protein")] <- NA
+# percentile.df.v2 <- all.prot[order(all.prot$`zScore Percentile`),] %>% group_by(`Relative Abundance Percentile`, `zScore Percentile`, `Relative Abundance`, zScore) %>% 
+#   mutate(cum_sum_proteins = cumsum(unique(Protein)), cum_sum_human_proteins = cumsum(unique(Protein[startsWith(Protein, "NP_")])),
+#          cum_sum_mouse_proteins = cumsum(unique(Protein[endsWith(Protein, "_MOUSE")])), cum_sum_rat_proteins = cumsum(unique(Protein[endsWith(Protein, "_RAT")])),
+#          cum_sum_samples = cumsum(unique(Sample)), proteins = paste0(unique(Protein), collapse = " "), human_proteins = paste0(unique(Protein[startsWith(Protein, "NP_")]), collapse = " "),
+#          mouse_proteins = paste0(unique(Protein[endsWith(Protein, "_MOUSE")]), collapse = " "), rat_proteins = paste0(unique(Protein[endsWith(Protein, "_RAT")]), collapse = " "),
+#          samples = paste0(unique(Sample), collapse = " ")) # error: `cum_sum_human_proteins` must be size 1, not 0
+# 
+# all.prot[,c("Human_protein", "Mouse_protein", "Rat_protein")] <- NA
+# all.prot[startsWith(all.prot$Protein, "NP_"),]$Human_protein <- all.prot[startsWith(all.prot$Protein, "NP_"),]$Protein
+# all.prot[endsWith(all.prot$Protein, "_MOUSE"),]$Mouse_protein <- all.prot[endsWith(all.prot$Protein, "_MOUSE"),]$Protein
+# all.prot[endsWith(all.prot$Protein, "_RAT"),]$Rat_protein <- all.prot[endsWith(all.prot$Protein, "_RAT"),]$Protein
+# all.prot$isProtein <- 1
+# all.prot[,c("isHuman", "isMouse", "isRat")] <- 0
+# all.prot[!is.na(all.prot$Human_protein),]$isHuman <- 1
+# all.prot[!is.na(all.prot$Mouse_protein),]$isMouse <- 1
+# all.prot[!is.na(all.prot$Rat_protein),]$isRat <- 1
+# all.prot$isSample <- 1
+# prot.percentile.df <- all.prot[order(all.prot$`zScore Percentile`),] %>% group_by(Protein, `Relative Abundance Percentile`, `zScore Percentile`, `Relative Abundance`, zScore, 
+#                                                                                   Human_protein, Mouse_protein, Rat_protein,
+#                                                                                   isProtein, isHuman, isMouse, isRat) %>% 
+#   mutate(cum_sum_proteins = cumsum(isProtein), cum_sum_human_proteins = cumsum(isHuman),
+#          cum_sum_mouse_proteins = cumsum(isMouse), cum_sum_rat_proteins = cumsum(isRat),
+#          proteins = paste0(unique(Protein), collapse = " "), human_proteins = paste0(unique(Human_protein), collapse = " "),
+#          mouse_proteins = paste0(unique(Mouse_protein), collapse = " "), rat_proteins = paste0(unique(Rat_protein), collapse = " ")) # error: ‘cumsum’ not meaningful for factors
+# sample.percentile.df <- percentile.df %>% 
+#   mutate(cum_sum_samples = cumsum(isSample), 
+#          samples = paste0(unique(Sample), collapse = " "))
+# sample.percentile.df <- all.prot[order(all.prot$`zScore Percentile`),] %>% group_by(`zScore Percentile`) %>% 
+#   mutate(cum_sum_samples = cumsum(isSample), 
+#          samples = paste0(unique(Sample), collapse = " "))
+# 
+# sample.df <- distinct(all.prot[c("Sample", "Relative Abundance", "zScore")])
+# sample.df$Percentile <- 100*percent_rank(sample.df$`zScore`)
+# 
+# protein.df <- distinct(all.prot[c("Protein", "Relative Abundance", "zScore")])
+# protein.df$Percentile <- 100*percent_rank(protein.df$`zScore`)
+```
+
+
+Look at proteins highly abundant in each species
+```{r abundant proteins by species}
+#contam.cutoff <- 5
+## venn diagram
+# prep data for venn diagram
+venn.list <- list()
+meta <- distinct(all.prot[,c('Sample','PDX','Drug','Timepoint (hrs)','Unit','Replicate')])
+all.prot.junk <- all.prot
+all.prot <- all.prot[1:13]
+for (i in species) {
+  temp.species.df <- na.omit(all.prot[all.prot$Species == i,])
+  temp.abundant.species.df <- temp.species.df[which(temp.species.df$`Relative Abundance Percentile` > perc.based.cutoff),]
+  venn.list[[i]] <- unique(temp.abundant.species.df$UniProt)
+  
+  # plot # of highly abundant proteins per sample
+  abundant.df <- ddply(temp.abundant.species.df, .(Sample),
+                  summarize, `# of Proteins in Top 5% based on Relative Abundance` = length(unique(UniProt)))
+  all.df <- ddply(temp.species.df, .(Sample),
+                  summarize, `# of Proteins` = length(unique(UniProt)))
+  if (nrow(abundant.df) > 0) {
+    bar.df <- merge(meta, abundant.df, all.y = TRUE)
+    ggplot(bar.df, aes(x=Replicate, 
+                       y = `# of Proteins in Top 5% based on Relative Abundance`, 
+                       fill=Drug)) +
+      geom_bar(stat='identity', position = 'dodge') + 
+      facet_grid(PDX ~ `Timepoint (hrs)`)
+    ggplot2::ggsave(paste0("N_abundant_proteins_per_sample_", i, ".pdf")) 
+  }
+  
+  # plot # of proteins per sample
+  if (nrow(all.df) > 0) {
+    bar.df <- merge(meta, all.df, all.y = TRUE)
+    ggplot(bar.df, aes(x=Replicate, 
+                       y = `# of Proteins`, 
+                       fill=Drug)) +
+      geom_bar(stat='identity', position = 'dodge') + 
+      facet_grid(PDX ~ `Timepoint (hrs)`)
+    ggplot2::ggsave(paste0("N_proteins_per_sample_", i, ".pdf")) 
+  }
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_human_mouse_rat_abundant.pdf")
+
+```
+```{r proteins unique to species}
+## venn diagram
+# prep data for venn diagram
+venn.list <- list()
+for (i in species) {
+  venn.list[[i]] <- unique(all.prot[all.prot$Species == i,]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_human_mouse_rat.pdf")
+# Venn diagram suggests there are no UniProt accessions unique to any one of these species
+```
+
+Look at known matrigel contaminants from Wang et al, 2022: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8733271/
+```{r contaminants in Wang et al}
+download.file(url="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8733271/bin/mmc3.xlsx", destfile = "Wang_matrigel_contaminants.xlsx")
+wang <- readxl::read_excel("Wang_matrigel_contaminants.xlsx", sheet=2)
+## venn diagram
+# prep data for venn diagram
+venn.list <- list()
+wang.species <- c("(CSRP, Human)", "(hc-MC, Mouse)") # must match order of species
+for (i in 1:length(wang.species)) {
+  contam <- wang[,paste("UniProt Accesion ", wang.species[i])]
+  venn.list[[species[i]]] <- unique(all.prot[all.prot$Species == species[i] &
+                                      all.prot$UniProt %in% contam &
+                                      which(all.prot$`Relative Abundance Percentile` > perc.based.cutoff),]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_human_mouse_abundant_Wang_contaminants.pdf")
+# Venn diagram suggests there are none with rel abundance > contam.cutoff
+
+for (i in 1:length(wang.species)) {
+  contam <- wang[,paste("UniProt Accesion ", wang.species[i])]
+  venn.list[[species[i]]] <- unique(all.prot[all.prot$Species == species[i] &
+                                      all.prot$UniProt %in% contam,]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_human_mouse_Wang_contaminants.pdf")
+# none quantified
+```
+
+Look at known matrigel contaminants
+```{r known contaminants}
+## venn diagram
+# prep data for venn diagram
+organisms <- list("Mouse" = 10090, "Rat" = 10116)
+rat.contam <- c("collagen+type+i") # use + instead of space
+mouse.contam <- c("laminin", "collagen+iv", "enactin", "heparan+sulfate", "Transforming+growth+factor+beta", "TGFb") # use + instead of space
+contam.names <- list("Mouse" = mouse.contam, "Rat" = rat.contam)
+contam <- list()
+all.temp.results <- list()
+for (i in 1:length(organisms)) {
+  temp.contam.names <- contam.names[[i]]
+  temp.contam <- c()
+  organism.temp.results <- list()
+  for (j in temp.contam.names) {
+    download.file(paste0("https://rest.uniprot.org/uniprotkb/stream?fields=accession%2Creviewed%2Cid%2Cprotein_name%2Cgene_names%2Corganism_name%2Clength&format=xlsx&query=%28%28protein_name%3A%22",
+                       j,"%22%29+AND+%28organism_id%3A", organisms[[i]],"%29%29"), "uniprot_temp.xlsx")
+  temp.results <- readxl::read_excel("uniprot_temp.xlsx")
+  temp.contam <- c(temp.contam, temp.results$Entry)
+  organism.temp.results[[j]] <- temp.results
+  }
+  all.org.temp.results <- data.table::rbindlist(organism.temp.results, use.names = TRUE, idcol="Query")
+  all.temp.results[[names(organisms)[i]]] <- all.org.temp.results
+  contam[[names(organisms)[i]]] <- unique(temp.contam)
+}
+all.uniprot.results <- data.table::rbindlist(all.temp.results, use.names = TRUE, idcol = "Organism")
+write.csv(all.uniprot.results, "Known_contaminants_UniProt_query.csv", row.names = FALSE)
+
+venn.list <- list()
+for (i in 1:length(contam)) {
+  venn.list[[species[i+1]]] <- unique(all.prot[all.prot$Species == species[i] &
+                                      all.prot$UniProt %in% contam[[i]] &
+                                      which(all.prot$`Relative Abundance Percentile` > perc.based.cutoff),]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_mouse_rat_abundant_known_contaminants.pdf")
+# Venn diagram suggests there are none with rel abundance > contam.cutoff
+
+venn.list <- list()
+for (i in 1:length(contam)) {
+  venn.list[[species[i+1]]] <- unique(all.prot[all.prot$Species == species[i] &
+                                      all.prot$UniProt %in% contam[[i]],]$UniProt)
+}
+
+# create venn diagram
+ggvenn::ggvenn(venn.list)
+ggplot2::ggsave("UniProt_Venn_mouse_rat_known_contaminants.pdf")
+# 0 mouse contaminants quantified
+```
+Plot distribution before removing outliers
+```{r distribution and PCA}
+for (i in species) {
+  # distribution
+  ggplot(all.prot[all.prot$Species == i,],
+         aes(x=Replicate,y=`Relative Abundance`,fill=Drug))+geom_violin()+
+    facet_grid(PDX ~ `Timepoint (hrs)`) +
+    theme(axis.text.x = element_text(angle = 90))
+  ggsave(paste0(i, "_Global_prot_distribution_w_mouse_rat_w_outliers.pdf"))
+  
+  if (i != "Mouse") { # because mouse only has 1 protein
+   # PCA
+  meta <- distinct(all.prot[,c("Sample","PDX","Drug","Timepoint (hrs)","Unit","Replicate")])
+  rownames(meta) <- meta$Sample
+  global_crosstab <- reshape2::dcast(all.prot[all.prot$Species == i,], UniProt ~ Sample, value.var = "Relative Abundance")
+  rownames(global_crosstab) <- global_crosstab$UniProt
+  global_crosstab$UniProt <- NULL
+  complete.global <- as.matrix(global_crosstab[rowSums(is.na(global_crosstab)) == 0,])
+  
+  pc2<-prcomp(t(complete.global))
+  autoplot(pc2,data = meta,color='Drug',shape='PDX')
+  ggsave(paste0(i, "_Global_prot_PCA_w_mouse_rat_w_outliers.pdf"))
+
+  autoplot(pc2,data = meta,color='Drug',shape='PDX')+facet_grid(~`Timepoint (hrs)`)
+  ggsave(paste0(i, "_Global_prot_PCA_w_mouse_rat_w_outliers_facetTime.pdf")) 
+  }
+}
+
+```
+
+Identify outliers and check if cutoffs removed known contaminants
+```{r identify outliers}
+## identify outliers
+# across all proteins
+outliers <- unique(all.prot[which(all.prot$`Relative Abundance Percentile` > perc.based.cutoff),]$Sample)
+print(paste0("Outlier based on relative abundance percentile > ", perc.based.cutoff, ": ", outliers))
+
+# remove all outliers
+filtered.prot <- all.prot[!(all.prot$Sample %in% outliers),]
+
+# save list of outliers
+#outlier.df <- na.omit(data.frame(outliers, contam.cutoff))
+outlier.df <- ddply(all.prot[which(all.prot$`Relative Abundance Percentile` > perc.based.cutoff),], .(Sample, PDX, Drug, `Timepoint (hrs)`, Replicate), summarize,
+                    N_outlier_proteins = length(unique(Protein)), N_outlier_human_proteins = length(unique(Protein[startsWith(Protein, "NP_")])),
+                    N_outlier_mouse_proteins = length(unique(Protein[endsWith(Protein, "_MOUSE")])),
+                    N_outlier_rat_proteins = length(unique(Protein[endsWith(Protein, "_RAT")])),
+                    Outlier_proteins = paste0(unique(Protein), collapse = " "),
+                    Outlier_human_proteins = paste0(unique(Protein[startsWith(Protein, "NP_")]), collapse = " "),
+                    Outlier_mouse_proteins = paste0(unique(Protein[endsWith(Protein, "_MOUSE")]), collapse = " "),
+                    Outlier_rat_proteins = paste0(unique(Protein[endsWith(Protein, "_RAT")]), collapse = " "),
+                    mean_percentile = mean(`zScore Percentile`, na.rm = TRUE),
+                                     median_percentile = median(`zScore Percentile`, na.rm = TRUE),
+                                     max_percentile = max(`zScore Percentile`, na.rm = TRUE),
+                                     min_percentile = min(`zScore Percentile`, na.rm = TRUE),
+                                     sd_percentile = sd(`zScore Percentile`, na.rm = TRUE),
+                                     mean_z = mean(zScore, na.rm = TRUE),
+                                     median_z = median(zScore, na.rm = TRUE),
+                                     max_z = max(zScore, na.rm = TRUE),
+                                     min_z = min(zScore, na.rm = TRUE),
+                                     sd_z = sd(zScore, na.rm = TRUE),
+                                     mean_rel_abundance = mean(`Relative Abundance`, na.rm = TRUE),
+                                     median_rel_abundance = median(`Relative Abundance`, na.rm = TRUE),
+                                     max_rel_abundance = max(`Relative Abundance`, na.rm = TRUE),
+                                     min_rel_abundance = min(`Relative Abundance`, na.rm = TRUE),
+                                     sd_rel_abundance = sd(`Relative Abundance`, na.rm = TRUE))
+outlier.df$N_outlier_proteins_percentile <- 100*percent_rank(outlier.df$N_outlier_proteins)
+outlier.df$N_outlier_human_proteins_percentile <- 100*percent_rank(outlier.df$N_outlier_human_proteins)
+outlier.df$N_outlier_mouse_proteins_percentile <- 100*percent_rank(outlier.df$N_outlier_mouse_proteins)
+outlier.df$N_outlier_rat_proteins_percentile <- 100*percent_rank(outlier.df$N_outlier_rat_proteins)
+write.csv(outlier.df, "Outlier_samples.csv", row.names = FALSE)
+filtered.outlier.df <- outlier.df[outlier.df$N_outlier_mouse_proteins > 5 | outlier.df$N_outlier_rat_proteins > 2,]
+write.csv(filtered.outlier.df, "Reduced_outlier_samples.csv", row.names = FALSE)
+
+## plot distribution of outlier proteins
+# before outliers are removed
+outlier.prots <- all.prot[which(all.prot$`Relative Abundance Percentile` > perc.based.cutoff),] # 50
+for (i in unique(outlier.prots$Species)) {
+  n.outlier.prots <- length(unique(outlier.prots[outlier.prots$Species == i,]$UniProt))
+  print(paste(i, "has", n.outlier.prots, "proteins with relative abundance percentile >", perc.based.cutoff))
+  
+  # boxplot
+  ggplot(all.prot[all.prot$Species == i &
+                    all.prot$UniProt %in% outlier.prots$UniProt,],
+         aes(x=`Timepoint (hrs)`, y=`Relative Abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(PDX ~ UniProt)
+  ggsave(paste0("Contaminants_boxplot_", i, ".pdf"), 
+         width = ifelse(n.outlier.prots > 40, 40, n.outlier.prots))
+  
+  # scatter plot
+  ggplot(all.prot[all.prot$Species == i &
+                    all.prot$UniProt %in% outlier.prots$UniProt,],
+         aes(x=`Timepoint (hrs)`, y=`Relative Abundance`, color = Drug, shape = Replicate)) +
+    geom_point() + facet_grid(PDX ~ UniProt)
+  ggsave(paste0("Contaminants_scatterPlot_", i, ".pdf"), 
+         width = ifelse(n.outlier.prots > 40, 40, n.outlier.prots))
+}
+outlier.list <- distinct(outlier.prots[,c("Species", "Protein", "UniProt")])
+write.csv(outlier.list, "Outlier_proteins.csv", row.names = FALSE)
+
+# after outliers are removed
+for (i in unique(outlier.prots$Species)) {
+  n.outlier.prots <- length(unique(outlier.prots[outlier.prots$Species == i,]$UniProt))
+  
+  # boxplot
+  ggplot(filtered.prot[filtered.prot$Species == i &
+                    filtered.prot$UniProt %in% outlier.prots$UniProt,],
+         aes(x=`Timepoint (hrs)`, y=`Relative Abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(PDX ~ UniProt)
+  ggsave(paste0("Contaminants_boxplot_no_outliers_", i, ".pdf"), 
+         width = ifelse(n.outlier.prots > 40, 40, n.outlier.prots))
+  
+  # scatter plot
+  ggplot(filtered.prot[filtered.prot$Species == i &
+                    filtered.prot$UniProt %in% outlier.prots$UniProt,],
+         aes(x=`Timepoint (hrs)`, y=`Relative Abundance`, color = Drug, shape = Replicate)) +
+    geom_point() + facet_grid(PDX ~ UniProt)
+  ggsave(paste0("Contaminants_scatterPlot_no_outliers_", i, ".pdf"), 
+         width = ifelse(n.outlier.prots > 40, 40, n.outlier.prots))
+}
+```
+
+Re-do plots without outliers
+```{r distribution and PCA wo outliers}
+for (i in species) {
+  # distribution
+  ggplot(filtered.prot[filtered.prot$Species == i,],
+         aes(x=Replicate,y=`Relative Abundance`,fill=Drug))+geom_violin()+
+    facet_grid(PDX ~ `Timepoint (hrs)`) +
+    theme(axis.text.x = element_text(angle = 90))
+  ggsave(paste0(i, "_Global_prot_distribution_w_mouse_rat_wo_outliers.pdf"))
+  
+  if (i != "Mouse") { # because mouse only has 1 protein
+   # PCA
+  meta <- distinct(filtered.prot[,c("Sample","PDX","Drug","Timepoint (hrs)","Unit","Replicate")])
+  rownames(meta) <- meta$Sample
+  global_crosstab <- reshape2::dcast(filtered.prot[filtered.prot$Species == i,], UniProt ~ Sample, value.var = "Relative Abundance")
+  rownames(global_crosstab) <- global_crosstab$UniProt
+  global_crosstab$UniProt <- NULL
+  complete.global <- as.matrix(global_crosstab[rowSums(is.na(global_crosstab)) == 0,])
+  
+  pc2<-prcomp(t(complete.global))
+  autoplot(pc2,data = meta,color='Drug',shape='PDX')
+  ggsave(paste0(i, "_Global_prot_PCA_w_mouse_rat_wo_outliers.pdf"))
+
+  autoplot(pc2,data = meta,color='Drug',shape='PDX')+facet_grid(~`Timepoint (hrs)`)
+  ggsave(paste0(i, "_Global_prot_PCA_w_mouse_rat_wo_outliers_facetTime.pdf")) 
+  }
+}
+```
