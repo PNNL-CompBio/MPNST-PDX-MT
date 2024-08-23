@@ -18,7 +18,8 @@ synapser::synLogin()
 # syn62049050: corrected global proteomics with mouse and rat in addition to human libraries
 # syn62070785: corrected global proteomics with mouse and rat in addition to human libraries after grouping peptides
 # syn62178150: corrected global proteomics with mouse and rat in addition to human libraries after grouping peptides & selecting species
-fileEntity <- synapser::synGet('syn61695507')
+# syn62404726: corrected without bigProts
+fileEntity <- synapser::synGet('syn62404726')
 origProt <- read.table(fileEntity$path, header = T)
 
 # general > 5 and known contaminant > 2 outliers: syn62034810
@@ -26,9 +27,10 @@ origProt <- read.table(fileEntity$path, header = T)
 # rel abundance > 5 in human, mouse, or rat: syn62049775
 # rel abundance > 5 in human, mouse, or rat after grouping peptides: syn62071033
 # rel abundance > 5 in human, mouse, or rat after grouping peptides & selecting species: syn62178788
-outliers <- read.csv(synapser::synGet("syn62178788")$path)
+# based on percentile and histograms of N outlier proteins: syn62390627
+#outliers <- read.csv(synapser::synGet("syn62390627")$path)
 
-origProt <- origProt[,colnames(origProt)[!(colnames(origProt) %in% outliers$Sample)]]
+#origProt <- origProt[,colnames(origProt)[!(colnames(origProt) %in% outliers$Sample)]]
 ```
 
 # Proteomics analysis
@@ -121,10 +123,10 @@ outliers<-subset(longProt,abs(logRatio)>5)|>
   summarize(numOut=n())|>
   arrange(numOut)|>
   subset(numOut>1)
-  
+
 meta<-meta|>
   tibble::rownames_to_column('condition')|>
-    mutate(isOutlier=condition%in%outliers$condition)|>
+  mutate(isOutlier=condition%in%outliers$condition)|>
   tibble::column_to_rownames('condition')
 
 print(outliers)
@@ -168,57 +170,57 @@ Now we want to evaluate if proteins are differentially expressed. We create a si
 # function to get N genes, adj.P.value < 0.05
 getNdiffExpressedGenes <- function(data, formula, analysisContrast){
   
-
-factorInfo <- data.frame(stringr::str_split_fixed(names(data), "_", 5))
-
-names(factorInfo) <- c('sample', 'trt', 'time','hr', 'rep')
-factorInfo$sample <- as.factor(factorInfo$sample)
-factorInfo$trt <-as.factor(factorInfo$trt)
-
-factorInfo$time <- as.factor(factorInfo$time)
-
-# rownames have already been assigned
-proSet <- Biobase::ExpressionSet(as.matrix(data))
-
- # log2 transformation if distribution isn't normal
- ex <- Biobase::exprs(proSet)
- qx <- as.numeric(quantile(ex, c(0., 0.25, 0.5, 0.75, 0.99, 1.0),
-                           na.rm = TRUE
- ))
- LogC <- (qx[5] > 100) ||
-   (qx[6] - qx[1] > 50 && qx[2] > 0)
- if (LogC) {
-   ex[which(ex <= 0)] <- NaN
-   Biobase::exprs(proSet) <- log2(ex)
- }
-
-
-proSet$sample <- factorInfo$sample
-proSet$trt <- factorInfo$trt
-proSet$time <- factorInfo$time
- #browser()
-design <- stats::model.matrix(formula, proSet)
-
-cont.matrix <- limma::makeContrasts(contrasts=analysisContrast, levels = design)
-#print(design)
-#print(cont.matrix)
-fit <- limma::lmFit(proSet, design)
-fit <- limma::contrasts.fit(fit, cont.matrix)
-#browser()
-fit <- try(limma::eBayes(fit), silent = TRUE) # added try functionality since removed contaminated samples
-if (inherits(fit, "try-error")) {
-  deg <- data.frame()
-  nDiffExpressed <- NA
-} else {
-  deg <- limma::topTable(fit,
-                                   adjust = "fdr",
-                                   number = nrow(fit), 
-                                sort.by = 'p')
-
-  nDiffExpressed <- sum(deg$adj.P.Val <= 0.05)
-}
-
-return(list(deg, nDiffExpressed))
+  
+  factorInfo <- data.frame(stringr::str_split_fixed(names(data), "_", 5))
+  
+  names(factorInfo) <- c('sample', 'trt', 'time','hr', 'rep')
+  factorInfo$sample <- as.factor(factorInfo$sample)
+  factorInfo$trt <-as.factor(factorInfo$trt)
+  
+  factorInfo$time <- as.factor(factorInfo$time)
+  
+  # rownames have already been assigned
+  proSet <- Biobase::ExpressionSet(as.matrix(data))
+  
+  # log2 transformation if distribution isn't normal
+  ex <- Biobase::exprs(proSet)
+  qx <- as.numeric(quantile(ex, c(0., 0.25, 0.5, 0.75, 0.99, 1.0),
+                            na.rm = TRUE
+  ))
+  LogC <- (qx[5] > 100) ||
+    (qx[6] - qx[1] > 50 && qx[2] > 0)
+  if (LogC) {
+    ex[which(ex <= 0)] <- NaN
+    Biobase::exprs(proSet) <- log2(ex)
+  }
+  
+  
+  proSet$sample <- factorInfo$sample
+  proSet$trt <- factorInfo$trt
+  proSet$time <- factorInfo$time
+  #browser()
+  design <- stats::model.matrix(formula, proSet)
+  
+  cont.matrix <- limma::makeContrasts(contrasts=analysisContrast, levels = design)
+  #print(design)
+  #print(cont.matrix)
+  fit <- limma::lmFit(proSet, design)
+  fit <- limma::contrasts.fit(fit, cont.matrix)
+  #browser()
+  fit <- try(limma::eBayes(fit), silent = TRUE) # added try functionality since removed contaminated samples
+  if (inherits(fit, "try-error")) {
+    deg <- data.frame()
+    nDiffExpressed <- NA
+  } else {
+    deg <- limma::topTable(fit,
+                           adjust = "fdr",
+                           number = nrow(fit), 
+                           sort.by = 'p')
+    
+    nDiffExpressed <- sum(deg$adj.P.Val <= 0.05)
+  }
+  
+  return(list(deg, nDiffExpressed))
 }
 ```
 
@@ -250,7 +252,7 @@ for(d in c('DMSO','Mirdametinib','Selumetinib','Vorinostat')){
         select(gene,condition,logRatio)|>
         distinct()|>
         tidyr::pivot_wider(names_from='condition',values_from='logRatio')|>tibble::column_to_rownames('gene')
-  
+      
       if(d!='DMSO'){    
         #matrix of values at DMSO same time
         dmat<-longProt|>
@@ -266,11 +268,11 @@ for(d in c('DMSO','Mirdametinib','Selumetinib','Vorinostat')){
           tibble::rownames_to_column('Gene')
         ddat<-rbind(ddat,tres)
       }
-           ##first get restult compare to t0
-        res<-getNdiffExpressedGenes(cbind(cmat,tmat), formula = ~ time  + 0, analysisContrast =paste0('time',tv,'-time0')) 
-        tres<-res[[1]]|>mutate(time=tv,drug=d,samp=s)|>
-          tibble::rownames_to_column('Gene')
-        t0dat<-rbind(t0dat,tres)
+      ##first get restult compare to t0
+      res<-getNdiffExpressedGenes(cbind(cmat,tmat), formula = ~ time  + 0, analysisContrast =paste0('time',tv,'-time0')) 
+      tres<-res[[1]]|>mutate(time=tv,drug=d,samp=s)|>
+        tibble::rownames_to_column('Gene')
+      t0dat<-rbind(t0dat,tres)
       
     }
   }
@@ -310,7 +312,7 @@ for (i in unique(ddat$drug)) {
     if (nrow(temp.ddat[temp.ddat$Gene == j,]) == 1) {
       temp.ddat[temp.ddat$Gene == j,]$avgLogFC <- temp.ddat[temp.ddat$Gene == j,]$logFC
     } else {
-     temp.ddat[temp.ddat$Gene == j,]$avgLogFC <- mean(temp.ddat[temp.ddat$Gene == j,]$logFC, na.rm = TRUE) 
+      temp.ddat[temp.ddat$Gene == j,]$avgLogFC <- mean(temp.ddat[temp.ddat$Gene == j,]$logFC, na.rm = TRUE) 
     }
   }
   temp.ddat <- temp.ddat[order(temp.ddat$avgLogFC),]
@@ -333,8 +335,8 @@ ddat|>
   mutate(present=1)|>
   tidyr::pivot_wider(names_from=condition,values_from=present,values_fill=0)|>
   tibble::column_to_rownames('Gene')|>
-#  as.matrix()|>
-    upset()
+  #  as.matrix()|>
+  upset()
 
 ddat|>
   subset(drug=='Vorinostat')|>
@@ -358,17 +360,19 @@ genelist<-c('MAPK1','MAPK3','MAP2K1','MAP2K2','MAP2K4','MAP2K6')
 mtargs <- subset(longProt,gene%in%genelist)
 mtargs$`Timepoint (hrs)` <- factor(mtargs$time, levels = c("0", "0.5", "3", "24"))
 
-mddat <- subset(ddat,Gene%in%genelist)
-mddat$`Timepoint (hrs)` <- factor(mddat$time, levels = c("0", "0.5", "3", "24"))
-
-# plot
-ggplot(mtargs,aes(x=`Timepoint (hrs)`,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
-ggsave('mekProteins_geneSymbols.png')
-mddat|>
-  mutate(sig=(adj.P.Val<0.1))|>
-  ggplot(aes(x=`Timepoint (hrs)`,y=logFC,shape=sig,col=drug))+
-  geom_point()+facet_grid(samp~Gene)
-ggsave('mekProteinsDiffEx_geneSymbols.png')
+if (nrow(mtargs) > 0) {
+  mddat <- subset(ddat,Gene%in%genelist)
+  mddat$`Timepoint (hrs)` <- factor(mddat$time, levels = c("0", "0.5", "3", "24"))
+  
+  # plot
+  ggplot(mtargs,aes(x=`Timepoint (hrs)`,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
+  ggsave('mekProteins_geneSymbols.png')
+  mddat|>
+    mutate(sig=(adj.P.Val<0.1))|>
+    ggplot(aes(x=`Timepoint (hrs)`,y=logFC,shape=sig,col=drug))+
+    geom_point()+facet_grid(samp~Gene)
+  ggsave('mekProteinsDiffEx_geneSymbols.png') 
+}
 ```
 
 Now we can look at those transcripts that we know change, particularly at the 8hr time point.
@@ -379,17 +383,19 @@ genelist<-c('DUSP6','ETV5','SPRY2','SPRY4','EPHA4','ETV4','EPHA2','DUSP4','CCND1
 mtargs <- subset(longProt,gene%in%genelist)
 mtargs$`Timepoint (hrs)` <- factor(mtargs$time, levels = c("0", "0.5", "3", "24"))
 
-mddat <- subset(ddat,Gene%in%genelist)
-mddat$`Timepoint (hrs)` <- factor(mddat$time, levels = c("0", "0.5", "3", "24"))
-
-# plot
-ggplot(mtargs,aes(x=`Timepoint (hrs)`,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
-ggsave('mekTranscriptProteins_geneSymbols.png')
-mddat|>
-  mutate(sig=(adj.P.Val<0.1))|>
-  ggplot(aes(x=`Timepoint (hrs)`,y=logFC,shape=sig,col=drug))+
-  geom_point()+facet_grid(samp~Gene)
-ggsave('mekTranscriptProteinsDiffEx_geneSymbols.png')
+if (nrow(mtargs) > 0) {
+  mddat <- subset(ddat,Gene%in%genelist)
+  mddat$`Timepoint (hrs)` <- factor(mddat$time, levels = c("0", "0.5", "3", "24"))
+  
+  # plot
+  ggplot(mtargs,aes(x=`Timepoint (hrs)`,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
+  ggsave('mekTranscriptProteins_geneSymbols.png')
+  mddat|>
+    mutate(sig=(adj.P.Val<0.1))|>
+    ggplot(aes(x=`Timepoint (hrs)`,y=logFC,shape=sig,col=drug))+
+    geom_point()+facet_grid(samp~Gene)
+  ggsave('mekTranscriptProteinsDiffEx_geneSymbols.png') 
+}
 ```
 
 Vorinostat is known to affect HDAC proteins. So we can plot those four here.
@@ -400,15 +406,17 @@ hdacs<-c('HDAC1','HDAC2','HDAC3','HDAC6')
 mtargs <- subset(longProt,gene%in%hdacs)
 mtargs$`Timepoint (hrs)` <- factor(mtargs$time, levels = c("0", "0.5", "3", "24"))
 
-mddat <- subset(ddat,Gene%in%hdacs)
-mddat$`Timepoint (hrs)` <- factor(mddat$time, levels = c("0", "0.5", "3", "24"))
-
-# plot
-ggplot(mtargs,aes(x=`Timepoint (hrs)`,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
-ggsave('hdacProteins_geneSymbols.png')
-mddat|>
-  mutate(sig=(adj.P.Val<0.1))|>
-  ggplot(aes(x=`Timepoint (hrs)`,y=logFC,shape=sig,col=drug))+
-  geom_point()+facet_grid(samp~Gene)
-ggsave('hdacProteinsDiffEx_geneSymbols.png')
+if (nrow(mtargs) > 0) {
+  mddat <- subset(ddat,Gene%in%hdacs)
+  mddat$`Timepoint (hrs)` <- factor(mddat$time, levels = c("0", "0.5", "3", "24"))
+  
+  # plot
+  ggplot(mtargs,aes(x=`Timepoint (hrs)`,y=logRatio,fill=drug))+geom_boxplot()+facet_grid(sample~gene)
+  ggsave('hdacProteins_geneSymbols.png')
+  mddat|>
+    mutate(sig=(adj.P.Val<0.1))|>
+    ggplot(aes(x=`Timepoint (hrs)`,y=logFC,shape=sig,col=drug))+
+    geom_point()+facet_grid(samp~Gene)
+  ggsave('hdacProteinsDiffEx_geneSymbols.png') 
+}
 ```
