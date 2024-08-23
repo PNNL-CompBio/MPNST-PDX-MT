@@ -334,7 +334,29 @@ perc.based.outlier.proteins <- ddply(perc.based.outliers, .(Protein, UniProt), s
 perc.based.outlier.proteins$Species <- "Human"
 perc.based.outlier.proteins[endsWith(perc.based.outlier.proteins$Protein, "_MOUSE"),]$Species <- "Mouse"
 perc.based.outlier.proteins[endsWith(perc.based.outlier.proteins$Protein, "_RAT"),]$Species <- "Rat"
+write.csv(perc.based.outlier.proteins, "Outlier_proteins_with_stats.csv", row.names = FALSE)
 contam.cutoff <- min(perc.based.outliers$`Relative Abundance`, na.rm = TRUE) # 2.11299828040314
+
+protein.summary.stats <- ddply(all.prot, .(Protein, UniProt), summarize,
+                                     mean_percentile = mean(`zScore Percentile`, na.rm = TRUE),
+                                     median_percentile = median(`zScore Percentile`, na.rm = TRUE),
+                                     max_percentile = max(`zScore Percentile`, na.rm = TRUE),
+                                     min_percentile = min(`zScore Percentile`, na.rm = TRUE),
+                                     sd_percentile = sd(`zScore Percentile`, na.rm = TRUE),
+                                     mean_z = mean(zScore, na.rm = TRUE),
+                                     median_z = median(zScore, na.rm = TRUE),
+                                     max_z = max(zScore, na.rm = TRUE),
+                                     min_z = min(zScore, na.rm = TRUE),
+                                     sd_z = sd(zScore, na.rm = TRUE),
+                                     mean_rel_abundance = mean(`Relative Abundance`, na.rm = TRUE),
+                                     median_rel_abundance = median(`Relative Abundance`, na.rm = TRUE),
+                                     max_rel_abundance = max(`Relative Abundance`, na.rm = TRUE),
+                                     min_rel_abundance = min(`Relative Abundance`, na.rm = TRUE),
+                                     sd_rel_abundance = sd(`Relative Abundance`, na.rm = TRUE))
+protein.summary.stats$Species <- "Human"
+protein.summary.stats[endsWith(protein.summary.stats$Protein, "_MOUSE"),]$Species <- "Mouse"
+protein.summary.stats[endsWith(protein.summary.stats$Protein, "_RAT"),]$Species <- "Rat"
+write.csv(protein.summary.stats, "All_proteins_summary_stats.csv", row.names = FALSE)
 
 # # just select top 5% of proteins
 # n.top5Perc <- ceiling(0.05*length(unique(all.prot$Protein))) # 385.25 rounded up to 386
