@@ -1,0 +1,443 @@
+---
+title: "Ex1 Global proteomics"
+output: html_document
+---
+
+The global proteomics pipeline uses the R package [PlexedPiper](https://github.com/vladpetyuk/PlexedPiper). It also requires a connection to the DMS to access data packages.
+
+
+```{r, echo=F}
+library(knitr)
+knitr::opts_chunk$set(message=F, warning=F)
+t0 <- Sys.time(); print(t0)
+```
+
+
+```{r setup}
+library(plyr)
+library(MSnID)
+library(PlexedPiper)
+library(dplyr)
+library(PNNL.DMS.utils)
+library(Biostrings)
+library(tidyverse)
+library(tidyr)
+library(data.table)
+library(reshape2)
+
+# only HUMAN library: 5792
+# HUMAN hg38, uniprot MOUSE and RAT: 5878
+data_package_num <- 5878
+data_folder <- "data/global_data_w_MOUSE_RAT_20240816"
+crosstab_prefix <- "Chr8_UMN1"
+
+dir.create(data_folder)
+
+# below functions are from PlexedPiper. create_crosstab was adapted to create create_nonrelative_crosstab
+# converting_to_relative_to_reference was adapted to create converting_to_crosstab
+# source: https://github.com/PNNL-Comp-Mass-Spec/PlexedPiper/blob/master/R/create_crosstab.R
+link_msms_and_reporter_intensities <- function(msnid,
+                                               reporter_intensities,
+                                               aggregation_level) {
+
+  ## Check input
+  msms_cols <- c("Dataset", "Scan", aggregation_level)
+  stopifnot(all(msms_cols %in% names(msnid)))
+
+  # Rename any columns that start with "Scan" to just "Scan"
+  colnames(reporter_intensities)[
+    grepl("^Scan", colnames(reporter_intensities))
+  ] <- "Scan"
+  masic_cols <- c("Dataset", "Scan")
+  stopifnot(all(masic_cols %in% colnames(reporter_intensities)))
+  other_columns <- setdiff(colnames(reporter_intensities), masic_cols)
+  stopifnot(all(grepl("^Ion.*\\d$", other_columns)))
+
+  ## prepare MS/MS data
+  msms <- psms(msnid)
+  data.table::setDT(msms)
+  msms <- unique(msms[, msms_cols, with = FALSE])
+  data.table::setkey(msms, Dataset, Scan)
+
+  ## prepare reporter intensities data
+  data.table::setDT(reporter_intensities)
+
+  ## main link
+  quant_data <- merge(msms, reporter_intensities)
+
+  return(quant_data)
+}
+
+aggregate_reporters <- function(quant_data, fractions, aggregation_level) {
+  aggregation_level <- c("PlexID", aggregation_level)
+
+  data.table::setDT(fractions, key = "Dataset")
+  quant_data <- merge(quant_data, fractions)
+
+  data.table::setkeyv(quant_data, aggregation_level)
+  quant_data <- quant_data[, lapply(.SD, sum, na.rm=TRUE),
+                           by = aggregation_level,
+                           .SDcols = grep("^Ion_1.*\\d$",
+                                          colnames(quant_data), value = TRUE)]
+
+  #
+  specie_cols <- setdiff(aggregation_level, "PlexID")
+  quant_data[, Specie := do.call(paste, c(.SD, sep = "@")),
+             .SDcols = specie_cols]
+  quant_data[, (specie_cols) := NULL]
+
+  return(quant_data)
+}
+
+converting_to_crosstab <- function(quant_data, samples) {
+
+  # transforming from wide to long form
+  quant_data <- reshape2::melt(quant_data,
+                     id.vars=c("PlexID","Specie"),
+                     measure.vars=grep("Ion_", colnames(quant_data), value=TRUE),
+                     variable.name="ReporterIon",
+                     value.name="Abundance")
+  #setkey(quant_data, PlexID, ReporterIon)
+
+  # add QuantBlock columns if missing
+  if (!("QuantBlock" %in% names(samples))) {
+    samples$QuantBlock <- 1
+  }
+  if (!("QuantBlock" %in% names(references))) {
+    references$QuantBlock <- 1
+  }
+
+  # preparing sample info
+  data.table::setDT(samples)
+
+  reporter_ions <- unique(quant_data$ReporterIon)
+  # loop through list of reporter ion converter tables, find which table
+  # matches all ions
+  # Set reporter_converter to prevent "no visible binding" note
+  reporter_converter <- PlexedPiper::reporter_converter
+  for (i in seq_along(reporter_converter)) {
+    if (setequal(as.character(reporter_ions),
+                 reporter_converter[[i]]$ReporterIon)) {
+      converter <- data.table(reporter_converter[[i]])
+      break
+    }
+  }
+
+  if (!exists("converter")) {
+    stop("No reporter ion converter tables match the reporter ions in MASIC data")
+  }
+
+  samples <- merge(samples, converter)
+  data.table::setkey(samples, PlexID, ReporterIon)
+
+  # merging reporter intensities with sample info
+  quant_data <- merge(quant_data, samples)
+  quant_data <- reshape2::dcast(quant_data, Specie ~ ReporterAlias, mean, value.var = "Abundance")
+
+  return(quant_data)
+}
+
+create_nonrelative_crosstab <- function(msnid, reporter_intensities, aggregation_level, fractions){
+  msnid$Dataset <- msnid$spectrumFile
+  msnid$Scan <- msnid$spectrumID
+  cd <- sort(intersect(msnid$Dataset, reporter_intensities$Dataset))
+  if (!identical(sort(fractions$Dataset), cd)) {
+    warning(paste("All datasets must be present in msnid,", 
+      "reporter_intensities, and fractions."))
+    if (length(cd) > 0) {
+      warning(sprintf("Subsetting to %g common datasets.", 
+        length(cd)))
+      msnid <- apply_filter(msnid, "Dataset %in% cd")
+      reporter_intensities <- reporter_intensities[reporter_intensities$Dataset %in% 
+        cd, ]
+      fractions <- fractions[fractions$Dataset %in% cd, 
+        ]
+    }
+    else {
+      stop("There are no common datasets. Check fractions table.")
+    }
+  }
+  if (anyDuplicated(samples$MeasurementName, incomparables = NA) != 
+    0) {
+    stop("There are duplicate MeasurementName in samples.")
+  }
+  quant_data <- link_msms_and_reporter_intensities(msnid, 
+    reporter_intensities, aggregation_level)
+  quant_data <- aggregate_reporters(quant_data, fractions, 
+    aggregation_level)
+  quant_data <- converting_to_crosstab(quant_data, samples)
+  return(quant_data)
+}
+
+```
+
+# Study design
+
+Study design information in PlexedPiper is encoded in three tables: fractions, samples, and references. 
+These tables can be made using metadata and should be stored on the DMS before processing.
+
+```{r read_study_design}
+fractions <- read.table("study_design/global_study_design/fractions.txt", sep = "\t", header = T)
+samples <- read.table("study_design/global_study_design/samples.txt", sep = "\t", header = T)
+references <- read.table("study_design/global_study_design/references.txt", sep = "\t", header = T)
+
+```
+
+# Process MS-GF+ data
+
+MS-GF+ data is processed in several steps. First, read MS-GF+ output from the DMS. (This step can take a while).
+
+```{r read_msgf}
+msgf_data_path <- file.path(data_folder, "msgfData_original.RData")
+if (file.exists(msgf_data_path)) {
+  load(msgf_data_path)
+} else {
+  msnid <- read_msgf_data_from_DMS(data_package_num)
+  save(msnid, file=msgf_data_path)
+}
+show(msnid)
+
+```
+
+
+## Correct peak selection and peptide FDR
+We use the target-decoy search stRATegy method described in [(Elias 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2922680/). 
+Filtering is done first at peptide level, then at protein level, both with max FDR of 1%.
+
+```{r select peak and filter peptides}
+## peak selection & Peptide filter
+msnid <- correct_peak_selection(msnid)   ## optional for phospho
+msnid <- filter_msgf_data_peptide_level(msnid, 0.01)
+show(msnid)
+
+```
+
+## Make sure each peptide is represented by 1 species
+``` {r species selection}
+## label accessions with species
+message("before making sure peptides are species-specific")
+show(msnid)
+temp.psms <- psms(msnid)
+temp.psms$species <- "Unknown"
+
+# first tag human peptides
+temp.psms[startsWith(temp.psms$accession, "NP_"),]$species <- "HUMAN"
+humanPeptides <- unique(temp.psms[temp.psms$species == "HUMAN",]$peptide)
+
+# remove any non-human entries for human peptides since we expect human to be most abundant
+message(nrow(temp.psms), " rows before removing non-human peptides also found in humans")
+temp.psms[temp.psms$peptide %in% humanPeptides & !startsWith(temp.psms$accession, "NP_"),]$species <- NA
+temp.psms <- temp.psms[!is.na(temp.psms$species),]
+message(nrow(temp.psms), " rows after removing non-human peptides also found in humans")
+
+# next tag mouse peptides
+temp.psms[endsWith(temp.psms$accession, "_MOUSE"),]$species <- "MOUSE"
+mousePeptides <- unique(temp.psms[temp.psms$species == "MOUSE",]$peptide)
+
+# then remove any rat entries for mouse peptides since we expect mouse to be second most abundant
+#message(nrow(temp.psms), " rows before removing non-mouse peptides also found in mouse")
+temp.psms[temp.psms$peptide %in% mousePeptides & temp.psms$species == "Unknown",]$species <- NA
+temp.psms <- temp.psms[!is.na(temp.psms$species),]
+message(nrow(temp.psms), " rows after removing non-mouse peptides also found in mouse")
+
+# next tag rat peptides
+temp.psms[endsWith(temp.psms$accession, "_RAT"),]$species <- "RAT"
+
+# remove any peptides not assigned to human, mouse, or rat
+temp.psms <- temp.psms[temp.psms$species != "Unknown",]
+message(nrow(temp.psms), " rows after removing non-human/mouse/rat peptides")
+
+psms(msnid) <- temp.psms
+message("after making sure peptides are species-specific")
+show(msnid)
+```
+
+## Accession FDR
+```{r protein_level_filter }
+
+# fst_dms_pth_2 <- remap_fasta_entry_names(fst_dms_pth, conv, "^.*\\|(.+?)(-\\d+)?\\|.*") 
+# 
+# ## peptide density and accession filter
+# msnid <- compute_num_peptides_per_1000aa(msnid, fst_dms_pth_2)
+# msnid <- filter_msgf_data_protein_level(msnid, 0.01)
+# show(msnid)
+options(timeout = 120)
+fst_dms_pth <- path_to_FASTA_used_by_DMS(data_package_num)
+msnid <- compute_num_peptides_per_1000aa(msnid, fst_dms_pth)
+
+msnid <- filter_msgf_data_protein_level(msnid, 0.01)
+message("after filtering at protein level based on # of peptides per 1000 AAs")
+show(msnid) 
+
+message(length(msnid$species[msnid$species=="HUMAN"]), " human entries")
+message(length(msnid$species[msnid$species=="MOUSE"]), " mouse entries")
+message(length(msnid$species[msnid$species=="RAT"]), " rat entries")
+
+```
+
+
+## Parsimonious inference
+
+To reduce number of protein identifications, we use a parsimonious inference algorithm described in 
+[(Zhang et al. 2007)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2810678/).
+
+```{r parsimonious_inference}
+msnid <- infer_parsimonious_accessions(msnid, unique_only=FALSE)
+show(msnid)
+message(length(msnid$species[msnid$species=="HUMAN"]), " human entries")
+message(length(msnid$species[msnid$species=="MOUSE"]), " mouse entries")
+message(length(msnid$species[msnid$species=="RAT"]), " rat entries")
+```
+
+
+## Remove Decoys
+
+```{r}
+msnid <- apply_filter(msnid, "!isDecoy")
+show(msnid)
+message(length(msnid$species[msnid$species=="HUMAN"]), " human entries")
+message(length(msnid$species[msnid$species=="MOUSE"]), " mouse entries")
+message(length(msnid$species[msnid$species=="RAT"]), " rat entries")
+save(msnid, file=file.path(data_folder, paste0("msgfData_filtered_.RData")))
+```
+
+
+## Process MASIC data
+
+Output from the MASIC software is read from DMS, then filtered by interference score.
+
+
+```{r read_masic}
+masic_data_path <- file.path(data_folder, "masicData_original.RData")
+
+options(timeout = 120)
+if (file.exists(masic_data_path)) {
+  load(masic_data_path)
+} else {
+  masic_data <- read_masic_data_from_DMS(data_package_num,
+                                       interference_score = TRUE)
+  save(masic_data, file=masic_data_path)
+}
+
+nrow(masic_data)
+```
+
+
+```{r filter_masic}
+masic_data <- filter_masic_data(masic_data,
+                                interference_score_threshold = 0.5,
+                                s2n_threshold = 0)
+save(masic_data, file=file.path(data_folder, "masicData_filtered.RData"))
+
+nrow(masic_data)
+```
+
+## create crosstab without normalizing to references
+
+```{r create crosstab not relative to references}
+# psms(msnid)$accession <- sub("^.*\\|(.*)\\|.*$", "\\1", psms(msnid)$accession)
+
+psms(msnid) <- psms(msnid) %>%
+  filter(!grepl("Contaminant", accession))
+
+aggregation_level <- c("accession")
+
+quant_cross_tab_prot <- create_nonrelative_crosstab(msnid, 
+                                        masic_data, 
+                                        aggregation_level, 
+                                        fractions)
+dim(quant_cross_tab_prot)
+if (is.null(dim(quant_cross_tab_prot))) { # MOUSE only has 1 accession so it got converted into a vector
+  quant_cross_tab_prot <- as.data.frame(quant_cross_tab_prot)
+  colnames(quant_cross_tab_prot) <- unique(msnid$accession)
+  quant_cross_tab_prot <- t(quant_cross_tab_prot)
+}
+write.table(quant_cross_tab_prot, file=file.path(data_folder, paste(crosstab_prefix, paste0("crosstab_global_prot_nonRelative.txt"), sep="_")),
+            quote=F, sep="\t") 
+message(length(unique(quant_cross_tab_prot$Specie[startsWith(quant_cross_tab_prot$Specie, "NP_")])), " human protein entries")
+message(length(unique(quant_cross_tab_prot$Specie[endsWith(quant_cross_tab_prot$Specie, "_MOUSE")])), " mouse protein entries")
+message(length(unique(quant_cross_tab_prot$Specie[endsWith(quant_cross_tab_prot$Specie, "_RAT")])), " rat protein entries")
+
+# histogram to see distribution of abundances, means, sds
+quant_long <- reshape2::melt(quant_cross_tab_prot, id.vars="Specie", value.name = "Abundance")
+quant_by_prot <- plyr::ddply(quant_long, .(Specie), summarize,
+                             mean_abundance = mean(Abundance, na.rm = TRUE),
+                             median_abundance = median(Abundance, na.rm = TRUE),
+                             max_abundance = max(Abundance, na.rm = TRUE),
+                             min_abundance = min(Abundance, na.rm = TRUE),
+                             sd_abundance = sd(Abundance, na.rm = TRUE))
+quant_by_sample <- plyr::ddply(quant_long, .(variable), summarize,
+                               mean_abundance = mean(Abundance, na.rm = TRUE),
+                               median_abundance = median(Abundance, na.rm = TRUE),
+                               max_abundance = max(Abundance, na.rm = TRUE),
+                               min_abundance = min(Abundance, na.rm = TRUE),
+                               sd_abundance = sd(Abundance, na.rm = TRUE))
+
+hist(quant_long$Abundance)
+num.cols <- colnames(quant_by_prot)[2:ncol(quant_by_prot)]
+for (i in num.cols) {
+  hist(quant_by_prot[,i], xlab = i, main = i)
+  hist(quant_by_sample[,i], xlab = i, main = i)
+}
+```
+
+
+## Create crosstab
+
+The quantitative crosstab combines MS/MS identifications with reporter ion intensities. 
+Abundances are taken relative to the reference channel and then log-transformed.
+
+```{r create_global_prot_crosstab}
+# psms(msnid)$accession <- sub("^.*\\|(.*)\\|.*$", "\\1", psms(msnid)$accession)
+
+psms(msnid) <- psms(msnid) %>%
+  filter(!grepl("Contaminant", accession))
+
+aggregation_level <- c("accession")
+
+# remove non-samples (empty), but keep references
+samples <- samples[samples$ReporterAlias != "EMPTY", ]
+
+quant_cross_tab_prot <- create_crosstab(msnid, 
+                                        masic_data, 
+                                        aggregation_level, 
+                                        fractions, samples, references)
+dim(quant_cross_tab_prot)
+if (is.null(dim(quant_cross_tab_prot))) { # MOUSE only has 1 accession so it got converted into a vector
+  quant_cross_tab_prot <- as.data.frame(quant_cross_tab_prot)
+  colnames(quant_cross_tab_prot) <- unique(msnid$accession)
+  quant_cross_tab_prot <- t(quant_cross_tab_prot)
+}
+write.table(quant_cross_tab_prot, file=file.path(data_folder, paste(crosstab_prefix, paste0("crosstab_global_prot_original.txt"), sep="_")),
+            quote=F, sep="\t") 
+message(length(rownames(quant_cross_tab_prot)[startsWith(rownames(quant_cross_tab_prot), "NP_")]), " human protein entries")
+message(length(rownames(quant_cross_tab_prot)[endsWith(rownames(quant_cross_tab_prot), "_MOUSE")]), " mouse protein entries")
+message(length(rownames(quant_cross_tab_prot)[endsWith(rownames(quant_cross_tab_prot), "_RAT")]), " rat protein entries")
+
+# histogram to see distribution of abundances, means, sds
+quant_cross_tab_prot_og <- quant_cross_tab_prot
+quant_cross_tab_prot <- as.data.frame(quant_cross_tab_prot)
+quant_cross_tab_prot$Specie <- rownames(quant_cross_tab_prot)
+quant_long <- reshape2::melt(quant_cross_tab_prot, id.vars="Specie", value.name = "Abundance")
+quant_by_prot <- plyr::ddply(quant_long, .(Specie), summarize,
+                             mean_abundance = mean(Abundance, na.rm = TRUE),
+                             median_abundance = median(Abundance, na.rm = TRUE),
+                             max_abundance = max(Abundance, na.rm = TRUE),
+                             min_abundance = min(Abundance, na.rm = TRUE),
+                             sd_abundance = sd(Abundance, na.rm = TRUE))
+quant_by_sample <- plyr::ddply(quant_long, .(variable), summarize,
+                               mean_abundance = mean(Abundance, na.rm = TRUE),
+                               median_abundance = median(Abundance, na.rm = TRUE),
+                               max_abundance = max(Abundance, na.rm = TRUE),
+                               min_abundance = min(Abundance, na.rm = TRUE),
+                               sd_abundance = sd(Abundance, na.rm = TRUE))
+
+hist(quant_long$Abundance)
+num.cols <- colnames(quant_by_prot)[2:ncol(quant_by_prot)]
+for (i in num.cols) {
+  hist(quant_by_prot[,i], xlab = i, main = i)
+  hist(quant_by_sample[,i], xlab = i, main = i)
+}
+
+```
+
