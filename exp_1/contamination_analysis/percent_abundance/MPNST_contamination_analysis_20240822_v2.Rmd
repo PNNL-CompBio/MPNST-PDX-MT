@@ -35,11 +35,11 @@ for (i in 1:length(colnames(global.df)[2:ncol(global.df)])) {
   temp.sample <- colnames(global.df)[i+1]
   global.long[global.long$Sample == temp.sample,]$Percent_Abundance <- 100*global.long[global.long$Sample == temp.sample,]$Abundance/sampleSums[i]
 }
-hist(global.long$Percent_Abundance)
-hist(global.long[global.long$Percent_Abundance < 1,]$Percent_Abundance) # most proteins seem to represent < 0.1% of their sample
-hist(global.long[global.long$Percent_Abundance < 0.1,]$Percent_Abundance) # most proteins seem to represent < 0.01% of their sample
-hist(global.long[global.long$Percent_Abundance < 0.01,]$Percent_Abundance) # most proteins seem to represent < 0.002% of their sample
-hist(global.long[global.long$Percent_Abundance > 1,]$Percent_Abundance) # a few hundred proteins represent a majority of their samples
+hist(global.long$Percent_Abundance, xlab = "% Abundance")
+hist(global.long[global.long$Percent_Abundance < 1,]$Percent_Abundance, xlab = "% Abundance", main = "% Abundance < 1") # most proteins seem to represent < 0.1% of their sample
+hist(global.long[global.long$Percent_Abundance < 0.1,]$Percent_Abundance, xlab = "% Abundance", main = "% Abundance < 0.1") # most proteins seem to represent < 0.01% of their sample
+hist(global.long[global.long$Percent_Abundance < 0.01,]$Percent_Abundance, xlab = "% Abundance", main = "% Abundance < 0.01") # most proteins seem to represent < 0.002% of their sample
+hist(global.long[global.long$Percent_Abundance > 1,]$Percent_Abundance, xlab = "% Abundance", main = "% Abundance > 1") # a few hundred proteins represent a majority of their samples
 ```
 # 4. calculate log2(abundance in sample / ratio in samples)
 ```{r logRatio}
@@ -93,6 +93,7 @@ write.csv(prot.summary, "Protein_summary.csv", row.names = FALSE)
 #bigProts <- prot.summary %>% slice_max(median_perc_abundance, n=ceiling(0.05*nrow(prot.summary))) # 523 proteins more abundant in most samples than 95% of proteins
 bigProts <- prot.summary[prot.summary$median_perc_abundance_percentile > perc.cutoff, ] # 523 proteins more abundant in most samples than 95% of proteins, 105 for 99%
 write.csv(bigProts, "Proteins with higher median percent abundance than 99 percent of proteins.csv", row.names = FALSE)
+bigProts <- read.csv("Proteins with higher median percent abundance than 99 percent of proteins[61].csv")
 mouse.bigProts <- bigProts[endsWith(bigProts$Specie, "_MOUSE"),] # 11: collagen, laminin, etc.
 rat.bigProts <- bigProts[endsWith(bigProts$Specie, "_RAT"),] # 2: CO1A1, CO1A2 (alpha 1/2 chains of rat collagen type i)
 # some of these big proteins marked as human may be mouse/rat too but we assumed they're human
@@ -147,7 +148,7 @@ for (i in unique(outlier.prots$Species)) {
   # how many in each sample?
     ggplot(global.long[global.long$Species == i &
                     global.long$Specie %in% outlier.prots$Specie,],
-         aes(x=`Replicate`, fill = Drug)) + ylab("# of Contaminants")
+         aes(x=`Replicate`, fill = Drug)) + ylab("# of Contaminants") +
     geom_bar(stat="count", position="dodge") + facet_grid(PDX ~ `Timepoint (hrs)`)
   ggsave(paste0("Contaminants_barPlot_", i, ".pdf"), 
          width = temp.width)
@@ -296,8 +297,155 @@ hist(prot.summary[!(prot.summary$Specie %in% bigProts),]$max_perc_abundance)
 
 # 6. define outlier proteins at top 5% of proteins with higher % in samples than ref
 # 7. look at homology in outlier proteins - if marked as human but also in mouse/rat, then also add mouse/rat versions to list
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r sum CO1A1/2}
+global.long.w.ref <- global.long
+global.long <- global.long[global.long$Sample != "ref",]|>
+  tidyr::separate(Sample,into=c('PDX','Drug','Timepoint (hrs)','Unit','Replicate'),sep='_',remove=FALSE)
+global.long$`Timepoint (hrs)` <- factor(global.long$`Timepoint (hrs)`, levels = c("0", "0.5", "3", "24"))
+global.long$Replicate <- substr(global.long$Replicate, 4,4)
+CO1A1.long <- global.long[global.long$Sample != "ref" & (grepl("CO1A1", global.long$Specie) | global.long$Specie == "NP_000079.2"),]
+CO1A2.long <- global.long[global.long$Sample != "ref" & (grepl("CO1A2", global.long$Specie) | global.long$Specie == "NP_000080.2"),]
+CO1A.long <- rbind(CO1A1.long, CO1A2.long)
+
+# boxplot
+collagen.list <- list("CO1A1" = CO1A1.long, "CO1A2" = CO1A2.long, "Collagen Type I" = CO1A.long)
+for (i in 1:length(collagen.list)) {
+  temp.collagen.df <- ddply(collagen.list[[i]], .(Sample, PDX, Drug, `Timepoint (hrs)`, Replicate), summarize,
+                  sum_abundance = sum(Abundance, na.rm = TRUE),
+                  sum_percent_abundance = sum(Percent_Abundance, na.rm = TRUE))
+  write.csv(temp.collagen.df, paste0(names(collagen.list)[i], "_percent_abundance.csv"), row.names = FALSE)
+  
+  pdf(paste0(names(collagen.list)[i], "_percent_histogram.pdf"))
+  hist(temp.collagen.df$sum_percent_abundance, xlab = "% Abundance of Collagen Type I", main="")
+  dev.off()
+  
+  ggplot(temp.collagen.df,
+         aes(x=`Timepoint (hrs)`, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(cols=vars(PDX)) + ylab(paste0("% Abundance of ", names(collagen.list)[i]))
+  ggsave(paste0(names(collagen.list)[i], "_percent_boxplot.pdf"))
+  
+  # scatter plot
+  ggplot(temp.collagen.df,
+         aes(x=Replicate, y=`sum_percent_abundance`, color = Drug)) +
+    geom_point() + facet_grid(PDX ~ `Timepoint (hrs)`) + ylab(paste0("% Abundance of ", names(collagen.list)[i]))
+  ggsave(paste0(names(collagen.list)[i], "_percent_scatterPlot.pdf")) 
+}
+t.test(temp.collagen.df[temp.collagen.df$PDX=="JH.2.002",]$sum_percent_abundance, temp.collagen.df[temp.collagen.df$PDX=="MN.2",]$sum_percent_abundance)
+# JH-2-002 samples are more contaminated than MN-2 with p = 4.646E-10
+  
+  
+# repeat but for each protein name (sum across species)
+human.bigProts.map <- readxl::read_excel("Human_top1Percent_abundant_proteins_idmapping_2024_08_23.xlsx")
+
+#load protein names
+unique.bigProts <- read.csv("Contamination_protein_names_UniProt.csv")
+all.summed <- list()
+for (i in unique.bigProts[,1]) {
+  # get data for this protein across all species
+  temp.refseq <- na.omit(unique(human.bigProts.map[human.bigProts.map$`generic protein name` == i,]$From))
+  temp.long <- global.long[global.long$Sample != "ref" & 
+                              (grepl(i, global.long$Specie) | global.long$Specie %in% temp.refseq),]
+  
+  # sum data across species
+  temp.df <- ddply(temp.long, .(Sample, PDX, Drug, `Timepoint (hrs)`, Replicate), summarize,
+                  sum_abundance = sum(Abundance, na.rm = TRUE),
+                  sum_percent_abundance = sum(Percent_Abundance, na.rm = TRUE))
+  all.summed[[i]] <- temp.df
+  write.csv(temp.df, paste0(i, "_percent_abundance.csv"), row.names = FALSE)
+  
+  pdf(paste0(i, "_percent_histogram.pdf"))
+  hist(temp.df$sum_percent_abundance, xlab = paste("% Abundance of", i), main="")
+  dev.off()
+  
+  ggplot(temp.df,
+         aes(x=`Timepoint (hrs)`, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(cols=vars(PDX)) + ylab(paste("% Abundance of", i))
+  ggsave(paste0(i, "_percent_boxplot.pdf"))
+  
+  # scatter plot
+  ggplot(temp.df,
+         aes(x=Replicate, y=`sum_percent_abundance`, color = Drug)) +
+    geom_point() + facet_grid(PDX ~ `Timepoint (hrs)`) + ylab(paste("% Abundance of", i))
+  ggsave(paste0(i, "_percent_scatterPlot.pdf")) 
+}
+all.summed.df <- data.table::rbindlist(all.summed, use.names = TRUE, idcol = "Protein")
+
+ggplot(all.summed.df,
+         aes(x=Protein, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(PDX ~ `Timepoint (hrs)`) + ylab("% Abundance")
+  ggsave("Top1PercentAbundantProteins_percent_boxplot.pdf", width = 40)
+  
+  ggplot(all.summed.df,
+         aes(x=Protein, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(rows=vars(PDX)) + ylab("% Abundance") +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+  ggsave("Top1PercentAbundantProteins_PDX_percent_boxplot.pdf", width = 40)
+  
+  # need to reduce list further
+  top.bigProts <- bigProts %>% slice_max(median_perc_abundance, n=50)
+  top.bigProts$Name <- top.bigProts$Specie
+  top.names <- c()
+  for (i in 1:nrow(top.bigProts)) {
+    if (grepl("_MOUSE", top.bigProts$Specie[i]) | grepl("_RAT", top.bigProts$Specie[i])) {
+      top.bigProts$Name[i] <- strsplit(top.bigProts$Specie[i], "[|]")[[1]][2]
+    } else {
+      top.bigProts$Name[i] <- paste0(na.omit(unique(human.bigProts.map[human.bigProts.map$From == top.bigProts$Specie[i],]$`generic protein name`)), 
+                                     collapse = " ")
+    }
+    top.names <- unique(c(top.names, top.bigProts$Name[i]))
+  }
+  top.all.summed.df <- all.summed.df[all.summed.df$Protein %in% top.names,] # 6 if pick 20, 14 if pick 50
+  median.top.all.summed.df <- ddply(top.all.summed.df, .(Protein), summarize,
+                                    median_sum_perc_abundance = median(sum_percent_abundance, na.rm = TRUE),
+                                    max_sum_perc_abundance = max(sum_percent_abundance, na.rm = TRUE))
+  top.all.summed.df <- merge(top.all.summed.df, median.top.all.summed.df, all.x = TRUE)
+  top.all.summed.df <- top.all.summed.df[order(top.all.summed.df$median_sum_perc_abundance, decreasing = TRUE),]
+  
+  ggplot(top.all.summed.df,
+         aes(x=Protein, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(PDX ~ `Timepoint (hrs)`) + ylab("% Abundance")
+  ggsave("Top14_Top1PercentAbundantProteins_PDX_time_percent_boxplot.pdf")
+  
+  ggplot(top.all.summed.df,
+         aes(x=Protein, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(rows=vars(PDX)) + ylab("% Abundance") +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+  ggsave("Top14_Top1PercentAbundantProteins_PDX_percent_boxplot.pdf")
+  
+  ggplot(top.all.summed.df,
+         aes(x=Protein, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + ylab("% Abundance") +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+  ggsave("Top14_Top1PercentAbundantProteins_percent_boxplot.pdf")
+
+  # rename and compile before selection
+  median.all.summed.df <- ddply(all.summed.df, .(Protein), summarize,
+                                    median_sum_perc_abundance = median(sum_percent_abundance, na.rm = TRUE),
+                                    max_sum_perc_abundance = max(sum_percent_abundance, na.rm = TRUE))
+  all.summed.df.v2 <- merge(all.summed.df, median.all.summed.df, all.x = TRUE)
+  n.top <- 20
+  top.prots <- median.all.summed.df %>% slice_max(median_sum_perc_abundance, n=20)
+  top.all.summed.df.v2 <- all.summed.df.v2[all.summed.df.v2$Protein %in% top.prots$Protein,]
+  top.all.summed.df.v2 <- top.all.summed.df.v2[order(top.all.summed.df.v2$median_sum_perc_abundance, decreasing = TRUE),]
+  
+  ggplot(top.all.summed.df.v2,
+         aes(x=Protein, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(PDX ~ `Timepoint (hrs)`) + ylab("% Abundance") + scale_x_discrete(limit = unique(top.all.summed.df.v2$Protein)) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+  ggsave(paste0("Top_", n.top,"_Top1PercentAbundantProteins_PDX_time_percent_boxplot.pdf"))
+  
+  ggplot(top.all.summed.df.v2,
+         aes(x=Protein, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + facet_grid(rows=vars(PDX)) + ylab("% Abundance") + scale_x_discrete(limit = unique(top.all.summed.df.v2$Protein)) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+  ggsave(paste0("Top_", n.top, "_Top1PercentAbundantProteins_PDX_percent_boxplot.pdf"))
+  
+  ggplot(top.all.summed.df.v2,
+         aes(x=Protein, y=`sum_percent_abundance`, fill = Drug)) +
+    geom_boxplot() + ylab("% Abundance") + scale_x_discrete(limit = unique(top.all.summed.df.v2$Protein)) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+  ggsave(paste0("Top_", n.top, "_Top1PercentAbundantProteins_percent_boxplot.pdf"))
+
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
