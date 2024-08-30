@@ -88,6 +88,7 @@ hist(prot.summary$max_perc_abundance)
 perc.cutoff <- 0.99
 median_perc_cutoff <- quantile(prot.summary$median_perc_abundance, perc.cutoff) # 0.0219 for 0.95 percentile, 0.0741 for 0.99
 write.csv(prot.summary, "Protein_summary.csv", row.names = FALSE)
+prot.summary <- read.csv("Protein_summary[26].csv")
 
 # what about just look at the top 5% of proteins based on median_perc_abundance
 #bigProts <- prot.summary %>% slice_max(median_perc_abundance, n=ceiling(0.05*nrow(prot.summary))) # 523 proteins more abundant in most samples than 95% of proteins
@@ -447,5 +448,29 @@ ggplot(all.summed.df,
   ggsave(paste0("Top_", n.top, "_Top1PercentAbundantProteins_percent_boxplot.pdf"))
 
 ```
+```{r sum matrigel}
+#rat.contam <- c("collagen+type+i") # use + instead of space
+mouse.contam <- c("laminin", "collagen+iv", "enactin", "heparan+sulfate", "Transforming+growth+factor+beta", "TGFb") # use + instead of space
+#contam.names <- c(mouse.contam, rat.contam)
 
+all.temp.results <- list()
+  for (j in mouse.contam) {
+    if (i == "laminin") {
+      download.file("https://rest.uniprot.org/uniprotkb/stream?fields=accession%2Creviewed%2Cid%2Cprotein_name%2Cgene_names%2Corganism_name%2Clength&format=xlsx&query=%28%28%28protein_name%3A%22laminin+subunit+alpha%22%29+OR+%28protein_name%3A%22laminin+subunit+beta%22%29+OR+%28protein_name%3A%22laminin+subunit+gamma%22%29%29+AND+%28%28organism_id%3A9606%29+OR+%28organism_id%3A10090%29+OR+%28organism_id%3A10116%29%29%29", "uniprot_temp.xlsx")
+    } else {
+      download.file(paste0("https://rest.uniprot.org/uniprotkb/stream?fields=accession%2Creviewed%2Cid%2Cprotein_name%2Cgene_names%2Corganism_name%2Clength&format=xlsx&query=%28%28protein_name%3A",j,"%29+AND+%28%28organism_id%3A9606%29+OR+%28organism_id%3A10090%29+OR+%28organism_id%3A10116%29%29%29"), "uniprot_temp.xlsx")
+    }
+  temp.results <- readxl::read_excel("uniprot_temp.xlsx")
+  all.temp.results[[j]] <- temp.results
+  }
+all.uniprot.results <- data.table::rbindlist(all.temp.results, use.names = TRUE, idcol = "Query")
+write.csv(all.uniprot.results, "Known_matrigel_contaminants_UniProt_query_HumanMouseRat.csv", row.names = FALSE)
+
+# convert to RefSeq for human
+all.human.uniprot.results <- all.uniprot.results[all.uniprot.results$Organism == "Homo sapiens (Human)",]
+write.csv(all.human.uniprot.results, "Known_matrigel_contaminants_UniProt_query_Human.csv", row.names = FALSE)
+
+# sum percent abundance for these proteins across all human, mouse, rat
+
+```
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
