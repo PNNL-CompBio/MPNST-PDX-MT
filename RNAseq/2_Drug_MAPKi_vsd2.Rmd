@@ -1,0 +1,1256 @@
+---
+title: "DEseq2 data with LRT"
+author: "Yang Lyu"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    keep_tex: true
+    latex_engine: pdflatex
+    fig_caption: yes
+    highlight: haddock
+    number_sections: yes
+    #latex_engine: xelatex
+      
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo =F,message = F,warning = F,include=F)
+```
+
+```{r}
+rm(list=ls())
+```
+
+```{r}
+library(biomaRt) 
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+```
+
+
+```{r}
+source(file.path(getwd(),"Rfunction.R" ))
+Path <- gsub("/R(/Rcode)?$", "", getwd())
+Rawdata_path=file.path(Path,"Rawdata")
+dir.create(Rawdata_path)
+Process_path=file.path(Path,"Processed_data")
+dir.create(Process_path)
+```
+
+
+
+
+```{r}
+# STAR-Salmon
+Reference_path="/Volumes/lyu.yang/MAC_1/R/Public_database/Reference"
+STAR_path="/Volumes/Hirbe_lab_Drive_5/Hirbe_SR003350_NF_RNAseq/Nextflow3--star_index/star_salmon"
+dir("/Volumes/Hirbe_lab_Drive_5/Hirbe_SR003350_NF_RNAseq")
+Rawcount_path=file.path(Rawdata_path,"salmon.merged.gene_counts.tsv")
+TPM_path=file.path(Rawdata_path,"salmon.merged.gene_tpm.tsv")
+Raw_counts=readr::read_tsv(Rawcount_path)
+TPM_counts=readr::read_tsv(TPM_path)
+load(file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata")) # loading Protein_coding_genelist data
+Raw_counts_2=Raw_counts%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()%>%mutate_all(.,as.integer)
+Tumor_count_log=log2(Raw_counts_2+1)
+TPM_2=TPM_counts%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
+Drug_anno=readxl::read_excel(file.path(Rawdata_path,"Drug_annotation.xlsx"))
+Drug_class_name="MEK"
+
+```
+
+# Switch 8h with 24h in DMSO_d1; remove MN.2_MPNST_b2_0h_DMSO3_d2 in DMSO_d2
+
+## Original
+```{r}
+RNAseq_anno_org=data.frame(Sample_name=colnames(Raw_counts_2))%>%mutate(individualID="MN2")%>% mutate(Drug =gsub(".*\\_","",Sample_name))%>%
+                  mutate(Drug=ifelse(grepl("DMSO",Sample_name),"DMSO",Drug )) %>%
+                            mutate(Timepoint=case_when(
+                              grepl("0h",Sample_name)~"0h",
+                              grepl("8h",Sample_name)~"8h",
+                              grepl("24h",Sample_name)~"24h",
+                              TRUE ~ NA_character_)) %>%
+  mutate(Drug =gsub("\\d","",Drug))%>%left_join(.,Drug_anno,by="Drug")%>%mutate(Time=ifelse(grepl("SEL|TRA$|RIB|PAL|RMC|VOR|TNO",Drug),"12192024","12272024"))%>%mutate(Time=ifelse(grepl("d1",Sample_name),"DMSO_d1",ifelse(grepl("d2",Sample_name),"DMSO_d2",Time )))
+Drug_name = RNAseq_anno_org$Drug %>% unique()
+Drug_name=factor(Drug_name,levels = Drug_name)
+# Ensure you have 14 unique Drug names (1 for black, 13 other colors)
+if (length(Drug_name) != 14) {
+  stop("The number of unique drugs should be 14, including the one colored black.")
+}
+
+# Use RColorBrewer to get 13 colors from the Paired palette
+paired_colors =RColorBrewer:: brewer.pal(n = 12, name = "Paired")
+extra_color =RColorBrewer:: brewer.pal(n = 8, name = "Set3")[1]  # Take one color from another palette (e.g., Set3)
+
+# Combine black and the 13 colors
+drug_colors = c("black", paired_colors, extra_color)
+set.seed(12345)
+```
+
+
+# After switching and removing
+```{r}
+
+RNAseq_anno=RNAseq_anno_org%>%mutate(Timepoint=ifelse(Time=="DMSO_d1"&Timepoint=="8h","24hc",ifelse(Time=="DMSO_d1"&Timepoint=="24h","8hc",Timepoint )))%>%mutate(Timepoint=gsub("c","",Timepoint))
+Drug_name = RNAseq_anno$Drug %>% unique()
+Drug_name=factor(Drug_name,levels = Drug_name)
+# Ensure you have 14 unique Drug names (1 for black, 13 other colors)
+if (length(Drug_name) != 14) {
+  stop("The number of unique drugs should be 14, including the one colored black.")
+}
+
+# Use RColorBrewer to get 13 colors from the Paired palette
+paired_colors =RColorBrewer:: brewer.pal(n = 12, name = "Paired")
+extra_color =RColorBrewer:: brewer.pal(n = 8, name = "Set3")[1]  # Take one color from another palette (e.g., Set3)
+
+# Combine black and the 13 colors
+drug_colors = c("black", paired_colors, extra_color)
+set.seed(12345)
+RNAseq_DMSO_D=RNAseq_anno%>%dplyr::filter(Drug=="DMSO")%>%dplyr::filter(Sample_name!="MN.2_MPNST_b2_0h_DMSO3_d2")
+
+                            
+```
+                            
+
+
+# Select DMSO_D2 as control
+
+```{r}
+
+Drug_pickup=RNAseq_anno%>%dplyr::filter(grepl(Drug_class_name,Drug_class))
+
+# Select one DMSO group (There are two DMSO group)
+DMSO_data=RNAseq_DMSO_D%>%dplyr::filter(Drug=="DMSO")%>%dplyr::filter(grepl("d2",Sample_name))
+
+All_data=bind_rows(Drug_pickup,DMSO_data)%>%arrange(Drug,Timepoint)
+```
+
+```{r,include=T}
+knitr::kable(All_data[,1:6],caption = "Sample information")%>%kableExtra::kable_styling(latex_options = c("scale_down","hold_position"))
+```
+## Data reorganization: adding 0 timepoint in Raw count Data and TPM data for drug group
+## Deseq2 vocanal plot
+
+```{r}
+if ( !file.exists(file.path(Process_path,Drug_class_name,"Deseq2_OUT_vs_DMSO_d2.rdata" ))) {
+ Drug_reslist=list()
+
+  for (i in Drug_pickup$Drug) {
+  DMSO_rawcounts=Raw_counts_2[,DMSO_data$Sample_name]
+  DMSO_anno=DMSO_data%>%.[,c("Sample_name","Drug","Timepoint")]
+  Drug_samples=RNAseq_anno%>%dplyr::filter(Drug==i)%>%.[,c("Sample_name","Drug","Timepoint")]
+  Drug_rawcounts=Raw_counts_2[,Drug_samples$Sample_name]
+  Drug_0h=DMSO_rawcounts[,grepl("0h",colnames(DMSO_rawcounts))]
+  colnames(Drug_0h)=gsub("DMSO",i,colnames(Drug_0h))
+  Drug_0h_anno=data.frame(Sample_name=colnames(Drug_0h),Drug=i,Timepoint="0h")
+  New_counts=cbind(DMSO_rawcounts,Drug_0h,Drug_rawcounts)
+  New_anno=rbind(DMSO_anno,Drug_0h_anno,Drug_samples)%>%mutate(Group=paste0(Drug,"_",Timepoint))
+  New_anno$Drug=factor(New_anno$Drug,levels = c("DMSO",i))
+  New_anno$Timepoint=factor(New_anno$Timepoint,levels = c("0h","8h","24h"))
+  rownames(New_anno)=New_anno[,1]
+  filter_counts <- selectGenes_BY_group(New_counts, min.count=10, N=0.90,New_anno)
+  deseq2Data=DESeq2:: DESeqDataSetFromMatrix(countData =filter_counts, colData =New_anno,design = ~Group)
+  deseq2VST <- DESeq2::vst(deseq2Data)%>%SummarizedExperiment::assay()
+  #dds_LRT= DESeq2::DESeq(deseq2Data,test="LRT", reduced =~Drug+Timepoint)
+  #res_LRT = DESeq2::results(dds_LRT)
+  dds <- DESeq2::DESeq(deseq2Data)
+  res_list=list()
+  Timepoint=c("8h","24h")
+  for (t in Timepoint) {
+    drug_0h=paste0(i,"_","0h")
+    DMSO_t=paste0("DMSO","_",t)
+    group1=paste0(i,"_",t)
+    res_list[[t]]=list(drug_vs_0h=DESeq2::results(dds, contrast = c("Group", group1, drug_0h)),
+                      drug_vs_DMSO=DESeq2::results(dds, contrast = c("Group", group1, DMSO_t)))
+    
+    names(res_list[[t]])=c(paste0(i,"_",t,"_vs_",i ,"_0h"), paste0(i,"_",t,"_vs_","DMSO_",t))
+  }
+ 
+Drug_reslist[[i]]=list(Counts=New_counts,Anno=New_anno,deseq2VST,DDS=dds,VST=deseq2VST,RES=res_list)
+  
+}
+
+
+names(Drug_reslist)
+dir.create(file.path(Process_path,Drug_class_name))
+
+save(Drug_reslist,file=file.path(Process_path,Drug_class_name,"Deseq2_OUT_vs_DMSO_d2.rdata" ))
+} 
+
+load(file.path(Process_path,Drug_class_name,"Deseq2_OUT_vs_DMSO_d2.rdata" ))
+```
+
+```{r,include=T,fig.width=12,fig.height=12}
+plot_list=list()
+for (d in unique(Drug_pickup$Drug)) {
+ Drug= Drug_pickup$Drug[d]
+ Data=Drug_reslist[[d]]
+ RES_all=Data$RES
+
+
+ for (i in 1:length(RES_all)) {
+   RES_t=RES_all[[i]]
+   time=names(RES_all)[i]
+    for (t in names(RES_t)){
+      RES1=RES_t[[t]]%>%as.data.frame()%>%mutate(gene_symbol=rownames(.))
+      #list_name=t
+      plot_list[[t]]=Volcano_plot_rnaseq_simple_2(RES1,top_n = 20)+ggtitle(t)
+   
+  }
+  
+  
+}
+}
+
+cowplot::plot_grid(plotlist=plot_list,ncol=4)
+```
+
+## PCA plot based on VST data
+```{r,include=T,fig.width=16,fig.height=4}
+plot_list=list()
+for (d in unique(Drug_pickup$Drug)) {
+ Drug= Drug_pickup$Drug[d]
+ Data=Drug_reslist[[d]]
+ RES_all=Data$VST%>%as.data.frame()
+ plot_list[[d]]=PCA_Plot_3_shape (t(RES_all),All_data,"Sample_name","Drug","Timepoint")+
+  scale_color_manual(values = drug_colors)
+ colnames(RES_all)
+}
+
+
+cowplot::plot_grid(plotlist=plot_list,ncol=4)
+```
+
+
+## DEGs numbers 
+
+```{r,include=T,fig.width=12,fig.height=12}
+plot_list=list()
+for (d in unique(Drug_pickup$Drug)) {
+ Drug= Drug_pickup$Drug[d]
+ Data=Drug_reslist[[d]]
+ RES_all=Data$RES
+
+
+ for (i in 1:length(RES_all)) {
+   RES_t=RES_all[[i]]
+   time=names(RES_all)[i]
+    for (t in names(RES_t)){
+      RES1=RES_t[[t]]%>%as.data.frame()%>%mutate(gene_symbol=rownames(.))
+      #list_name=t
+      plot_list[[t]]=Bar_plot_RES (RES1, FC_cutoff = 0.67)+ggtitle(t)
+   
+  }
+  
+  
+}
+}
+
+cowplot::plot_grid(plotlist=plot_list,ncol=4)
+```
+
+## 10 MAPK pathway genes signature
+
+```{r,include=T}
+MAPK_genes=c("PHLDA1","SPRY2", "SPRY4", "ETV4", "ETV5", "DUSP4", "DUSP6", "CCND1", "EPHA2", "EPHA4") 
+print(MAPK_genes)
+```
+
+
+```{r,include=F}
+
+out=list()
+
+for (i in names(Drug_reslist)){
+  Data=Drug_reslist[[i]]
+  Sample_list=Data$Counts%>%colnames(.)
+  Genes=rownames(Data$RES[[1]][[1]])
+  TPM_pickup_2=TPM_2%>%.[,colnames(.) %in%Sample_list]
+  Annotion_file=Data$Anno%>%arrange(Timepoint,Drug)%>%dplyr::filter(Sample_name%in%colnames(TPM_pickup_2))
+  Annotion_file_2=Annotion_file%>%.[,c("Timepoint","Drug")]
+  TPM_pickup_3=TPM_pickup_2%>%as.data.frame()%>%.[Annotion_file$Sample_name] 
+  rownames(TPM_pickup_3)=rownames(TPM_pickup_2)
+  Color_Set1=RColorBrewer::brewer.pal(5,"Set1")[1:2]
+  names(Color_Set1)=unique(Annotion_file$Drug)
+  Color_Set2=RColorBrewer::brewer.pal(5,"Set1")[2:4]
+  names(Color_Set2)=unique(Annotion_file$Timepoint)
+ 
+  Color_list=list(Drug=Color_Set1,Timepoint=Color_Set2)
+  number= Annotion_file_2%>%dplyr::filter(Timepoint=="8h")%>%nrow()
+ out[[i]]=TPM_heatmap(TPM_pickup_3,MAPK_genes,Annotation_col=Annotion_file_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title="MAPK genes")%>%.$gtable
+
+}
+
+```
+
+```{r,fig.width=12,fig.height=6,include=T}
+cowplot::plot_grid(plotlist=out)
+```
+```{r}
+knitr::knit_exit()
+```
+
+
+```{r,include=F}
+GMT_files=list.files(file.path(Reference_path,"Human_GSEA"),pattern="all.v7.5.1.symbols.gmt.txt",full.names = T)%>%.[grepl("c2|c5|h",.)]
+
+FGSEA_list=list()
+FGSEA_q005_list=list()
+for (d in unique(Drug_pickup$Drug)) {
+  Data_drug=Drug_reslist[[d]]$RES
+  for (i in 1:length(Data_drug)) {
+     data_drug_time=Data_drug[[i]]
+     names(data_drug_time)
+     for (j in 1:length(data_drug_time)) {
+      data_drug_time_group=data_drug_time[[j]]%>%as.data.frame() 
+      name2=names(data_drug_time)[j]
+      print(name2)
+      res_q005=data_drug_time_group%>%dplyr::filter(padj<0.05)
+      res_q005_rank=res_q005%>%arrange(log2FoldChange) %>%.[c("log2FoldChange")]%>%as.data.frame() %>%tibble::rownames_to_column()
+      ranks <- tibble::deframe(res_q005_rank)
+      out_list=list()
+      set.seed(12345)
+      for (x in 1:length(GMT_files)){
+        Data=fgsea::gmtPathways(GMT_files[x])
+        set.seed(12345)
+        out_list[[x]] <- fgsea::fgseaMultilevel(Data, ranks,
+                           minSize=10,
+                           maxSize=500,nPermSimple = 10000)
+     }
+    FGSEA_list[[name2]]=do.call("rbind",out_list)
+    FGSEA_q005_list[[name2]]=do.call("rbind",out_list)%>%as.data.frame()%>%dplyr::filter(padj<0.05)
+   }
+   }
+ }
+```
+
+```{r}
+Pickup_groups=names(FGSEA_q005_list)%>%.[grepl("DMSO",.)]
+```
+
+```{r,include=T}
+FGSEA_q005_list_pickup=FGSEA_q005_list[Pickup_groups]
+FGSEA_q005_list_pickup_MAPK=lapply(FGSEA_q005_list_pickup, function(x) out=x%>%dplyr::filter(grepl("MAPK|ERK|AKT|MTOR",pathway)) )
+Out=do.call("rbind",FGSEA_q005_list_pickup_MAPK)%>%tibble::rownames_to_column(var="Group")%>%.[,c(1,2,3,7)]
+Out$Group=gsub("\\..*","",Out$Group)
+knitr::kable(x=Out,caption = "MAPK pathways (padj<0.05)")%>%kableExtra::kable_styling(latex_options = c("scale_down","hold_position"))%>%kableExtra:: column_spec(column=c(1:2),width="5cm")
+```
+```{r}
+knitr::knit_exit()
+```
+
+
+
+```{r,}
+output_plot=list()
+for (i in names(FGSEA_q005_list_pickup )){
+ 
+  data=FGSEA_q005_list_pickup[[i]]%>%dplyr::filter(grepl("KEGG|WP_|HALLMARK|REACTOME|GO",pathway))
+  up_NES=data%>%dplyr::filter(NES>0)%>%arrange(desc(NES))%>%.[1:10,]%>%na.omit()
+  Dn_NES=data%>%dplyr::filter(NES<0)%>%arrange(NES)%>%.[1:10,]%>%na.omit()
+  Outlist=list()
+  if (nrow(up_NES)>0) {
+    
+    Outlist[["up"]]=Enrich_dotplot_Single(up_NES)+ggtitle(i)
+  }
+  if (nrow(Dn_NES)>0) {
+    
+    Outlist[["DN"]]=Enrich_dotplot_Single(Dn_NES)+ggtitle(i)
+  }
+  
+
+  output_plot[[i]]=cowplot::plot_grid(plotlist =  Outlist,nrow=1)
+}
+
+```
+
+# TOP 10 up/DN pathways in each drug vs DMSO 
+**(KEGG|WP_|HALLMARK|REACTOME|GO)**
+
+
+```{r,fig.width=28,fig.height=12,include=T}
+output_plot[[1]]
+```
+\newpage
+```{r,fig.width=10,fig.height=6,include=T}
+output_plot[[2]]
+```
+
+\newpage
+```{r,fig.width=28,fig.height=10,include=T}
+output_plot[[3]]
+```
+\newpage
+```{r,fig.width=14,fig.height=6,include=T}
+output_plot[[4]]
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+
+```{r}
+FGSEA_list=list()
+Res_list_8h=res_list[[1]]
+ 
+ FGSEA_q005_list=list()
+ for (i in 1:length(Res_list_8h)){
+  data=Res_list_8h[[i]]
+  name2=names(Res_list_8h)[[i]]
+  res_q005=data%>%as.data.frame()%>%dplyr::filter(padj<0.05)
+  
+  res_q005_rank=res_q005%>%arrange(log2FoldChange) %>%.[c("log2FoldChange")]%>%as.data.frame() %>%tibble::rownames_to_column()
+  ranks <- tibble::deframe(res_q005_rank)
+  out_list=list()
+  for (x in 1:length(GMT_files)){
+ 
+     data=fgsea::gmtPathways(GMT_files[x])
+    set.seed(12345)
+    out_list[[x]] <- fgsea::fgseaMultilevel(data, ranks,
+                           minSize=10,
+                           maxSize=500,nPermSimple = 10000)
+  }
+                           
+  FGSEA_list[[name2]]=do.call("rbind",out_list)
+  FGSEA_q005_list[[name2]]=do.call("rbind",out_list)%>%as.data.frame()%>%dplyr::filter(padj<0.05)
+
+}
+
+all_sig_pathway_name=lapply(FGSEA_q005_list,function(x) x$pathway )%>%unlist()%>%unique()
+
+
+NES_sig_pathway_impute=list()
+for(i in names(FGSEA_list)){
+  Nes_data=FGSEA_list[[i]]
+  NES_sig_pathway_impute[[i]]=data.frame(pathway=all_sig_pathway_name)%>%left_join(., Nes_data)%>%mutate_at("NES",~tidyr::replace_na(.,0))%>%mutate_at("padj", ~tidyr::replace_na(.,1))%>%mutate(group=i)
+  
+  
+}
+
+ Pathwaylist_sig_all=do.call("rbind",NES_sig_pathway_impute)
+ Pathwaylist_sig_all$group=factor(Pathwaylist_sig_all$group,c(names(NES_sig_pathway_impute)))
+ 
+# if (!file.exists(file.path(Rawdata_path,"2_Flipped_rm_one_sample_GSEA_data.rdata" ))) {
+#save(Pathwaylist_sig_all,FGSEA_q005_list,file=file.path(Rawdata_path,"2_Flipped_rm_one_sample_GSEA_data.rdata" ))}
+```
+
+
+
+# Select DMSO D2 as control
+
+```{r}
+
+Drug_pickup=RNAseq_anno%>%dplyr::filter(grepl(Drug_class_name,Drug_class))
+
+# Select one DMSO group (There are two DMSO group)
+DMSO_data=RNAseq_anno%>%dplyr::filter(Drug=="DMSO")%>%dplyr::filter(grepl("d2",Sample_name))
+
+All_data=bind_rows(Drug_pickup,DMSO_data)%>%arrange(Drug,Timepoint)
+```
+
+```{r,include=T}
+knitr::kable(All_data[,1:6],caption = "Sample information")%>%kableExtra::kable_styling(latex_options = c("scale_down","hold_position"))
+```
+
+## Data reorganization: adding 0 timepoint in Raw count Data and TPM data for drug group  
+## Deseq2 
+
+```{r}
+Drug_reslist=list()
+
+for (i in Drug_pickup$Drug) {
+  
+  DMSO_rawcounts=Raw_counts_2[,DMSO_data$Sample_name]
+  DMSO_anno=DMSO_data%>%.[,c("Sample_name","Drug","Timepoint")]
+  Drug_samples=RNAseq_anno%>%dplyr::filter(Drug==i)%>%.[,c("Sample_name","Drug","Timepoint")]
+  Drug_rawcounts=Raw_counts_2[,Drug_samples$Sample_name]
+  Drug_0h=DMSO_rawcounts[,grepl("0h",colnames(DMSO_rawcounts))]
+  colnames(Drug_0h)=gsub("DMSO",i,colnames(Drug_0h))
+  Drug_0h_anno=data.frame(Sample_name=colnames(Drug_0h),Drug=i,Timepoint="0h")
+  New_counts=cbind(DMSO_rawcounts,Drug_0h,Drug_rawcounts)
+  New_anno=rbind(DMSO_anno,Drug_0h_anno,Drug_samples)%>%mutate(Group=paste0(Drug,"_",Timepoint))
+  New_anno$Drug=factor(New_anno$Drug,levels = c("DMSO",i))
+  New_anno$Timepoint=factor(New_anno$Timepoint,levels = c("0h","8h","24h"))
+  rownames(New_anno)=New_anno[,1]
+ 
+
+  filter_counts <- selectGenes_BY_group(New_counts, min.count=10, N=0.90,New_anno)
+  deseq2Data=DESeq2:: DESeqDataSetFromMatrix(countData =filter_counts, colData =New_anno,design = ~Group)
+  deseq2VST <- DESeq2::vst(deseq2Data)%>%SummarizedExperiment::assay()
+  #dds_LRT= DESeq2::DESeq(deseq2Data,test="LRT", reduced =~Drug+Timepoint)
+  #res_LRT = DESeq2::results(dds_LRT)
+  dds <- DESeq2::DESeq(deseq2Data)
+  res_list=list()
+  Timepoint=c("8h","24h")
+  for (t in Timepoint) {
+    drug_0h=paste0(i,"_","0h")
+    DMSO_t=paste0("DMSO","_",t)
+    group1=paste0(i,"_",t)
+    res_list[[t]]=list(drug_vs_0h=DESeq2::results(dds, contrast = c("Group", group1, drug_0h)),
+                      drug_vs_DMSO=DESeq2::results(dds, contrast = c("Group", group1, DMSO_t)))
+    
+    names(res_list[[t]])=c(paste0(i,"_",t,"_vs_",i ,"_0h"), paste0(i,"_",t,"_vs_","DMSO_",t))
+  }
+ 
+Drug_reslist[[i]]=list(Counts=New_counts,Anno=New_anno,deseq2VST,DDS=dds,VST=deseq2VST,RES=res_list)
+  
+}
+
+
+names(Drug_reslist)
+save(Drug_reslist,file=file.path(Process_path,"Deseq2_OUT_vs_DMSO_d2.rdata" ))
+ 
+```
+
+
+
+
+```{r,include=T,fig.width=12,fig.height=12}
+plot_list=list()
+for (d in unique(Drug_pickup$Drug)) {
+ Drug= Drug_pickup$Drug[d]
+ Data=Drug_reslist[[d]]
+ RES_all=Data$RES
+
+
+ for (i in 1:length(RES_all)) {
+   RES_t=RES_all[[i]]
+   time=names(RES_all)[i]
+    for (t in names(RES_t)){
+      RES1=RES_t[[t]]%>%as.data.frame()%>%mutate(gene_symbol=rownames(.))
+      #list_name=t
+      plot_list[[t]]=Volcano_plot_rnaseq_simple_2(RES1,top_n = 20)+ggtitle(t)
+   
+  }
+  
+  
+}
+}
+
+cowplot::plot_grid(plotlist=plot_list,ncol=4)
+```
+
+
+```{r,include=T,fig.width=16,fig.height=4}
+plot_list=list()
+for (d in unique(Drug_pickup$Drug)) {
+ Drug= Drug_pickup$Drug[d]
+ Data=Drug_reslist[[d]]
+ RES_all=Data$VST%>%as.data.frame()
+ plot_list[[d]]=PCA_Plot_3_shape (t(RES_all),All_data,"Sample_name","Drug","Timepoint")
+ colnames(RES_all)
+}
+
+
+cowplot::plot_grid(plotlist=plot_list,ncol=4)
+```
+
+
+# Stat
+
+
+```{r,include=T,fig.width=12,fig.height=12}
+plot_list=list()
+for (d in unique(Drug_pickup$Drug)) {
+ Drug= Drug_pickup$Drug[d]
+ Data=Drug_reslist[[d]]
+ RES_all=Data$RES
+
+
+ for (i in 1:length(RES_all)) {
+   RES_t=RES_all[[i]]
+   time=names(RES_all)[i]
+    for (t in names(RES_t)){
+      RES1=RES_t[[t]]%>%as.data.frame()%>%mutate(gene_symbol=rownames(.))
+      #list_name=t
+      plot_list[[t]]=Bar_plot_RES (RES1, FC_cutoff = 0.67)+ggtitle(t)
+   
+  }
+  
+  
+}
+}
+
+cowplot::plot_grid(plotlist=plot_list,ncol=4)
+```
+
+
+```{r}
+#file_name=paste0(Drug_class_name,"_Deseq2.rdata")
+#save(Drug_reslist,file=file.path(Process_path, file_name))
+```
+
+
+```{r}
+knitr::knit_exit()
+```
+
+
+```{r,fig.width=12,fig.height=18}
+for (d in seq_along(Drug_pickup$Drug)) {
+  
+  # Retrieve the current drug
+  Drug <- Drug_pickup$Drug[d]
+  
+  # Access the corresponding results list for the current drug
+  Data <- Drug_reslist[[d]]
+  RES_all <- Data$RES
+  
+  for (i in seq_along(RES_all)) {
+    
+    # Retrieve the list of results for the current index
+    RES_t <- RES_all[[i]]
+    
+    for (t in names(RES_t)) {
+      
+      # Access the specific result by name
+      RES1 <- RES_t[[t]]
+      
+      # Load the DESeq2 library if not already loaded
+      if (!requireNamespace("DESeq2", quietly = TRUE)) {
+        library(DESeq2)
+      }
+      
+      # Plot the MA plot for the current result
+      plotMA(RES1, ylim = c(-5, 5), main = paste(Drug, "-", t))
+    }
+  }
+}
+```
+
+
+```{r}
+# Sample_anno_2=Sample_anno%>%dplyr::filter(Drug!="Control")%>%mutate(Group=paste0(Drug,"_",Timepoint))
+# Raw_counts_rm_control=Raw_counts_2%>%.[,Sample_anno_2$Sample_name]
+Raw_counts_add_control=Raw_counts_2%>%mutate(sample_rep.0h1=sample.0h1,sample_rep.0h2=sample.0h2,sample_rep.0h3=sample.0h3)
+Sample_anno_2=data.frame(Sample_name=colnames(Raw_counts_add_control))%>%left_join(.,Sample_anno)%>%mutate(Drug=ifelse(is.na(Drug),"Mirda",Drug))%>%mutate(Timepoint=ifelse(is.na(Timepoint),"0hour",Timepoint))%>%mutate(Group=paste0(Drug,"_",Timepoint))
+rownames(Sample_anno_2)=Sample_anno_2$Sample_name
+Sample_anno_2$Timepoint=factor(Sample_anno_2$Timepoint,levels = c("0hour","8hour","24hour"))
+library(SummarizedExperiment)
+library(DESeq2)
+
+keep.exprs <- selectGenes_BY_group(Raw_counts_add_control, min.count=10, N=0.90,Sample_anno_2)
+keep.exprs_2=keep.exprs%>%mutate(Sum=apply(.,1,sum))%>%dplyr::filter(Sum>2)
+myFilt <- Raw_counts_add_control[rownames(keep.exprs_2),]
+dim(myFilt)
+}
+
+
+```
+
+
+```{r}
+# Raw_counts_add_control=Raw_counts_2%>%mutate(sample_rep.0h1=sample.0h1,sample_rep.0h2=sample.0h2,sample_rep.0h3=sample.0h3)
+# Sample_anno_2=data.frame(Sample_name=colnames(Raw_counts_add_control))%>%left_join(.,Sample_anno)%>%mutate(Drug=ifelse(is.na(Drug),"Mirda",Drug))%>%mutate(Timepoint=ifelse(is.na(Timepoint),"0hour",Timepoint))%>%mutate(Group=paste0(Drug,"_",Timepoint))
+# rownames(Sample_anno_2)=Sample_anno_2$Sample_name
+# Sample_anno_2$Timepoint=factor(Sample_anno_2$Timepoint,levels = c("0hour","8hour","24hour"))
+# library(SummarizedExperiment)
+# library(DESeq2)
+#   keep.exprs <- selectGenes_BY_group(Raw_counts_add_control, min.count=10, N=0.90,Sample_anno_2)
+# keep.exprs_2=keep.exprs%>%mutate(Sum=apply(.,1,sum))%>%dplyr::filter(Sum>2)
+# myFilt <- Raw_counts_add_control[rownames(keep.exprs_2),]
+# 
+# dim(myFilt)
+
+
+
+```
+ 
+
+```{r,fig.width=12,fig.height=6,include=T}
+Tumor_count_log=log2(Raw_counts_2+1)
+Drug_count_plot(Tumor_count_log,RNAseq_anno)
+```
+
+```{r}
+set.seed(12345)
+
+
+P1=PCA_Plot_3  (t(Tumor_count_log),RNAseq_anno,"Sample_name","Drug")
+P2=PCA_Plot_3  (t(Tumor_count_log),RNAseq_anno,"Sample_name","Timepoint")
+P3=PCA_Plot_3  (t(Tumor_count_log),RNAseq_anno,"Sample_name","Drug_class")
+
+```
+
+```{r,fig.width=12,fig.height=8,include=T}
+cowplot::plot_grid(P1,P2,P3,nrow=2)
+```
+
+```{r,fig.width=12,fig.height=10,include=T}
+set.seed(12345)
+P3_2=PCA_Plot_3_shape (t(Tumor_count_log),RNAseq_anno,"Sample_name","Drug","Timepoint")+facet_wrap(~Drug_class)
+P3_2
+```
+
+
+
+```{r}
+knitr::knit_exit()
+```
+
+```{r}
+# GTAC DATA
+# Rawcount_path="/Volumes/Hirbe_lab_Drive_5/Hirbe_SR003350_RNAseq_Kangwen/all.gene_counts.tsv" 
+# 
+# Rawcount_path="/Volumes/Hirbe_lab_Drive_5/Hirbe_SR003350_RNAseq_Kangwen/all.gene_counts.tsv"
+# Raw_counts=readr::read_tsv(Rawcount_path)%>%dplyr::filter(gene_biotype=="protein_coding")
+# #
+# Raw_counts_2=Raw_counts%>%.[grepl("sample",colnames(.))]%>%mutate(gene_name=Raw_counts$external_gene_name)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()%>%mutate_all(.,as.integer)
+# 
+# Raw_counts_2["ACTB",]
+```
+
+
+```{r}
+Sample_anno=data.frame(Sample_name=colnames(Raw_counts_2))%>%mutate(Drug=ifelse(grepl("D",Sample_name),"DMSO", ifelse(grepl("M",Sample_name),"Mirda","DMSO") ))%>%mutate(Timepoint=ifelse(grepl("0h",Sample_name),"0hour", ifelse(grepl("8h",Sample_name),"8hour","24hour") ))
+```
+
+
+```{r}
+PCA_Plot_3<- function (data,Annotation,VAR,Color,Shape) {
+  # logcountdata row:genes,column: samples
+  pca <- prcomp(data) 
+  pca_out<-as.data.frame(pca$x)
+  df_out<- pca_out %>%tibble::rownames_to_column(var=VAR)  %>% left_join(., Annotation) 
+  #df_out<- merge (pca_out,Annotation,by.x=0,by.y=0) 
+  
+  # label_color<- factor(df_out[,group])
+  ggplot(df_out,aes_string(x="PC1",y="PC2")) +geom_point(aes_string(colour = Color,shape=Shape),size=3) 
+}
+
+```
+
+```{r}
+deseq2Data=DESeq2:: DESeqDataSetFromMatrix(countData =Raw_counts_2, colData = Sample_anno,design = ~Timepoint)
+deseq2VST <- DESeq2::vst(deseq2Data)%>%SummarizedExperiment::assay()
+```
+
+```{r}
+# Sample_anno_2=Sample_anno%>%dplyr::filter(Drug!="Control")%>%mutate(Group=paste0(Drug,"_",Timepoint))
+# Raw_counts_rm_control=Raw_counts_2%>%.[,Sample_anno_2$Sample_name]
+Raw_counts_add_control=Raw_counts_2%>%mutate(sample_rep.0h1=sample.0h1,sample_rep.0h2=sample.0h2,sample_rep.0h3=sample.0h3)
+Sample_anno_2=data.frame(Sample_name=colnames(Raw_counts_add_control))%>%left_join(.,Sample_anno)%>%mutate(Drug=ifelse(is.na(Drug),"Mirda",Drug))%>%mutate(Timepoint=ifelse(is.na(Timepoint),"0hour",Timepoint))%>%mutate(Group=paste0(Drug,"_",Timepoint))
+rownames(Sample_anno_2)=Sample_anno_2$Sample_name
+Sample_anno_2$Timepoint=factor(Sample_anno_2$Timepoint,levels = c("0hour","8hour","24hour"))
+library(SummarizedExperiment)
+library(DESeq2)
+keep.exprs <- selectGenes_BY_group(Raw_counts_add_control, min.count=10, N=0.90,Sample_anno_2)
+keep.exprs_2=keep.exprs%>%mutate(Sum=apply(.,1,sum))%>%dplyr::filter(Sum>2)
+myFilt <- Raw_counts_add_control[rownames(keep.exprs_2),]
+
+dim(myFilt)
+
+
+```
+
+# Time course analyses with LRT
+**The LRT test can be especially helpful when performing time course analyses. We can use the LRT to explore whether there are any significant differences in treatment effect between any of the timepoints.**
+
+**For have an experiment looking at the effect of treatment over time on mice of two different genotypes. We could use a design formula for our ‘full model’ that would include the major sources of variation in our data: genotype, treatment, time, and our main condition of interest, which is the difference in the effect of treatment over time (treatment:time).**
+```{r}
+#https://rstudio-pubs-static.s3.amazonaws.com/329027_593046fb6d7a427da6b2c538caf601e1.html
+deseq2Data_add_control=DESeq2:: DESeqDataSetFromMatrix(countData =myFilt , colData = Sample_anno_2,design = ~Drug+Timepoint+Drug:Timepoint)
+deseq2Data_add_control$Timepoint=relevel(deseq2Data_add_control$Timepoint,"0hour")
+dds_LRT= DESeq2::DESeq(deseq2Data_add_control,test="LRT", reduced =~Drug+Timepoint)
+DESeq2::resultsNames(dds_LRT)
+```
+
+```{r}
+Mirda_8h_vs_DMSO=results(dds_LRT,name="DrugMirda.Timepoint8hour")%>%as.data.frame()
+Mirda_8h_vs_DMSO_sig=Mirda_8h_vs_DMSO%>%dplyr::filter(padj<0.05)
+Mirda_24h_vs_DMSO=results(dds_LRT,name="DrugMirda.Timepoint24hour")%>%as.data.frame()
+Mirda_24h_vs_DMSO_sig=Mirda_24h_vs_DMSO%>%dplyr::filter(padj<0.05)
+
+```
+
+
+```{r}
+# # Extract results
+res_LRT <- results(dds_LRT)
+res_LRT_q005=res_LRT %>%as.data.frame()%>%dplyr::filter(padj<0.05)
+rld <- rlogTransformation(dds_LRT)
+
+rld_mat <- assay(rld)
+cluster_rlog=rld_mat[rownames(res_LRT_q005),]
+
+TPM_counts_clean=TPM_2[rownames(cluster_rlog),]%>%mutate(sample_rep.0h1=sample.0h1,sample_rep.0h2=sample.0h2,sample_rep.0h3=sample.0h3)
+
+logTPM=log(TPM_counts_clean+1)
+```
+
+
+
+# Volcano plot for DEPs
+
+```{r,fig.width=18,fig.height=18,include=T}
+
+DEG_data_1= Mirda_8h_vs_DMSO%>%mutate(gene_symbol=rownames(.))%>%dplyr::filter(padj<0.05)
+
+DEG_data_2= Mirda_24h_vs_DMSO%>%mutate(gene_symbol=rownames(.))%>%dplyr::filter(padj<0.05)
+
+DEG_list=list("Mirda_vs_DMSO_8hr"=DEG_data_1$gene_symbol,"Mirda_vs_DMSO_24hr"=DEG_data_2$gene_symbol)
+
+Out=Volcano_plot_rnaseq_simple (DEG_data_1,DEG_list,"Mirda_vs_DMSO_8hr")
+Out2=Volcano_plot_rnaseq_simple(DEG_data_2,DEG_list,"Mirda_vs_DMSO_24hr") 
+cowplot::plot_grid(Out,Out2,ncol=2)
+```
+
+
+```{r,fig.width=12,fig.height=18,include=F}
+# Inspired by https://lpantano.github.io/DEGreport/reference/degPatterns.html
+
+data=logTPM
+clusters <- DEGreport::degPatterns(data, metadata = Sample_anno_2, time="Timepoint", col="Drug",nClusters =6)
+```
+
+
+
+```{r}
+Cluster_data=clusters[["normalized"]]%>%mutate(cluster=paste0("Cluster",cluster))
+Cluster_Genelist=list()
+for (i in unique(Cluster_data$cluster)){
+ Cluster_Genelist[[i]]=Cluster_data%>%dplyr::filter(cluster==i)%>%.$genes
+  
+}
+
+
+sig_plot_list=list()
+
+for (i in names(Cluster_Genelist)) {
+  Gene=Cluster_data%>%dplyr::filter(cluster==i)%>%.$genes
+  DEG_data_1= Mirda_8h_vs_DMSO%>%mutate(gene_symbol=rownames(.))%>%dplyr::filter(gene_symbol%in%Gene)
+  DEG_data_2= Mirda_24h_vs_DMSO%>%mutate(gene_symbol=rownames(.))%>%dplyr::filter(gene_symbol%in%Gene)
+
+  Out=Volcano_plot_rnaseq_add_label_update(DEG_data_1,Cluster_Genelist,i)
+  Out2=Volcano_plot_rnaseq_add_label_update(DEG_data_2,Cluster_Genelist,i) 
+  sig_plot_list[[i]]=cowplot::plot_grid(Out,Out2,rnow=1,labels=c("Mirda_vs_DMSO_8h","Mirda_vs_DMSO_24h"),vjust=3.0,hjust=-1,label_size=10)
+}
+```
+
+```{r}
+Data=logTPM%>%t()%>%as.data.frame()%>%tibble::rownames_to_column(var="Sample_name")%>%tidyr::gather(,key="genes",value="Log2TPM",-Sample_name)
+
+cluster_norm=clusters[["normalized"]]%>%dplyr::filter(merge!="Mirda0hour")%>%left_join(.,Data) 
+#%>%dplyr::filter(merge!="Mirda0hour")%>%left_join(.,Data)%>%mutate(Cluster=paste0("Cluster",cluster))
+# Use the data yourself for custom figures
+# P1=ggplot(cluster_norm,
+#         aes(Timepoint, Log2TPM, color = Drug,shape=genes)) +
+#    geom_point(position = position_jitterdodge(dodge.width = 0.9)) +
+#    # change the method to make it smoother
+#      geom_smooth(aes(group=Timepoint), method = "lm")
+cluster_plot=list()
+
+for (i in unique(cluster_norm$cluster)) {
+  data=cluster_norm%>%dplyr::filter(cluster==i)
+  cluster_plot[[i]]=DEGreport::degPlotCluster(data, "Timepoint", "Drug")
+
+}
+
+cluster_plot[[i]]
+```
+
+
+# Cluster 1,3 and 6 (Gene expressions were upregulated at 8 and/or 24 hour in DMSO group)
+
+## Cluster1
+
+```{r,fig.width=18,fig.height=15}
+i=1
+data=cluster_norm%>%dplyr::filter(cluster==i)
+out1=DEGreport::degPlotCluster(data, "Timepoint", "Drug")
+```
+
+```{r,fig.width=18,fig.height=20,include=T}
+cowplot::plot_grid(gridExtra::arrangeGrob( out1,nullGrob(), ncol=1),sig_plot_list[[i]],ncol=2,rel_widths = c(0.5,1))
+```
+
+## cluster 3
+
+```{r,fig.width=18,fig.height=15}
+i=3
+data=cluster_norm%>%dplyr::filter(cluster==i)
+out1=DEGreport::degPlotCluster(data, "Timepoint", "Drug")
+
+```
+
+
+```{r,fig.width=18,fig.height=20,include=T}
+cowplot::plot_grid(gridExtra::arrangeGrob( out1,nullGrob(), ncol=1),sig_plot_list[[i]],ncol=2,rel_widths = c(0.5,1))
+```
+
+
+
+## cluster6
+
+```{r,fig.width=18,fig.height=15}
+i=6
+data=cluster_norm%>%dplyr::filter(cluster==i)
+out1=DEGreport::degPlotCluster(data, "Timepoint", "Drug")
+
+```
+
+
+```{r,fig.width=18,fig.height=20,include=T}
+cowplot::plot_grid(gridExtra::arrangeGrob( out1,nullGrob(), ncol=1),sig_plot_list[[i]],ncol=2,rel_widths = c(0.5,1))
+```
+
+# Cluster 4 and 5 (Gene expressions were downregulated at 8 and/or 24 hour in DMSO group)
+
+## Cluster 4
+
+```{r,fig.width=18,fig.height=15}
+i=4
+data=cluster_norm%>%dplyr::filter(cluster==i)
+out1=DEGreport::degPlotCluster(data, "Timepoint", "Drug")
+
+```
+
+
+```{r,fig.width=18,fig.height=20,include=T}
+cowplot::plot_grid(gridExtra::arrangeGrob( out1,nullGrob(), ncol=1),sig_plot_list[[i]],ncol=2,rel_widths = c(0.5,1))
+```
+
+## Cluster5
+
+```{r,fig.width=18,fig.height=15}
+i=5
+data=cluster_norm%>%dplyr::filter(cluster==i)
+out1=DEGreport::degPlotCluster(data, "Timepoint", "Drug")
+
+```
+
+
+```{r,fig.width=18,fig.height=20,include=T}
+cowplot::plot_grid(gridExtra::arrangeGrob(out1,nullGrob(), ncol=1),sig_plot_list[[i]],ncol=2,rel_widths = c(0.5,1))
+```
+
+
+# Cluster 2  (Gene expressions were upregulated at 8 and 24 hour in DMSO and Mirda groups )
+
+```{r,fig.width=18,fig.height=40}
+i=2
+data=cluster_norm%>%dplyr::filter(cluster==i)
+out1=DEGreport::degPlotCluster(data, "Timepoint", "Drug")
+
+```
+
+
+```{r,fig.width=18,fig.height=48,include=T}
+cowplot::plot_grid(gridExtra::arrangeGrob( out1,nullGrob(), ncol=1),sig_plot_list[[i]],ncol=2,rel_widths = c(0.5,1))
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+
+
+# ETV5 AND SPRY4 expression (TPM)
+
+```{r,include=F}
+Genes=c("ETV5","SPRY4")
+Data=logTPM[Genes,]%>%t()%>%as.data.frame()%>%tibble::rownames_to_column(var="Sample_name")%>%tidyr::gather(,key="genes",value="Log2TPM",-Sample_name)
+
+cluster_norm=clusters[["normalized"]]%>%dplyr::filter(grepl("ETV5|SPRY4",genes))%>%dplyr::filter(merge!="Mirda0hour")%>%left_join(.,Data)
+# Use the data yourself for custom figures
+P1=ggplot(cluster_norm,
+        aes(Timepoint, Log2TPM, color = Drug,shape=genes)) +
+   geom_point(position = position_jitterdodge(dodge.width = 0.9)) +
+   # change the method to make it smoother
+     geom_smooth(aes(group=Timepoint), method = "lm")
+
+P2=ggplot(cluster_norm,
+        aes(Timepoint, value, color = Drug,shape=genes)) +
+   geom_point(position = position_jitterdodge(dodge.width = 0.9)) +ylab("normalized_log2TPM")+
+   # change the method to make it smoother
+     geom_smooth(aes(group=Timepoint), method = "lm")
+```
+
+
+```{r,fig.width=6,fig.height=3,include=T}
+cowplot::plot_grid(P1,P2,nrow=1)
+```
+
+
+
+# Pathway analysis for each cluster
+
+```{r}
+sig_path_list=list()
+
+for (i in 1:6) {
+Gene=clusters[["normalized"]]%>%dplyr::filter(cluster==i)%>%.$genes
+Cluster_1_sig_path=Gene_pathway_sig_enrich(Gene)
+Cluster_1_sig_path_pickup=Cluster_1_sig_path%>%dplyr::filter(Count>2&pvalue<0.05)
+sig_path_list[[i]]=Cluster_1_sig_path_pickup%>%mutate(Cluster=i)
+}
+
+
+
+```
+
+
+```{r}
+sig_path_list[[6]]%>%dplyr::filter(grepl("WP_|HALLMARK|KEGG",ID))
+```
+
+
+```{r}
+knitr::knit_exit()
+```
+
+
+
+
+```{r}
+res=DESeq2::results(Deg_add_control,name="Timepoint_8hour_vs_0hour", alpha = 0.05)%>%as.data.frame()
+res_q005=res%>%dplyr::filter(padj<0.05)
+res[c("ETV5", "SPRY4"),]
+Drug_Mirda_vs_DMSO_res_na=res_q005%>%dplyr::filter(is.na(padj))
+```
+
+
+
+# For mirda 24hour vs 0hour
+```{r}
+# 
+res=DESeq2::results(Deg_add_control,list(c("DrugMirda.Timepoint24hour","Timepoint_24hour_vs_0hour"  )), alpha = 0.05) %>%as.data.frame()
+res_q005=res%>%dplyr::filter(padj<0.05)
+res[c("ETV5", "SPRY4"),]
+Drug_Mirda_vs_DMSO_res_na=res_q005%>%dplyr::filter(is.na(padj))
+
+res=DESeq2::results(Deg_add_control,list(c("Timepoint_24hour_vs_0hour"  )), alpha = 0.05) %>%as.data.frame()
+res_q005=res%>%dplyr::filter(padj<0.05)
+res[c("ETV5", "SPRY4"),]
+Drug_Mirda_vs_DMSO_res_na=res_q005%>%dplyr::filter(is.na(padj))
+
+```
+
+
+
+```{r}
+plist=list()
+library(ggplot2)
+for (i in 1:5){
+  genes=rownames (res_q005)[i]
+  TPM_data=TPM_2%>%t()%>%as.data.frame()%>%.[genes]%>%setNames("symbol")%>%mutate(Sample_name=rownames(.)) 
+ plist[[i]]= ggplot(TPM_data,aes(x=Sample_name,y=symbol))+geom_col()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ylab(genes)
+  
+}
+
+cowplot::plot_grid(plotlist = plist,ncol=3)
+```
+
+
+# For mirda 8hour vs 0hour
+```{r}
+# 
+res=DESeq2::results(Deg_add_control,list(c("DrugMirda.Timepoint8hour","Timepoint_8hour_vs_0hour"  )), alpha = 0.05) %>%as.data.frame()
+res_q005=res%>%dplyr::filter(padj<0.05)
+res[c("ETV5", "SPRY4"),]
+Drug_Mirda_vs_DMSO_res_na=res_q005%>%dplyr::filter(is.na(padj))
+
+plist=list()
+library(ggplot2)
+for (i in 1:5){
+  genes=rownames (res_q005)[i]
+  TPM_data=TPM_2%>%t()%>%as.data.frame()%>%.[genes]%>%setNames("symbol")%>%mutate(Sample_name=rownames(.)) 
+ plist[[i]]= ggplot(TPM_data,aes(x=Sample_name,y=symbol))+geom_col()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ylab(genes)
+  
+}
+
+cowplot::plot_grid(plotlist = plist,ncol=3)
+```
+
+
+
+# 8hr Mirda vs DMSO
+
+```{r}
+# 
+res=DESeq2::results(Deg_add_control,list(c("DrugMirda.Timepoint8hour","Drug_Mirda_vs_DMSO"  )), alpha = 0.05) %>%as.data.frame()
+res_q005=res%>%dplyr::filter(padj<0.05)%>%arrange(desc(log2FoldChange))
+res_q005[c("ETV5", "SPRY4"),]
+
+res=DESeq2::results(Deg_add_control,list(c("DrugMirda.Timepoint8hour"  )), alpha = 0.05) %>%as.data.frame()
+res_q005=res%>%dplyr::filter(padj<0.05)%>%arrange(desc(log2FoldChange))
+res_q005[c("ETV5", "SPRY4"),]
+
+```
+
+
+```{r}
+
+Drug_Mirda_vs_DMSO_res_na=res_q005%>%dplyr::filter(is.na(padj))
+plist=list()
+library(ggplot2)
+for (i in 1:5){
+  genes=rownames (res_q005)[i]
+  TPM_data=TPM_2%>%t()%>%as.data.frame()%>%.[genes]%>%setNames("symbol")%>%mutate(Sample_name=rownames(.)) 
+ plist[[i]]= ggplot(TPM_data,aes(x=Sample_name,y=symbol))+geom_col()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ylab(genes)
+  
+}
+
+cowplot::plot_grid(plotlist = plist,ncol=3)
+```
+
+# 24hr Mirda vs DMSO
+```{r}
+res=DESeq2::results(Deg_add_control,list(c("DrugMirda.Timepoint24hour","Drug_Mirda_vs_DMSO"  )), alpha = 0.05) %>%as.data.frame()
+
+res_q005=res%>%dplyr::filter(padj<0.05)%>%arrange(desc(log2FoldChange))
+res_q005[c("ETV5", "SPRY4"),]
+Drug_Mirda_vs_DMSO_res_na=res_q005%>%dplyr::filter(is.na(padj))
+genes=c("ETV5")
+plist=list()
+library(ggplot2)
+for (i in 1:5){
+  genes=rownames (res_q005)[i]
+  TPM_data=TPM_2%>%t()%>%as.data.frame()%>%.[genes]%>%setNames("symbol")%>%mutate(Sample_name=rownames(.)) 
+ plist[[i]]= ggplot(TPM_data,aes(x=Sample_name,y=symbol))+geom_col()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ylab(genes)
+  
+}
+
+cowplot::plot_grid(plotlist = plist,ncol=3)
+```
+
+# for Mirda 8hr vs 0hr
+```{r}
+res=DESeq2::results(Deg_add_control,list(c("DrugMirda.Timepoint8hour","Timepoint_8hour_vs_0hour"  )), alpha = 0.05) %>%as.data.frame()
+
+res_q005=res%>%dplyr::filter(padj<0.05)%>%arrange(desc(log2FoldChange))
+res_q005[c("ETV5", "SPRY4"),]
+Drug_Mirda_vs_DMSO_res_na=res_q005%>%dplyr::filter(is.na(padj))
+genes=c("ETV5")
+plist=list()
+library(ggplot2)
+for (i in 1:5){
+  genes=rownames (res_q005)[i]
+  TPM_data=TPM_2%>%t()%>%as.data.frame()%>%.[genes]%>%setNames("symbol")%>%mutate(Sample_name=rownames(.)) 
+ plist[[i]]= ggplot(TPM_data,aes(x=Sample_name,y=symbol))+geom_col()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ylab(genes)+xlab()
+  
+}
+
+cowplot::plot_grid(plotlist = plist,ncol=3)
+```
+
+
+```{r}
+res=DESeq2::results(Deg_add_control,list(c("Timepoint24hour.DrugMirda","Drug_Mirda_vs_DMSO"  )), alpha = 0.05) %>%as.data.frame()
+res_q005=res%>%dplyr::filter(padj<0.05)
+res_q005[c("ETV5", "SPRY4"),]
+Drug_Mirda_vs_DMSO_res_na=res_q005%>%dplyr::filter(is.na(padj))
+genes=c("ETV5")
+TPM_data=TPM_2%>%t()%>%as.data.frame()%>%.[genes]%>%setNames("symbol")%>%mutate(Sample_name=rownames(.)) 
+
+library(ggplot2)
+ggplot(TPM_data,aes(x=Sample_name,y=symbol))+geom_col()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ylab(genes)
+
+```
+
+
+```{r}
+# DMESO
+Drug_Mirda_vs_DMSO_res=DESeq2::results(Deg_rm_control,name= "Timepoint8hour.DrugMirda" , alpha = 0.05) %>%as.data.frame()
+Drug_Mirda_vs_DMSO_res_q005=Drug_Mirda_vs_DMSO_res%>%dplyr::filter(padj<0.05)
+
+Drug_Mirda_vs_DMSO_res_na=Drug_Mirda_vs_DMSO_res%>%dplyr::filter(is.na(padj))
+
+Drug_Mirda_vs_DMSO_res[c("ETV5", "SPRY4"),]
+
+Raw_counts_rm_control[c("ETV5", "SPRY4"),]
+
+```
+
+
+```{r}
+dds=Deg_add_control
+res <- results(dds, name="Timepoint8hour.DrugMirda")%>%as.data.frame()
+res_q005=res%>%dplyr::filter(padj<0.05)
+ix = which.min(res$padj) # most significant
+ix = which.min(res$log2FoldChange) # most significant
+
+res <- res[order(res$log2FoldChange),] # sort
+knitr::kable(res[1:5,-(3:4)])
+```
+
+
+```{r}
+ix=rownames( res_q005)[1]
+barplot(TPM_2[ix,],las=2, main=rownames(TPM_2)[ix]  )
+```
+
+
+```{r}
+# 8hr
+dds=Deg_rm_control
+res = results(dds, contrast=c("Drug","Mirda","DMSO"))
+ix = which.min(res$padj) # most significant
+res <- res[order(res$padj),] # sort
+knitr::kable(res[1:5,-(3:4)])
+```
+
+```{r}
+dds=Deg_rm_control
+res <- results(dds, list( c("condition_Trt_vs_Ctrl","genotypeMU.conditionTrt") ))
+ix = which.min(res$padj) # most significant
+res <- res[order(res$padj),] # sort
+kable(res[1:5,-(3:4)])
+```
+
+ 
+```{r}
+# 24hr
+res = results(Deg_rm_control, contrast=c("Drug","Mirda","DMSO"))
+ix = which.min(res$padj) # most significant
+res <- res[order(res$padj),] # sort
+knitr::kable(res[1:5,-(3:4)])
+ 
+
+
+
+
+```{r}
+DMSO_samples=Sample_anno%>%dplyr::filter(Drug%in%c("Control","DMSO"))
+DMSO_count=Raw_counts_2[,DMSO_samples$Sample_name]
+DMSO_anno=data.frame(Sample_name=colnames(DMSO_count))%>%left_join(.,Sample_anno)
+DMSO_fill <- DESeq2:: DESeqDataSetFromMatrix(countData =DMSO_count, colData = DMSO_anno,
+                                             design = ~Timepoint)
+DMSO_Deg<- DESeq2::DESeq(DMSO_fill)
+DESeq2::resultsNames(DMSO_Deg)
+DMSO_24h_res <- DESeq2::results(DMSO_Deg,name= "Timepoint_24hour_vs_0hour" , alpha = 0.05) %>%as.data.frame()
+DMSO_8h_res <- DESeq2::results(DMSO_Deg,name= "Timepoint_8hour_vs_0hour" , alpha = 0.05) %>%as.data.frame()
+
+
+```
+
+```{r}
+Mirda_samples=Sample_anno%>%dplyr::filter(Drug%in%c("Control","Mirda"))
+Mirda_count=Raw_counts_2[,Mirda_samples$Sample_name]
+Mirda_anno=data.frame(Sample_name=colnames(Mirda_count))%>%left_join(.,Sample_anno)
+Mirda_fill <- DESeq2:: DESeqDataSetFromMatrix(countData =Mirda_count, colData = Mirda_anno,
+                                             design = ~Timepoint)
+Mirda_Deg<- DESeq2::DESeq(Mirda_fill)
+DESeq2::resultsNames(Mirda_Deg)
+Mirda_res <- DESeq2::results(Mirda_Deg,  alpha = 0.05) %>%as.data.frame()
+
+Mirda_24h_res <- DESeq2::results(Mirda_Deg,name= "Timepoint_24hour_vs_0hour" , alpha = 0.05) %>%as.data.frame()
+Mirda_8h_res <- DESeq2::results(Mirda_Deg,name= "Timepoint_8hour_vs_0hour" , alpha = 0.05) %>%as.data.frame()
+
+```
+
+```{r}
+
+save(deseq2VST,DMSO_8h_res,Mirda_8h_res,DMSO_24h_res,Mirda_24h_res  ,Sample_anno,file=file.path(Rawdata_path,"DEseq2_out.rdata"))
+```
+
+
+```{r}
+knitr::knit_exit()
+```
+
+ 
+
