@@ -1,0 +1,63 @@
+default:
+  document:
+    author: "Yang Lyu"
+  PT_ID: "JH-2-009"
+  Sample_input: 1
+  tumor_type: "Tumor" # " PDX" or  "Tumor"
+  Path: "/Volumes/lyu.yang/MAC_1/R/Project/14_MPNST_tumor_evolution"
+  PW_path: "/Volumes/lyu.yang/MAC_1/R/Project/14_MPNST_tumor_evolution/Rscript/Synapse_pd.txt"
+  Email: "lyu.yang@wustl.edu"
+  Reference_path: "/Volumes/lyu.yang/MAC_1/R/Public_database/Reference"
+  base_output_dir: "/Volumes/lyu.yang/MAC_1/R/Project/14_MPNST_tumor_evolution/Report"
+  Cluster_number: 15
+  
+  genomic_settings:
+    tumor:
+      normal:
+        Norm_RDR: [0.85, 1.1]
+        BAF: [0.4, 0.5]
+      LOH:
+        Norm_RDR: [0.85, 1.1]
+        BAF: [0, 0.4]
+      trisomy:
+        Norm_RDR: [1.1, 1.42] #0.42 for tumor purity with 0.85 
+        BAF: [0, 0.4]  #0.36 for tumor purity with 0.85 
+      tetrasomy:
+        Norm_RDR: [1.1, 1.9]
+        BAF: [0.36, 0.5]
+      tetrasomy_LOH:
+        Norm_RDR: [1.42, 1.9] #0.42 for tumor purity with 0.85 
+        BAF: [0, 0.3] # Tumor purity with 0.85
+      het_loss:
+        Norm_RDR: [0, 0.85]
+        BAF: [0.1, 0.4]
+      homo_loss:
+        Norm_RDR: [0, 0.85]
+        BAF: [0.1, 0.4]
+      bandwidth_1: 0.03
+      bandwidth_2: 0.027
+
+    PDX:
+      normal:
+        Norm_RDR: [0.85, 1.1]
+        BAF: [0.4, 0.5]
+      LOH:
+        Norm_RDR: [0.85, 1.1]
+        BAF: [0, 0.4]
+      trisomy:
+        Norm_RDR: [1.1, 1.5]
+        BAF: [0, 0.4]
+      tetrasomy:
+        Norm_RDR: [1.1, 2.05]
+        BAF: [0.4, 0.5]
+      tetrasomy_LOH:
+        Norm_RDR: [1.5, 2.05]
+        BAF: [0, 0.4]
+      het_loss:
+        Norm_RDR: [0, 0.85]
+        BAF: [0.1, 0.4]
+      homo_loss:
+        Norm_RDR: [0, 0.85]
+        BAF: [0.1, 0.4]
+      bandwidth_1: 0.03
+      bandwidth_2: 0.03
