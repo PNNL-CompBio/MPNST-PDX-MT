@@ -1,0 +1,282 @@
+---
+title: "Kinase Enrichment from Phosphoproteomic Data Using KEA3"
+author: "Ruby Fore"
+date: "2024-11-15"
+output: html_document
+---
+
+```{r}
+# load required libraries
+library(ggplot2)
+library(dplyr)
+library(httr)
+library(jsonlite)
+library(KSEAapp)
+
+```
+
+
+
+Obtain the phosphosite data from Synapse 
+
+```{r}
+# login to Synapse
+synapser::synLogin()
+```
+
+
+```{r}
+# normalized phosphoproteomics data
+fileEntity <- synapser::synGet('syn61695519')
+phosphosites <- read.table(fileEntity$path, header = T)
+```
+
+
+Check for level of missingness in phosphosite data
+
+
+```{r}
+dim(phosphosites)
+sum(is.na(phosphosites))
+# number of proteins present in at least 50% of samples (should be 0 
+# thanks to preprocessing)
+sum(rowSums(is.na(phosphosites))/66 > 0.5)
+```
+
+Now we can impute the remaining missing values to the mean of each protein/row. 
+
+```{r}
+# get the indices of NA's
+na_indices <- which(is.na(phosphosites), arr.ind = T)
+# replace unique row by row with the rowMeans(..., na.rm=T)
+phosphosites[na_indices] <- rowMeans(phosphosites, na.rm=T)[na_indices[,1]]
+# check that all NA's have been imputed
+sum(is.na(phosphosites))
+```
+
+
+Now we want to create a data frame with the sample info, seperated into columns.
+
+```{r}
+#make factor info from the column names
+factorInfo <- data.frame(condition = colnames(phosphosites))
+
+factorInfo<-factorInfo|>
+  tidyr::separate(condition, into = c("sample", 'drug-time-rep'), sep = '_', remove=F, extra='merge') |>
+  tidyr::separate(`drug-time-rep`, into=c("drug", "time-rep"), sep = "_", extra='merge') |>
+  tidyr::separate(`time-rep`, into=c("time", "rep"), sep=-8)
+
+```
+
+The function below runs differential gene expression in limma and returns the 'topTable' of genes, p-vals and log fold changes. 
+
+```{r}
+# function to get limma topTable for specified data, formula and contrast
+getNdiffExpressedGenes <- function(data, formula, analysisContrast){
+  
+  factorInfo <- data.frame(condition = colnames(data))
+factorInfo<-factorInfo|>
+  tidyr::separate(condition, into = c("sample", 'drug-time-rep'), sep = '_', remove=F, extra='merge') |>
+  tidyr::separate(`drug-time-rep`, into=c("drug", "time-rep"), sep = "_", extra='merge') |>
+  tidyr::separate(`time-rep`, into=c("time", "rep"), sep=-8)
+
+
+
+factorInfo$drug <-as.factor(factorInfo$drug)
+
+factorInfo$time <- as.factor(factorInfo$time)
+
+
+expSet <- Biobase::ExpressionSet(as.matrix(data))
+
+# log2 transformation if distribution isn't normal
+ex <- Biobase::exprs(expSet)
+qx <- as.numeric(quantile(ex, c(0., 0.25, 0.5, 0.75, 0.99, 1.0),
+                          na.rm = TRUE
+))
+LogC <- (qx[5] > 100) ||
+  (qx[6] - qx[1] > 50 && qx[2] > 0)
+#print(LogC)
+if (LogC) {
+  ex[which(ex <= 0)] <- NaN
+  Biobase::exprs(proSet) <- log2(ex)
+}
+
+# print commands left to aid the user in double checking the correct contrast
+# is being ran for each combo of sample, drug, time
+#print('before assigning factors')
+expSet$sample <- factorInfo$sample
+#print(factorInfo$drug)
+expSet$drug <- factorInfo$drug
+#print(factorInfo$time)
+expSet$time <- factorInfo$time
+#print('before model matrix')
+design <- stats::model.matrix(formula, expSet)
+
+cont.matrix <- limma::makeContrasts(contrasts=analysisContrast, levels = design)
+#print(design)
+fit <- limma::lmFit(expSet, design)
+fit <- limma::contrasts.fit(fit, cont.matrix)
+
+fit <- limma::eBayes(fit)
+deg <- limma::topTable(fit,
+                                   adjust = "fdr",
+                                   number = nrow(fit), 
+                                sort.by = 'p')
+
+nDiffExpressed <- sum(deg$adj.P.Val <= 0.05)
+return(list(deg, nDiffExpressed))
+}
+```
+
+
+Using `dplyr` to reformat the data to make running all the contrasts a bit more logical and easy to keep track of. Takes a second or three. 
+```{r}
+# do we need this only for phosphorylation ID?
+phosphosites$p_site_ids <- rownames(phosphosites)
+# change -67 to -c(p_site_ids) ???
+samps<-colnames(phosphosites)[-67]
+
+long_phosphosites<-phosphosites|>
+  tidyr::pivot_longer(cols=all_of(samps),names_to='condition',values_to='logRatio') |>
+  tidyr::separate(condition, into = c("sample", 'drug-time-rep'), sep = '_', remove=F, extra='merge') |>
+  tidyr::separate(`drug-time-rep`, into=c("drug", "time-rep"), sep = "_", extra='merge') |>
+  tidyr::separate(`time-rep`, into=c("time", "rep"), sep="_hr_")
+
+```
+
+
+Running the differential expression analyses
+
+```{r}
+ddat<-data.frame()
+for (s in c("JH.2.002", "MN.2")){
+  for (d in c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")){
+    for (tv in c(0.5, 3, 24)){
+      
+       tmat<-long_phosphosites|>
+         subset(sample==s) |>
+        subset(drug==d)|>
+        subset(time==tv)|>
+        select(p_site_ids,condition,logRatio)|>
+        dplyr::distinct()|>
+        tidyr::pivot_wider(names_from='condition',values_from='logRatio')|>tibble::column_to_rownames('p_site_ids')
+      if(nrow(tmat)==0)##there is no data for this
+        next
+       #print(names(tmat))
+       cmat<-long_phosphosites|>
+         subset(sample==s) |>
+        subset(drug=="DMSO")|>
+        subset(time==tv)|>
+        select(p_site_ids,condition,logRatio)|>
+        dplyr::distinct()|>
+        tidyr::pivot_wider(names_from='condition',values_from='logRatio')|>tibble::column_to_rownames('p_site_ids')
+      
+       
+       
+       #print(names(cbind(tmat, cmat)))
+        res<-getNdiffExpressedGenes(cbind(tmat,cmat), formula = ~ drug  + 0, analysisContrast =paste0('drug', d,'-drugDMSO'))
+        tres<-res[[1]]|>mutate(time=tv,drug=d, sample=s)|>
+          tibble::rownames_to_column('Gene')
+        ddat<-rbind(ddat,tres)
+    }
+  }
+}
+```
+
+Make a table of number of differentially expressed phosphosites
+
+```{r}
+
+dcounts = ddat|>subset(adj.P.Val<0.05)|>group_by(time,drug,sample)|>summarize(DiffEx=n())
+# table
+knitr::kable(dcounts)
+# barchart
+ggplot(dcounts,aes(x=drug,y=DiffEx,fill=sample))+geom_bar(stat='identity',position='dodge')+facet_grid(~time)+
+  ggtitle("Number of differentially expressed phosphorylated proteins \n compared to DMSO at same timepoint") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+Running KEA3 and saving results.
+
+Up-regulated and down-regulated sites should be run in different sets. The KEA3 analysis offered on the website (https://maayanlab.cloud/kea3/) as well as programmatically via an API callable from R using the `httr` and `jsonlite` packages. 
+
+```{r}
+# already created - dont run twice
+# dataFolder <- synapser::Folder("Kinase Enrichment", parent = 'syn61841025')
+# dataFolder <- synapser::synStore(dataFolder)
+# set parent folder as Kinase Enrichment 
+dataFolder <- synapser::synGet("syn64096845")
+
+
+ for (s in c("JH.2.002", "MN.2")){
+   for (d in c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")){
+     for (tv in c(0.5, 3, 24)){
+# for downregulated phosphosites
+kea3dat <- ddat |> subset(adj.P.Val < 0.05) |>
+  subset(drug == d) |>
+  subset(time ==tv) |>
+  subset(sample == s) |>
+  subset(logFC < 0)
+  if (nrow(kea3dat) < 9)
+          next
+print(paste0(d, "_", tv, "_", s))
+print(dim(kea3dat))
+# named "Gene" only bc its the output from limma::topTable
+# KEA3 accepts Protein names only
+proteins = stringr::str_split_fixed(kea3dat$Gene, "-", n=2)[,1]
+
+url = "https://maayanlab.cloud/kea3/api/enrich/"
+encode = "json"
+payload = list(query_name = "myQuery", gene_set = proteins)
+
+response = POST(url = url, body = payload, encode = encode)
+json = content(response, "text")
+
+results = fromJSON(json)
+# lapply(results, head) # investigate the entire results set
+# save locally and upload to synapse
+parentDir <- "~/Projects/NF_Projects/"
+
+write.csv(results$`Integrated--meanRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-meanRank.csv'))
+mySynFile1 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-meanRank.csv'), parent = dataFolder)
+        synapser::synStore(mySynFile1)
+write.csv(results$`Integrated--topRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-topRank.csv'))
+mySynFile2 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-topRank.csv'), parent = dataFolder)
+        synapser::synStore(mySynFile2)
+
+# for upregulated phosphosites
+kea3dat <- ddat |> subset(adj.P.Val < 0.05) |>
+  subset(drug == d) |>
+  subset(time ==tv) |>
+  subset(sample == s) |>
+  subset(logFC > 0)
+  if (nrow(kea3dat) < 9)
+          next
+print(paste0(d, "_", tv, "_", s))
+print(dim(kea3dat))
+
+proteins = stringr::str_split_fixed(kea3dat$Gene, "-", n=2)[,1]
+
+url = "https://maayanlab.cloud/kea3/api/enrich/"
+encode = "json"
+payload = list(query_name = "myQuery", gene_set = proteins)
+
+response = POST(url = url, body = payload, encode = encode)
+json = content(response, "text")
+
+results = fromJSON(json)
+
+# change to upload to synapse, choosing the aggregated results
+write.csv(results$`Integrated--meanRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-meanRank.csv'))
+mySynFile3 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-meanRank.csv'), parent = dataFolder)
+        synapser::synStore(mySynFile3)
+write.csv(results$`Integrated--topRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-topRank.csv'))
+mySynFile4 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-topRank.csv'), parent = dataFolder)
+        synapser::synStore(mySynFile4)
+
+     }
+   }
+ }
+```
