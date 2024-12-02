@@ -1,0 +1,248 @@
+---
+title: "MIT phosphosite kinase enrichment"
+author: "Ruby Fore"
+date: "2024-12-02"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(synapser)
+```
+
+```{r}
+synLogin()
+fileEntity <- synapser::synGet('syn63836182')
+
+phosphosites <- read.table(fileEntity$path, header = T)
+```
+
+
+Check for level of missingness in phosphosite data
+
+
+```{r}
+dim(phosphosites)
+sum(is.na(phosphosites))
+# number of proteins present in at least 50% of samples
+sum(rowSums(is.na(phosphosites))/66 > 0.5)
+
+
+
+```
+Rows with high levels of missingness have been removed. 
+
+Now we can impute the remaining missing values to the mean of each protein/row. 
+
+### impute for NAs  - change to row mean
+```{r}
+# get the indices of NA's
+na_indices <- which(is.na(phosphosites), arr.ind = T)
+# replace unique row by row with the rowMeans(..., na.rm=T)
+phosphosites[na_indices] <- rowMeans(phosphosites, na.rm=T)[na_indices[,1]]
+#na_indices
+sum(is.na(phosphosites))
+
+```
+
+```{r}
+#make factor info
+factorInfo <- data.frame(condition = colnames(phosphosites))
+
+factorInfo<-factorInfo|>
+  tidyr::separate(condition, into = c("sample", 'drug-time-rep'), sep = '_', remove=F, extra='merge') |>
+  tidyr::separate(`drug-time-rep`, into=c("drug", "time-rep"), sep = "_", extra='merge') |>
+  tidyr::separate(`time-rep`, into=c("time", "rep"), sep=-8)
+
+```
+The function below runs differential gene expression in limma and returns the 'topTable' of genes, p-vals and log fold changes.
+
+
+
+
+```{r}
+# function to get limma topTable for specified data, formula and contrast
+getNdiffExpressedGenes <- function(data, formula, analysisContrast){
+  
+  factorInfo <- data.frame(condition = colnames(data))
+factorInfo<-factorInfo|>
+  tidyr::separate(condition, into = c("sample", 'drug-time-rep'), sep = '_', remove=F, extra='merge') |>
+  tidyr::separate(`drug-time-rep`, into=c("drug", "time-rep"), sep = "_", extra='merge') |>
+  tidyr::separate(`time-rep`, into=c("time", "rep"), sep=-8)
+
+
+
+factorInfo$drug <-as.factor(factorInfo$drug)
+
+factorInfo$time <- as.factor(factorInfo$time)
+
+
+expSet <- Biobase::ExpressionSet(as.matrix(data))
+
+# log2 transformation if distribution isn't normal
+ex <- Biobase::exprs(expSet)
+qx <- as.numeric(quantile(ex, c(0., 0.25, 0.5, 0.75, 0.99, 1.0),
+                          na.rm = TRUE
+))
+LogC <- (qx[5] > 100) ||
+  (qx[6] - qx[1] > 50 && qx[2] > 0)
+#print(LogC)
+if (LogC) {
+  ex[which(ex <= 0)] <- NaN
+  Biobase::exprs(proSet) <- log2(ex)
+}
+
+# print commands left to aid the user in double checking the correct contrast
+# is being ran for each combo of sample, drug, time
+#print('before assigning factors')
+expSet$sample <- factorInfo$sample
+#print(factorInfo$drug)
+expSet$drug <- factorInfo$drug
+#print(factorInfo$time)
+expSet$time <- factorInfo$time
+#print('before model matrix')
+design <- stats::model.matrix(formula, expSet)
+
+cont.matrix <- limma::makeContrasts(contrasts=analysisContrast, levels = design)
+#print(design)
+fit <- limma::lmFit(expSet, design)
+fit <- limma::contrasts.fit(fit, cont.matrix)
+
+fit <- limma::eBayes(fit)
+deg <- limma::topTable(fit,
+                                   adjust = "fdr",
+                                   number = nrow(fit), 
+                                sort.by = 'p')
+
+nDiffExpressed <- sum(deg$adj.P.Val <= 0.05)
+return(list(deg, nDiffExpressed))
+}
+```
+
+
+Using `dplyr` to reformat the data to make running all the contrasts a bit more logical and easy to keep track of. Takes a second or three. 
+```{r}
+# do we need this only for phosphorylation ID?
+phosphosites$p_site_ids <- rownames(phosphosites)
+# change -67 to -c(p_site_ids) ???
+samps<-colnames(phosphosites)[-67]
+
+long_phosphosites<-phosphosites|>
+  tidyr::pivot_longer(cols=all_of(samps),names_to='condition',values_to='logRatio') |>
+  tidyr::separate(condition, into = c("sample", 'drug-time-rep'), sep = '_', remove=F, extra='merge') |>
+  tidyr::separate(`drug-time-rep`, into=c("drug", "time-rep"), sep = "_", extra='merge') |>
+  tidyr::separate(`time-rep`, into=c("time", "rep"), sep="_hr_")
+
+```
+
+Running the differential expression analyses
+
+```{r}
+ddat<-data.frame()
+for (s in c("JH.2.002", "MN.2")){
+  for (d in c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")){
+    for (tv in c(0.5, 3, 24)){
+      
+       tmat<-long_phosphosites|>
+         subset(sample==s) |>
+        subset(drug==d)|>
+        subset(time==tv)|>
+        select(p_site_ids,condition,logRatio)|>
+        dplyr::distinct()|>
+        tidyr::pivot_wider(names_from='condition',values_from='logRatio')|>tibble::column_to_rownames('p_site_ids')
+      if(nrow(tmat)==0)##there is no data for this
+        next
+       #print(names(tmat))
+       cmat<-long_phosphosites|>
+         subset(sample==s) |>
+        subset(drug=="DMSO")|>
+        subset(time==tv)|>
+        select(p_site_ids,condition,logRatio)|>
+        dplyr::distinct()|>
+        tidyr::pivot_wider(names_from='condition',values_from='logRatio')|>tibble::column_to_rownames('p_site_ids')
+      
+       
+       
+       #print(names(cbind(tmat, cmat)))
+        res<-getNdiffExpressedGenes(cbind(tmat,cmat), formula = ~ drug  + 0, analysisContrast =paste0('drug', d,'-drugDMSO'))
+        tres<-res[[1]]|>mutate(time=tv,drug=d, sample=s)|>
+          tibble::rownames_to_column('Gene')
+        ddat<-rbind(ddat,tres)
+    }
+  }
+}
+```
+
+Make a table of number of differentially expressed phosphosites
+
+```{r}
+
+dcounts = ddat|>subset(adj.P.Val<0.05)|>group_by(time,drug,sample)|>summarize(DiffEx=n())
+# table
+knitr::kable(dcounts)
+# barchart
+ggplot(dcounts,aes(x=drug,y=DiffEx,fill=sample))+geom_bar(stat='identity',position='dodge')+facet_grid(~time)+
+  ggtitle("Number of differentially expressed phosphorylated proteins \n compared to DMSO at same timepoint") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+
+```{r}
+
+
+
+ for (s in c("JH.2.002", "MN.2")){
+   for (d in c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")){
+     for (tv in c(0.5, 3, 24)){
+# for downregulated phosphosites
+mitforeground <- ddat |> subset(adj.P.Val < 0.05) |>
+  subset(drug == d) |>
+  subset(time ==tv) |>
+  subset(sample == s) 
+if (nrow(mitforeground) < 9)
+          next
+parentDir = "~/Projects/NF_Projects/"
+foreground <- stringr::str_split_fixed(mitforeground$Gene, "\\.", 3)[,2]
+  names(foreground) <- c()
+write.table(foreground, row.names=F, col.names=F, 
+          quote=F, 
+          file=paste0(parentDir, d, "_", tv, "_", s, "_", 'foreground-set-for-MIT-kinase-enrichment.csv'))
+  
+  
+
+mitbackground <- ddat |> subset(adj.P.Val >= 0.05) |>
+  subset(drug == d) |>
+  subset(time ==tv) |>
+  subset(sample == s) 
+
+background <- stringr::str_split_fixed(mitbackground$Gene, "\\.", 3)[,2]
+names(background) <- c()
+write.table(background, row.names=F, col.names=F,
+          quote=F, 
+          file=paste0(parentDir, d, "_", tv, "_", s, "_", 'background-set-for-MIT-kinase-enrichment.csv'))
+     }
+   }
+}
+
+```
+Note that there is no way to retrieve MIT kinase enrichment results programatically, so uploading the results to Synapse must be done my hand. 
+
+Also be sure to, when running the analysis at WEBSITELINK to select under 'run enrichment analysis on' option select seronin/threonine AND tyrosine for complete results
+
+```{r}
+
+dataFolder <- synapser::synGet("syn64096845")
+filenames <- c('mit-enrichment-analysis-result-table-Mirdametinib-24-JH.2.002.txt',
+               "mit-enrichment-analysis-result-table-Trametinib-0.5-JH.2.002.txt",
+               'mit-enrichment-analysis-result-table Vorinostat-24-JH.2.002.txt',
+               'mit-enrichment-analysis-result-table-Vorinostat-24-MN2.txt')
+
+for (i in 1:length(filenames)){
+  mySynFile <- synapser::File(paste0("~/Downloads/", filenames[i]), parent = dataFolder)
+  synapser::synStore(mySynFile)
+}
+
+```
