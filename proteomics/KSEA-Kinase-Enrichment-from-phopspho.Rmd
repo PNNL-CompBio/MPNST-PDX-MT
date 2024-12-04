@@ -278,7 +278,7 @@ ksea_res<-do.call(rbind,lapply(samps,function(s){
 #       problemrows <-  c(770, 845, 1536, 1552, 1931, 2348, 2922, 2946, 3237,
 # 4461, 4631, 4930, 4998, 5279, 5428, 5879, 5899, 6115, 6118, 6187)
 
-write.csv(kres, file=paste0('KSEA-Kinase-scores.csv'))
+write.csv(ksea_res, file=paste0('KSEA-Kinase-scores.csv'))
 mySynFile1 <- synapser::File('KSEA-Kinase-scores.csv', parent = dataFolder)
 synapser::synStore(mySynFile1)
 

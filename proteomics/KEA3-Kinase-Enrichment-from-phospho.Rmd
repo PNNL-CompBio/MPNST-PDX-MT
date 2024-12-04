@@ -245,7 +245,12 @@ kea_res<-do.call(rbind,lapply(samps,function(s){
           # lapply(results, head) # investigate the entire results set
           # save locally and upload to synapse
           parentDir <- "./" ### removed by SG ~/Projects/NF_Projects/"
-          
+              mr<-results$`Integrated--meanRank`|>
+            mutate(drug=d,time=tv,sample=s)|>
+            mutate(stat='meanRank',direction='down')
+          tr<-results$`Integrated--topRank`|>
+             mutate(drug=d,time=tv,sample=s)|>
+            mutate(stat='topRank',direction='down')
           #write.csv(results$`Integrated--meanRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-meanRank.csv'))
           #mySynFile1 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-meanRank.csv'), parent = dataFolder)
           #        synapser::synStore(mySynFile1)
@@ -253,6 +258,7 @@ kea_res<-do.call(rbind,lapply(samps,function(s){
           #mySynFile2 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-topRank.csv'), parent = dataFolder)
           #        synapser::synStore(mySynFile2)
           
+          dr<-rbind(mr,tr)
           # for upregulated phosphosites
           kea3dat <- ddat |> subset(adj.P.Val < 0.05) |>
             subset(drug == d) |>
@@ -276,12 +282,12 @@ kea_res<-do.call(rbind,lapply(samps,function(s){
           results = fromJSON(json)
           mr<-results$`Integrated--meanRank`|>
             mutate(drug=d,time=tv,sample=s)|>
-            mutate(stat='meanRank')
+            mutate(stat='meanRank',direction='up')
           tr<-results$`Integrated--topRank`|>
              mutate(drug=d,time=tv,sample=s)|>
-            mutate(stat='topRank')
+            mutate(stat='topRank',direction='up')
 
-          return(rbind(mr,tr))
+          return(rbind(dr,mr,tr))
           # change to upload to synapse, choosing the aggregated results
 #write.csv(results$`Integrated--meanRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-meanRank.csv'))
 #mySynFile3 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-meanRank.csv'), parent = dataFolder)
@@ -294,8 +300,8 @@ kea_res<-do.call(rbind,lapply(samps,function(s){
    return(dres)
  }))
 
-write.csv(kea_res, file='upregulated-KEA3IntegratedResults.csv')
-mySynFile4 <- synapser::File('upregulated-KEA3IntegratedResults.csv', parent = dataFolder)
+write.csv(kea_res, file='KEA3IntegratedResults.csv')
+mySynFile4 <- synapser::File('KEA3IntegratedResults.csv', parent = dataFolder)
         synapser::synStore(mySynFile4)
 
 ```

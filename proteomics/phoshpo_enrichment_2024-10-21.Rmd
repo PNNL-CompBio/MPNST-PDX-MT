@@ -209,10 +209,14 @@ allkins<-do.call(rbind,lapply(ksea_files,function(x){
   tab$AdjP<- (-log10(p.adjust(tab$p.value)))
   return(tab)
 }))|>
+  
+allkins<-readr::read_csv(synapser::synGet('syn64322657')$path)|>
+  mutate(AdjP=(-log10(p.adjust(p.value))))|>
   dplyr::rename(Kinase='Kinase.Gene')
 
 sigs<-subset(allkins,AdjP>1)
-ggplot(sigs,aes(x=Drug,y=Kinase,col=z.score,size=AdjP))+geom_point()+facet_grid(sample~time)+scale_color_gradient(low='darkblue',high='gold')+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggplot(sigs,aes(x=drug,y=Kinase,col=z.score,size=AdjP))+geom_point()+facet_grid(sample~time)+
+  scale_color_gradient(low='darkblue',high='gold')+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 ggsave("kinaseEnrichmentKSEA.png",height=8)
 ```
