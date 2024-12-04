@@ -206,11 +206,68 @@ Here we run KSEA without peptide or protein information, but these could be adde
 # set parent folder as Kinase Enrichment 
 dataFolder <- synapser::synGet("syn64096845")
 
+samps <-c('JH.2.002','MN.2')
+drugs <-c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")
+times <- c(0.5, 3, 24)
 
+##now run through all combinations but bind them together in a single table
 
-for (s in c("JH.2.002", "MN.2")){
-  for (d in c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")){
-    for (tv in c(0.5, 3, 24)){
+ksea_res<-do.call(rbind,lapply(samps,function(s){
+   dres<-do.call(rbind, lapply(drugs,function(d){
+      tres<-do.call(rbind,lapply(times,function(tv){
+     #     print(paste(tv,d,s))
+           kseadat <- ddat |>
+              subset(drug == d) |>
+              subset(time ==tv) |>
+              subset(sample == s) |>
+              rename(rawGeneName = Gene)|>
+    # choose the last element when splitting on dashes
+          mutate(Residue.Both = stringr::str_split_i(rawGeneName, "-", -1)) |>
+    # split on second dash
+          tidyr::separate(rawGeneName, remove=F, into = c('Gene', 'blankcol2'), sep="[^ -][^-]*$") # |>
+ 
+
+          if (nrow(kseadat) < 2)
+                  return(data.frame(Kinase.Gene=c(),log2FC=c(),mS=c(),Enrichment=c(),m=c(),z.score=c(),p.value=c(),drug=c(),time=c(),sample=c()))
+          #replace lowercase letters with semicolon
+          kseadat$Residue.Both <- gsub('([[:lower:]])', ';', kseadat$Residue.Both)
+          print(dim(kseadat))
+          # remove trailing semicolons
+          kseadat$Residue.Both <- stringr::str_sub(kseadat$Residue.Both, end = -2)
+          #remove trailing dash from gene/protein names
+          kseadat$Gene <- stringr::str_sub(kseadat$Gene, end = -2)
+          #prepare data for ksea
+          kseadat <- kseadat[, c("Gene", "Residue.Both", "P.Value", "logFC")]
+          # KSEA is finicky about names
+          kseadat$FC <- 2^kseadat$logFC
+          names(kseadat)[names(kseadat) =='P.Value'] <- 'p'
+          
+          kseadat <- data.frame(kseadat, Protein = rep(NA, nrow(kseadat)), Peptide = rep(NA, nrow(kseadat)))
+          
+          kseadat$Peptide <- "NULL"
+          kseadat$Protein <- "NULL"
+          kseadat <- kseadat[, c("Protein", "Gene", "Peptide", "Residue.Both", "p", "FC")]
+          
+          
+          KSEA.Complete(KSData, kseadat, NetworKIN = FALSE, m.cutoff = 1, p.cutoff = .1)
+          
+          
+          KSEAKinaseScores <- read.csv(file="KSEA Kinase Scores.csv",row.names=NULL)|>
+            mutate(drug=d,time=tv,sample=s)
+          KSEALinks <- read.csv(file='Kinase-Substrate Links.csv',row.names=NULL)|>
+            mutate(drug=d,time=tv,sample=s)
+          return(KSEAKinaseScores)
+
+      }))
+      
+      return(tres)
+  }))
+   return(dres)
+}))
+
+#for (s in c("JH.2.002", "MN.2")){
+#  for (d in c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")){
+#    for (tv in c(0.5, 3, 24)){
       
 # filterdat <- ddat |> subset(adj.P.Val < 0.05) |>
 #   subset(drug == d) |>
@@ -220,54 +277,16 @@ for (s in c("JH.2.002", "MN.2")){
 #            next
 #       problemrows <-  c(770, 845, 1536, 1552, 1931, 2348, 2922, 2946, 3237,
 # 4461, 4631, 4930, 4998, 5279, 5428, 5879, 5899, 6115, 6118, 6187)
-kseadat <- ddat |>
-  subset(drug == d) |>
-  subset(time ==tv) |>
-  subset(sample == s) |>
-  rename(rawGeneName = Gene)|>
-  # choose the last element when splitting on dashes
-  mutate(Residue.Both = stringr::str_split_i(rawGeneName, "-", -1)) |>
-  # split on second dash
-  tidyr::separate(rawGeneName, remove=F, into = c('Gene', 'blankcol2'), sep="[^ -][^-]*$") # |>
- 
 
-if (nrow(kseadat) < 2)
-          next
-#replace lowercase letters with semicolon
-kseadat$Residue.Both <- gsub('([[:lower:]])', ';', kseadat$Residue.Both)
-print(dim(kseadat))
-# remove trailing semicolons
-kseadat$Residue.Both <- stringr::str_sub(kseadat$Residue.Both, end = -2)
-#remove trailing dash from gene/protein names
-kseadat$Gene <- stringr::str_sub(kseadat$Gene, end = -2)
-#prepare data for ksea
-kseadat <- kseadat[, c("Gene", "Residue.Both", "P.Value", "logFC")]
-# KSEA is finicky about names
-kseadat$FC <- 2^kseadat$logFC
-names(kseadat)[names(kseadat) =='P.Value'] <- 'p'
-
-kseadat <- data.frame(kseadat, Protein = rep(NA, nrow(kseadat)), Peptide = rep(NA, nrow(kseadat)))
-
-kseadat$Peptide <- "NULL"
-kseadat$Protein <- "NULL"
-kseadat <- kseadat[, c("Protein", "Gene", "Peptide", "Residue.Both", "p", "FC")]
-
-
-KSEA.Complete(KSData, kseadat, NetworKIN = FALSE, m.cutoff = 1, p.cutoff = .1)
-
-
-KSEAKinaseScores <- read.csv(file="KSEA Kinase Scores.csv")
-KSEALinks <- read.csv(file='Kinase-Substrate Links.csv')
-
-write.csv(KSEAKinaseScores, file=paste0("~/Projects/NF_Projects/Kinase-Enrichment-Results-forSynapse/", d, "_", tv, "_", s, "_", 'KSEA-Kinase-scores.csv'))
-mySynFile1 <- synapser::File(paste0("~/Projects/NF_Projects/Kinase-Enrichment-Results-forSynapse/", d, "_", tv, "_", s, "_", 'KSEA-Kinase-scores.csv'), parent = dataFolder)
+write.csv(kres, file=paste0('KSEA-Kinase-scores.csv'))
+mySynFile1 <- synapser::File('KSEA-Kinase-scores.csv', parent = dataFolder)
 synapser::synStore(mySynFile1)
 
-write.csv(KSEALinks, file=paste0("~/Projects/NF_Projects/Kinase-Enrichment-Results-forSynapse/", d, "_", tv, "_", s, "_", 'KSEA-Kinase-Links.csv'))
-mySynFile2 <- synapser::File(paste0("~/Projects/NF_Projects/Kinase-Enrichment-Results-forSynapse/", d, "_", tv, "_", s, "_", 'KSEA-Kinase-Links.csv'), parent = dataFolder)
-synapser::synStore(mySynFile2)
+#write.csv(KSEALinks, file=paste0("./", d, "_", tv, "_", s, "_", 'KSEA-Kinase-Links.csv'))
+#mySynFile2 <- synapser::File(paste0("./", d, "_", tv, "_", s, "_", 'KSEA-Kinase-Links.csv'), parent = dataFolder)
+#synapser::synStore(mySynFile2)
 
-    }
-  }
-}
+#    }
+#  }
+#}
 ```

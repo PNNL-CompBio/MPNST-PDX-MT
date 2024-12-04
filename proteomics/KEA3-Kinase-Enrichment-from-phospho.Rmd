@@ -11,7 +11,7 @@ library(ggplot2)
 library(dplyr)
 library(httr)
 library(jsonlite)
-library(KSEAapp)
+#library(KSEAapp)
 
 ```
 
@@ -209,74 +209,93 @@ Up-regulated and down-regulated sites should be run in different sets. The KEA3 
 # set parent folder as Kinase Enrichment 
 dataFolder <- synapser::synGet("syn64096845")
 
+samps <-c('JH.2.002','MN.2')
+drugs <-c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")
+times <- c(0.5, 3, 24)
 
- for (s in c("JH.2.002", "MN.2")){
-   for (d in c("Mirdametinib", "Selumetinib", "Trametinib", "Vorinostat")){
-     for (tv in c(0.5, 3, 24)){
-# for downregulated phosphosites
-kea3dat <- ddat |> subset(adj.P.Val < 0.05) |>
-  subset(drug == d) |>
-  subset(time ==tv) |>
-  subset(sample == s) |>
-  subset(logFC < 0)
-  if (nrow(kea3dat) < 9)
-          next
-print(paste0(d, "_", tv, "_", s))
-print(dim(kea3dat))
-# named "Gene" only bc its the output from limma::topTable
-# KEA3 accepts Protein names only
-proteins = stringr::str_split_fixed(kea3dat$Gene, "-", n=2)[,1]
+##now run through all combinations but bind them together in a single table
 
-url = "https://maayanlab.cloud/kea3/api/enrich/"
-encode = "json"
-payload = list(query_name = "myQuery", gene_set = proteins)
+kea_res<-do.call(rbind,lapply(samps,function(s){
+   dres<-do.call(rbind, lapply(drugs,function(d){
+      tres<-do.call(rbind,lapply(times,function(tv){
+     #     print(paste(tv,d,s))
+        
+          # for downregulated phosphosites
+          kea3dat <- ddat |> subset(adj.P.Val < 0.05) |>
+            subset(drug == d) |>
+            subset(time ==tv) |>
+            subset(sample == s) |>
+            subset(logFC < 0)
+            if (nrow(kea3dat) < 9)
+                    return(NULL)
+          print(paste0(d, "_", tv, "_", s))
+          print(dim(kea3dat))
+          # named "Gene" only bc its the output from limma::topTable
+          # KEA3 accepts Protein names only
+          proteins = stringr::str_split_fixed(kea3dat$Gene, "-", n=2)[,1]
+          
+          url = "https://maayanlab.cloud/kea3/api/enrich/"
+          encode = "json"
+          payload = list(query_name = "myQuery", gene_set = proteins)
+          
+          response = POST(url = url, body = payload, encode = encode)
+          json = content(response, "text")
+          
+          results = fromJSON(json)
+          # lapply(results, head) # investigate the entire results set
+          # save locally and upload to synapse
+          parentDir <- "./" ### removed by SG ~/Projects/NF_Projects/"
+          
+          #write.csv(results$`Integrated--meanRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-meanRank.csv'))
+          #mySynFile1 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-meanRank.csv'), parent = dataFolder)
+          #        synapser::synStore(mySynFile1)
+          #write.csv(results$`Integrated--topRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-topRank.csv'))
+          #mySynFile2 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-topRank.csv'), parent = dataFolder)
+          #        synapser::synStore(mySynFile2)
+          
+          # for upregulated phosphosites
+          kea3dat <- ddat |> subset(adj.P.Val < 0.05) |>
+            subset(drug == d) |>
+            subset(time ==tv) |>
+            subset(sample == s) |>
+            subset(logFC > 0)
+            if (nrow(kea3dat) < 9)
+                    next
+          print(paste0(d, "_", tv, "_", s))
+          print(dim(kea3dat))
+          
+          proteins = stringr::str_split_fixed(kea3dat$Gene, "-", n=2)[,1]
+          
+          url = "https://maayanlab.cloud/kea3/api/enrich/"
+          encode = "json"
+          payload = list(query_name = "myQuery", gene_set = proteins)
+          
+          response = POST(url = url, body = payload, encode = encode)
+          json = content(response, "text")
+          
+          results = fromJSON(json)
+          mr<-results$`Integrated--meanRank`|>
+            mutate(drug=d,time=tv,sample=s)|>
+            mutate(stat='meanRank')
+          tr<-results$`Integrated--topRank`|>
+             mutate(drug=d,time=tv,sample=s)|>
+            mutate(stat='topRank')
 
-response = POST(url = url, body = payload, encode = encode)
-json = content(response, "text")
+          return(rbind(mr,tr))
+          # change to upload to synapse, choosing the aggregated results
+#write.csv(results$`Integrated--meanRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-meanRank.csv'))
+#mySynFile3 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-meanRank.csv'), parent = dataFolder)
+#        synapser::synStore(mySynFile3)
 
-results = fromJSON(json)
-# lapply(results, head) # investigate the entire results set
-# save locally and upload to synapse
-parentDir <- "~/Projects/NF_Projects/"
 
-write.csv(results$`Integrated--meanRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-meanRank.csv'))
-mySynFile1 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-meanRank.csv'), parent = dataFolder)
-        synapser::synStore(mySynFile1)
-write.csv(results$`Integrated--topRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-topRank.csv'))
-mySynFile2 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'downregulated-KEA3IntegratedResults-topRank.csv'), parent = dataFolder)
-        synapser::synStore(mySynFile2)
+     }))
+      return(tres)
+   }))
+   return(dres)
+ }))
 
-# for upregulated phosphosites
-kea3dat <- ddat |> subset(adj.P.Val < 0.05) |>
-  subset(drug == d) |>
-  subset(time ==tv) |>
-  subset(sample == s) |>
-  subset(logFC > 0)
-  if (nrow(kea3dat) < 9)
-          next
-print(paste0(d, "_", tv, "_", s))
-print(dim(kea3dat))
-
-proteins = stringr::str_split_fixed(kea3dat$Gene, "-", n=2)[,1]
-
-url = "https://maayanlab.cloud/kea3/api/enrich/"
-encode = "json"
-payload = list(query_name = "myQuery", gene_set = proteins)
-
-response = POST(url = url, body = payload, encode = encode)
-json = content(response, "text")
-
-results = fromJSON(json)
-
-# change to upload to synapse, choosing the aggregated results
-write.csv(results$`Integrated--meanRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-meanRank.csv'))
-mySynFile3 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-meanRank.csv'), parent = dataFolder)
-        synapser::synStore(mySynFile3)
-write.csv(results$`Integrated--topRank`, file=paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-topRank.csv'))
-mySynFile4 <- synapser::File(paste0(parentDir, d, "_", tv, "_", s, "_", 'upregulated-KEA3IntegratedResults-topRank.csv'), parent = dataFolder)
+write.csv(kea_res, file='upregulated-KEA3IntegratedResults.csv')
+mySynFile4 <- synapser::File('upregulated-KEA3IntegratedResults.csv', parent = dataFolder)
         synapser::synStore(mySynFile4)
 
-     }
-   }
- }
 ```

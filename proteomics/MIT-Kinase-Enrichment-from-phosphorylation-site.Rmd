@@ -232,8 +232,10 @@ Note that there is no way to retrieve MIT kinase enrichment results programatica
 
 Also be sure to, when running the analysis at WEBSITELINK to select under 'run enrichment analysis on' option select seronin/threonine AND tyrosine for complete results
 
-```{r}
+Once you run, set the FALSE below to TRUE.
 
+```{r}
+if(FALSE){
 dataFolder <- synapser::synGet("syn64096845")
 filenames <- c('mit-enrichment-analysis-result-table-Mirdametinib-24-JH.2.002.txt',
                "mit-enrichment-analysis-result-table-Trametinib-0.5-JH.2.002.txt",
@@ -243,6 +245,7 @@ filenames <- c('mit-enrichment-analysis-result-table-Mirdametinib-24-JH.2.002.tx
 for (i in 1:length(filenames)){
   mySynFile <- synapser::File(paste0("~/Downloads/", filenames[i]), parent = dataFolder)
   synapser::synStore(mySynFile)
+}
 }
 
 ```
