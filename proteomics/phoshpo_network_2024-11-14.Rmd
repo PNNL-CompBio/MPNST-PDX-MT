@@ -1,7 +1,7 @@
 ---
-title: "Phosphoproteomics enrichment"
+title: "Phosphoproteomics network analysis"
 author: "Sara gosline"
-date: "2024-10-21"
+date: "2024-11-14"
 output: html_document
 ---
 ```{r, echo=FALSE}
@@ -167,82 +167,34 @@ ggplot(dcounts,aes(x=drug,y=DiffEx,fill=samp))+geom_bar(stat='identity',position
 ```
 Here we see a few changes at .5 hours and more at 24. the 3 hour time point is not great. Let's do an upset plot to see if any proteins are shared across conditions.
 
-```{r upset}
-library(UpSetR)
-ddat|>
-  subset(adj.P.Val<0.1)|>
-  select(Gene,drug,time,samp)|>
-  tidyr::unite(drug,time,samp,col='condition')|>
-  mutate(present=1)|>
-  tidyr::pivot_wider(names_from=condition,values_from=present,values_fill=0)|>
-  tibble::column_to_rownames('Gene')|>
-#  as.matrix()|>
-    upset()
-```
-
-There are 30 phosphosites shared during mirdametinib treatment, and 19 shared under vorinostat treatment. One phosphosites is shared across all treatments?
-
-```{r shared changes}
-
-ddat|>
-  subset(adj.P.Val<0.1)|>
-  group_by(Gene)|>summarize(count=n())|>
-  arrange(desc(count))
-```
-
-MAPK3 and MAPK1 exhibit changes in many conditions.
-
-## Kinase enrichment
-
-We can use KSEA to do kinase enrichment
-
-```{r}
-dirname='KinaseEnrichResults-forSara-2024-10-23/'
-ksea_files=list.files(dirname,pattern='KSEA-Kinase-scores')
-
-allkins<-do.call(rbind,lapply(ksea_files,function(x){
-  tab<-readr::read_csv(paste(dirname,x,sep='/'))
-  nl <- unlist(strsplit(x,split='_'))
-  tab$Drug=nl[1]
-  tab$time=nl[2]
-  tab$sample=nl[3]
-  tab$AdjP<- (-log10(p.adjust(tab$p.value)))
-  return(tab)
-}))|>
-  dplyr::rename(Kinase='Kinase.Gene')
-
-sigs<-subset(allkins,AdjP>1)
-ggplot(sigs,aes(x=Drug,y=Kinase,col=z.score,size=AdjP))+geom_point()+facet_grid(sample~time)+scale_color_gradient(low='darkblue',high='gold')+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-
-ggsave("kinaseEnrichmentKSEA.png",height=8)
-```
 
 
-Now. we can try to build a network
+## Networks
+I dont think networks will be the solution, but i tried below
 
-## 24 hr networks
-Here we can plot the results and see what the network is!
+```{r networks}
 
-```{r pcsf}
 library(PCSF)
-data(STRINGv12)
-ppi<-construct_interactome(STRINGv12)
+data("STRINGv12")
+data("PSP_NK")
 
-allnets<-lapply(unique(allkins$Drug),function(d){
+
+
+allnets<-lapply(unique(ddat$Drug),function(d){
   print(d)
-  mtargs<-subset(allkins,Drug==d)|>subset(p.value<0.01)|>
+  mtargs<-subset(ddat,drug==d)|>subset(P.Value<0.001)|>
     subset(time=='24')
   if(nrow(mtargs)<2)
     return(NULL)
-  mvals<-mtargs$z.score
-  names(mvals)<-mtargs$Kinase
+  mvals<-mtargs$logFC
+  names(mvals)<-sapply(mtargs$Gene,function(x) gsub('s$|t$|y$','',x))
   #print(mvals)
-  uprand<-PCSF_rand(ppi,terminals=mvals[mvals>0])
+  uprand<-PCSF_phos(STRINGv12,c(),PSP_NK,phosterminals=mvals[mvals>0],fname=paste0(d,'_24hrs'))
 #  write_graph(uprand,file=paste0(d,'_24hr_up',format='gml'))
 
   upres=enrichment_analysis(uprand)
   #plot.PCSFe(res$subnet)
-  downrand<-PCSF_rand(ppi,terminals=abs(mvals[mvals<0]))
+  down<-PCSF_phos(STRINGv12,c(),PSP_NK,phosterminals=abs(mvals[mvals>0]),fname=paste0(d,'_24hrs'))<
  # write_graph(downrand,file=paste0(d,'_24hr_up',format='gml'))
 
   res=enrichment_analysis(downrand)
@@ -265,22 +217,23 @@ here are the networks for 30 min
 
 ```{r other network}
 
-lapply(unique(allkins$Drug),function(d){
-  print(d)
-  mtargs<-subset(allkins,Drug==d)|>subset(p.value<0.05)|>
+lapply(unique(ddat$Drug),function(d){
+  printd
+  mtargs<-subset(ddat,Drug==d)|>subset(P.Value<0.05)|>
     subset(time=='0.5')
   if(nrow(mtargs)<2)
     return(NULL)
-  mvals<-mtargs$z.score
-  
-  names(mvals)<-mtargs$Kinase
-  uprand<-PCSF_rand(ppi,terminals=mvals[mvals>0])
+   mvals<-mtargs$logFC
+  names(mvals)<-sapply(mtargs$Gene,function(x) gsub('s$|t$|y$','',x))
+  #print(mvals)
+  uprand<-PCSF_phos(STRINGv12,c(),PSP_NK,phosterminals=mvals[mvals>0],fname=paste0(d,'_30min'))
+
   res=enrichment_analysis(uprand)
 #  pdf(paste0(d,'_24hrs_up.pdf'))
   #write_graph(uprand,file=paste0(d,'_30min_up',format='gml'))
   plot.PCSFe(res$subnet)
   #dev.off()
-  downrand<-PCSF_rand(ppi,terminals=abs(mvals[mvals<0]))
+  down<-PCSF_phos(STRINGv12,c(),PSP_NK,phosterminals=abs(mvals[mvals>0]),fname=paste0(d,'_30min'))<
  # pdf(paste0(d,'_24hrs_down.pdf'))
   res=enrichment_analysis(downrand)
   plot.PCSFe(res$subnet)

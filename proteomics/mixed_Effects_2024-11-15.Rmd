@@ -1,0 +1,74 @@
+---
+title: "Phosphoproteomics network analysis"
+author: "Sara gosline"
+date: "2024-11-14"
+output: html_document
+---
+```{r, echo=FALSE}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(ggfortify)
+synapser::synLogin()
+#corrected global proteomics: syn61695507
+# corrected phospho proteomics: 'syn61695519'
+fileEntity <- synapser::synGet('syn61695519')
+origPhospho <- read.table(fileEntity$path, header = T)
+```
+
+
+### impute for NAs  - change to row mean 
+
+
+```{r}
+# get the indices of NA's
+correctedProteomics<-origPhospho
+
+na_indices <- which(is.na(correctedProteomics), arr.ind = T)
+# replace unique row by row with the rowMeans(..., na.rm=T)
+correctedProteomics[na_indices] <- rowMeans(correctedProteomics, na.rm=T)[na_indices[,1]]
+#na_indices
+sum(is.na(correctedProteomics))
+dim(correctedProteomics)
+
+samps<-colnames(correctedProteomics)
+longProt<-correctedProteomics|>
+  tibble::rownames_to_column('gene')|>
+  tidyr::pivot_longer(cols=all_of(samps),names_to='condition',values_to='logRatio')|>
+  tidyr::separate(condition,into=c('sample','drug','time','unit','rep'),sep='_',remove=FALSE)
+
+pvar<-longProt|>group_by(gene)|>summarize(var=var(logRatio))
+
+highvar<-subset(pvar,var>0.5)
+  
+```
+
+
+
+## Mixed effect model
+
+What if we build a linear mixed effect model that accounts for both time and drug?
+
+
+```{r}
+library(lme4)
+
+varProt<-subset(longProt,gene%in%highvar$gene)#|>
+  #mutate(time=as.numeric(time))
+
+##model without drug?
+gmod<-glmer(logRatio~time*drug+sample+(1|sample)+(1|rep),data=varProt,family=gaussian)
+##what time point is the most significant for each drug?
+
+fmod<-glmer(logRatio~gene*drug*time+(1|sample)+(1|rep),data=varProt,family=gaussian)
+
+#mprot<-subset(varProt,drug%in%c('DMSO','Mirdametinib'))
+#sprot<-subset(varProt,drug%in%c('DMSO','Selumetinib'))|>subset(time=='0.5')
+#tprot<-subset(varProt,drug%in%c('DMSO','Trametinib'))|>subset(time=='0.5')|>subset(sample=='JH.2.002')
+#vprot<-subset(varProt,drug%in%c('DMSO','Vorinostat'))
+
+##try to factor in fixed effects and random effects in single model
+#mres<-glmer(logRatio~gene*time*drug+(rep|sample),data=mprot,family=gaussian)
+#tres<-glmer(logRatio~gene*drug+(1|rep),data=tprot,family=gaussian)
+#vres<-glmer(logRatio~gene*time*drug+(rep|sample),data=vprot,family=gaussian)
+```
