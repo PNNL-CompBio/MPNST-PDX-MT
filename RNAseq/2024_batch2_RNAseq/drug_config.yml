@@ -9,6 +9,6 @@ default:
   base_output_dir: "/Users/hirbea/Desktop/Kuangying/Thesis/RNAseq/MPNST_PDX_drug/Report"
   Rawdata_path: "/Users/hirbea/Desktop/Kuangying/Thesis/RNAseq/MPNST_PDX_drug/Rawdata"
   Processed_path: "/Users/hirbea/Desktop/Kuangying/Thesis/RNAseq/MPNST_PDX_drug/Processed_data"
-  drug: "chemo"
+  drug: "HDACi"
   
    
