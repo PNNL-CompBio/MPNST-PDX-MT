@@ -1,0 +1,130 @@
+---
+title: "Gene Expression Summary Stats"
+author: "Sara gosline"
+date: "2024-12-11"
+output: html_document
+---
+
+The goal of this document is to pull all RNASeq files from synapse in a metadata-aware fashion and do the basic analysis needed for figure 1 and supplemental figure 1. 
+
+Currently we have three batches:
+|date | treatment |
+| --- | --- |
+|10/17/23 | DMSO, mirda |
+|12/19/23 | DMSO, tram, selu, TNO, ribo, palbo, RMC, vorin |
+|12/27/23 | DMSO, decitabine, olap, trab, doxo, ifo, cap |
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(synapser)
+library(dplyr)
+synLogin()
+```
+
+
+Created a helper function to get RNASeq data
+```{r rnaseq}
+##currently this function pulls all data mannually and parses the file names. 
+##TODO: udpate using file views
+rnaSeqTab<-getRNASeq<-function(){
+  ##metadata query first queries file view for all files - in this case i do counts.sf files, but you can also query by data type
+  manifest <- synapser::synTableQuery("select * from syn52369043 where name like '%quant.genes.sf'")|>
+    as.data.frame()|>
+    dplyr::select(name,id)
+  
+ ##not sure what the 'samples' are here so isolating them out
+
+ samples<-manifest$name[grep('sample',manifest$name)]
+ mnt<-manifest$name[grep('MN-2',manifest$name)]
+
+ ##METDATA - replace with anotations 
+ mn2<-manifest|>subset(name%in%mnt)|>
+   tidyr::separate(name,sep='_',into=c('sample','tumor','batch','time','drugrep','dbatch'))|>
+   tidyr::separate(drugrep,sep='[0-9]',into=c('drug'))
+ mn2$day=''
+
+ mn2$date<-'122723'
+ mn2$date[mn2$dbatch=='d1']<-'121923' #arbitrary, might need to switch
+ mn2$date[mn2$drug%in%c('TRA','SEL','RIB','RMC','VOR','PAL')]<-'121923'
+ 
+ mmeta<-mn2|>
+   dplyr::select(id,sample,time,drug,date)
+ 
+
+ ##METADATA replce with annotations
+ other<-manifest|>
+   subset(name%in%samples)|>
+   tidyr::separate(name,into=c('sample','timdrugrep','rest'))|>
+   dplyr::mutate(tumor='mpnst')
+ other$time='0'
+ other$drug<-'DMSO'
+ other$time[grep("8",other$timedrugrep)]<-'8'
+ other$time[grep("24",other$timedrugrep)]<-'24'
+ other$drug[grep("M",other$timedrugrep)]<-'MIRDA'
+ other$date<-'101723'
+ 
+ meta<-other|>
+   dplyr::select(id,sample,time,drug,date)|>
+   rbind(mmeta)
+ 
+ ##now get data and join with metadata
+  mtab<-do.call(rbind,lapply(manifest$id,function(x){
+   readr::read_tsv(synapser::synGet(x)$path)|>
+     dplyr::mutate(id=x)
+ }))|>left_join(meta)
+  
+  
+ 
+ return(mtab)
+
+}
+
+```
+
+## Geta data from synapse
+We can now call our RNASeq helper function defined above to get data and visualize overall
+
+```{r data}
+library(ggplot2)
+
+rnaseqdata<-rnaSeqTab()
+
+print(paste("Got RNASeq from",length(unique(rnaseqdata$id)),'samples across',length(unique(rnaseqdata$drug)),'drugs and',length(unique(rnaseqdata$time)),'timepoints'))
+```
+
+
+```{r plots and normaliztion}
+
+##first do some pretty PCA
+counts<-rnaseqdata|>
+  dplyr::select(Name,id,TPM)|>
+  tidyr::pivot_wider(names_from=id,values_from=TPM)|>
+  tibble::column_to_rownames('Name')|>
+  as.matrix()
+
+sampmeta<-rnaseqdata|>
+  dplyr::select(id,sample,time,drug,date)|>
+  distinct()
+
+pcs<-prcomp(counts)
+
+pcvals<-pcs$rotation|>
+  as.data.frame()|>
+  dplyr::select(PC1,PC2)|>
+  tibble::rownames_to_column('id')|>
+  left_join(sampmeta)
+
+ ggplot(pcvals,aes(x=PC1,y=PC2,col=drug,shape=time))+geom_point()+facet_grid(~date)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
