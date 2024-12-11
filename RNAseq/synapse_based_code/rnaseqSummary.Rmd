@@ -185,6 +185,8 @@ sumstats<-diffex|>subset(signif)|>
 
 print('now have differential expression calls')
  ggplot(sumstats,aes(x=drug,y=numgenes,fill=direction))+facet_grid(~time)+geom_bar(stat='identity',position='dodge')+coord_flip()+scale_fill_viridis_d()
+ 
+ ggplot(sumstats,aes(x=drug,y=time,size=numgenes,col=drug))+geom_point()+facet_grid(~direction)+scale_size(range=c(1,15))+scale_color_viridis_d()+coord_flip()
 ```
 We can continue to tweak batches/outliers as we move on, but the general barplot should show differential expression.
 Next up we can experiment with other visualizations.
@@ -199,7 +201,7 @@ if(!require(ggalluvial)){
    geom_stratum()+
    scale_x_discrete(limits = c("Time", "Drug"),expand = c(.2, .05)) +
   geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
-    theme_minimal() 
+    theme_minimal()+scale_fill_viridis_d()
  
 
 
@@ -208,7 +210,7 @@ if(!require(ggalluvial)){
    subset(!is.na(`24`))|> #why are there na's?
    subset(!is.na(`8`))|>
    group_by(drug,direction,`8`,`24`)|>
-   summarize(numgenes=n())+scale_fill_viridis_d()
+   summarize(numgenes=n())
 
 
   ggplot(data=genestats,aes(axis1=`8`,axis2=drug,axis3=`24`,y=numgenes))+geom_alluvium(aes(fill=direction))+
@@ -219,6 +221,5 @@ if(!require(ggalluvial)){
 
 ```
 
-This isn't showing proper overlaps between all the samples
-
+This isn't showing proper overlaps between all the samples. Other plot ideas
 
