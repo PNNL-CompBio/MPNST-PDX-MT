@@ -40,32 +40,33 @@ rnaSeqTab<-getRNASeq<-function(){
 
  ##METDATA - replace with anotations 
  mn2<-manifest|>subset(name%in%mnt)|>
-   tidyr::separate(name,sep='_',into=c('sample','tumor','batch','time','drugrep','dbatch'))|>
-   tidyr::separate(drugrep,sep='[0-9]',into=c('drug'))
+   tidyr::separate(name,sep='_',into=c('sample','tumor','batch','time','drugrep','dbatch'),remove=FALSE)|>
+   tidyr::separate(drugrep,sep='[0-9]',into=c('drug'))|>
+   tidyr::separate(time,sep='h',into=c('time'))
  mn2$day=''
 
- mn2$date<-'122723'
- mn2$date[mn2$dbatch=='d1']<-'121923' #arbitrary, might need to switch
- mn2$date[mn2$drug%in%c('TRA','SEL','RIB','RMC','VOR','PAL')]<-'121923'
+ mn2$date<-'12-27-23'
+ mn2$date[mn2$dbatch=='d1']<-'12-19-23' #arbitrary, might need to switch
+ mn2$date[mn2$drug%in%c('TRA','SEL','RIB','RMC','VOR','PAL')]<-'12-19-23'
  
  mmeta<-mn2|>
-   dplyr::select(id,sample,time,drug,date)
+   dplyr::select(id,name,sample,time,drug,date)
  
 
  ##METADATA replce with annotations
  other<-manifest|>
    subset(name%in%samples)|>
-   tidyr::separate(name,into=c('sample','timdrugrep','rest'))|>
+   tidyr::separate(name,into=c('sample','timedrugrep','rest'),remove=FALSE)|>
    dplyr::mutate(tumor='mpnst')
  other$time='0'
  other$drug<-'DMSO'
  other$time[grep("8",other$timedrugrep)]<-'8'
  other$time[grep("24",other$timedrugrep)]<-'24'
  other$drug[grep("M",other$timedrugrep)]<-'MIRDA'
- other$date<-'101723'
+ other$date<-'10-17-23'
  
  meta<-other|>
-   dplyr::select(id,sample,time,drug,date)|>
+   dplyr::select(id,name,sample,time,drug,date)|>
    rbind(mmeta)
  
  ##now get data and join with metadata
@@ -85,19 +86,30 @@ rnaSeqTab<-getRNASeq<-function(){
 ## Geta data from synapse
 We can now call our RNASeq helper function defined above to get data and visualize overall
 
-```{r data}
-library(ggplot2)
+```{r data, echo=FALSE,warning=FALSE,message=FALSE}
 
 rnaseqdata<-rnaSeqTab()
 
 print(paste("Got RNASeq from",length(unique(rnaseqdata$id)),'samples across',length(unique(rnaseqdata$drug)),'drugs and',length(unique(rnaseqdata$time)),'timepoints'))
 ```
 
+Now first we visualize the samples to assess any batch effects by date.
 
 ```{r plots and normaliztion}
+library(ggplot2)
+
+zeroes<-rnaseqdata|>
+  subset(TPM==0)|>
+  group_by(Name)|>
+  summarize(zvals=n())
+
+samps<-length(unique(rnaseqdata$id))
+toremove<-subset(zeroes,zvals>samps/2)
+
+reduced.data<-subset(rnaseqdata,!Name%in%toremove$Name)
 
 ##first do some pretty PCA
-counts<-rnaseqdata|>
+tpm<-reduced.data|>
   dplyr::select(Name,id,TPM)|>
   tidyr::pivot_wider(names_from=id,values_from=TPM)|>
   tibble::column_to_rownames('Name')|>
@@ -107,7 +119,7 @@ sampmeta<-rnaseqdata|>
   dplyr::select(id,sample,time,drug,date)|>
   distinct()
 
-pcs<-prcomp(counts)
+pcs<-prcomp(log2(0.0001+tpm),scale=TRUE,center=TRUE)
 
 pcvals<-pcs$rotation|>
   as.data.frame()|>
@@ -115,16 +127,98 @@ pcvals<-pcs$rotation|>
   tibble::rownames_to_column('id')|>
   left_join(sampmeta)
 
- ggplot(pcvals,aes(x=PC1,y=PC2,col=drug,shape=time))+geom_point()+facet_grid(~date)
+ ggplot(pcvals,aes(x=PC1,y=PC2,col=drug,shape=time))+geom_point(aes(size=4))+facet_grid(~date)+scale_color_viridis_d()
+
+```
+There seems to be a batch effect so let's correct for that using combat
+
+```{r batch correct}
+library(sva)
+##now to remove the batches for date while still correcting for drug and time
+
+
+```
+## Differential expression
+
+Let's compute the differential expression of each drug/time point compared with DMSO
+
+```{r diffex, echo=FALSE,warning=FALSE,message=FALSE}
+library("DESeq2")
+
+counts<-reduced.data|>
+  dplyr::select(Name,id,NumReads)|>
+  tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
+  tibble::column_to_rownames('Name')|>
+  as.matrix()
+
+diffexCalls<-do.call(rbind,lapply(unique(sampmeta$date),function(dval){
+  datemeta<-subset(sampmeta,date==dval)|>
+    subset(drug!='DMSO')
+  ##check for each drug at the date
+  do.call(rbind,lapply(unique(datemeta$drug),function(d_name){
+    ##check for each time point at the drug/date
+   do.call(rbind,lapply(c('8','24'),function(tval){
+     samps<-subset(sampmeta,date==dval)|>
+       subset(time==tval)|>
+       subset(drug%in%c(d_name,"DMSO"))
+      cts<-counts[,samps$id]
+     dds <- DESeqDataSetFromMatrix(countData = round(cts),
+                              colData = samps,
+                              design = ~ drug)
+     dres<-DESeq(dds)|>
+       results()|>
+       as.data.frame()|>
+       tibble::rownames_to_column('Gene')|>
+       mutate(drug=d_name,time=tval,date=dval)
+     return(dres)
+   })) 
+  }))
+}))
+
+diffex<-diffexCalls|>
+  mutate(signif=padj<0.05)|>
+  mutate(direction=ifelse(log2FoldChange>0,'up','down'))
+
+sumstats<-diffex|>subset(signif)|>
+  group_by(drug,time,date,direction)|>
+  summarize(numgenes=n())
+
+print('now have differential expression calls')
+ ggplot(sumstats,aes(x=drug,y=numgenes,fill=direction))+facet_grid(~time)+geom_bar(stat='identity',position='dodge')+coord_flip()+scale_fill_viridis_d()
+```
+We can continue to tweak batches/outliers as we move on, but the general barplot should show differential expression.
+Next up we can experiment with other visualizations.
+
+```{r alluvial}
+if(!require(ggalluvial)){
+  install.packages('ggalluvial')
+  library('ggalluvial')
+}
+
+ ggplot(data=sumstats,aes(axis1=time,axis2=drug,y=numgenes))+geom_alluvium(aes(fill=direction))+
+   geom_stratum()+
+   scale_x_discrete(limits = c("Time", "Drug"),expand = c(.2, .05)) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+    theme_minimal() 
+ 
+
+
+ genestats<-diffex|>dplyr::select(Gene,drug,time,signif,direction)|>
+   tidyr::pivot_wider(names_from=time,values_from=signif)|>
+   subset(!is.na(`24`))|> #why are there na's?
+   subset(!is.na(`8`))|>
+   group_by(drug,direction,`8`,`24`)|>
+   summarize(numgenes=n())+scale_fill_viridis_d()
+
+
+  ggplot(data=genestats,aes(axis1=`8`,axis2=drug,axis3=`24`,y=numgenes))+geom_alluvium(aes(fill=direction))+
+   geom_stratum()+
+  scale_x_discrete(limits = c("8 hours", "Drug","24 hours"), expand = c(.2, .05)) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+    theme_minimal() +scale_fill_viridis_d()
 
 ```
 
-## Including Plots
+This isn't showing proper overlaps between all the samples
 
-You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
