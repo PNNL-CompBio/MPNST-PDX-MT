@@ -221,5 +221,62 @@ if(!require(ggalluvial)){
 
 ```
 
-This isn't showing proper overlaps between all the samples. Other plot ideas
+## Gene based analysis
+Let's look at shared trends across the drugs.
 
+```{r gene ranking}
+
+drugscounts<-subset(diffex,signif)|>group_by(Gene,time,direction)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))
+
+library(biomaRt)
+ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+
+dgenes<-diffex|>
+  tidyr::separate(Gene,sep="\\.",into=c('ensembl_gene_id','Version'))
+
+map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(dgenes$ensembl_gene_id), mart = ensembl)
+
+drugscounts<-subset(dgenes,signif)|>group_by(ensembl_gene_id,time,direction)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))|>
+  left_join(map)|>
+  subset(hgnc_symbol!='')
+
+##most drugs just show up in one or two
+ggplot(drugscounts,aes(x=ndrugs,fill=direction))+geom_bar(position='dodge')+ggtitle('Number of drugs with shared differentially expressed genes')
+
+#reduced.genes<-reduced.data|>  
+#  tidyr::separate(Name,sep="\\.",into=c('ensembl_gene_id','Version'))|>
+#   left_join(map)
+
+topgenes<-subset(drugscounts,ndrugs>8)
+
+subset(dgenes,ensembl_gene_id%in%topgenes$ensembl_gene_id)|>
+   subset(signif)|>
+     left_join(map)|>
+     ggplot(aes(col=drug,y=log2FoldChange,shape=signif,x=hgnc_symbol,size=1))+geom_point()+facet_grid(direction~time)+coord_flip()+ggtitle("Genes that are differentially expressed across more than 8 drugs")
+
+```
+Most genes are only differentailly expressed upon a single drug treatment, but some are shared with other drugs. Targeting these canonical responders might be effective, but what if we can find distinct genes changing?
+
+```{r distinct genes}
+
+ugenes<-subset(drugscounts,ndrugs==1)
+
+subset(dgenes,ensembl_gene_id%in%ugenes$ensembl_gene_id)|>
+   subset(signif)|>
+  group_by(drug,time,direction)|>
+  summarize(ngenes=n())|>
+  ggplot()+geom_bar(aes(x=drug,y=ngenes,fill=direction),stat='identity',position='dodge')+facet_grid(~time)+coord_flip()
+
+##what about genes that are consistent across 8 and 24hr time point/
+ggenes<-dgenes|>subset(signif)|>group_by(drug,direction,ensembl_gene_id)|>summarize(ntime=n())|>subset(ntime==2)
+
+  left_join(ggenes,dgenes)|>
+   subset(signif)|>
+  group_by(drug,time,direction)|>
+  summarize(ngenes=n())|>
+  ggplot()+geom_bar(aes(x=drug,y=ngenes,fill=direction),stat='identity',position='dodge')+facet_grid(~time)+coord_flip()+ggtitle("Consistently changing genes in only one drug")
+
+
+```
+
+should we target genes that are unique to a drug? and if so, do we want genes that are consistently changed across time points? What are the enrichment statistics for these genes? 
