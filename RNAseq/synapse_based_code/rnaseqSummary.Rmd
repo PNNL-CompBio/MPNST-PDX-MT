@@ -8,6 +8,7 @@ output: html_document
 The goal of this document is to pull all RNASeq files from synapse in a metadata-aware fashion and do the basic analysis needed for figure 1 and supplemental figure 1. 
 
 Currently we have three batches:
+
 |date | treatment |
 | --- | --- |
 |10/17/23 | DMSO, mirda |
