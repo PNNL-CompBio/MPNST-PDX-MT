@@ -1,0 +1,122 @@
+---
+title: "TF Enrichment experiments"
+author: "Sara gosline"
+date: "2024-12-13"
+output: html_document
+---
+
+Here we take the differential expression and use it to infer transcrition factors
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(synapser)
+library(dplyr)
+synLogin()
+
+counts<-readr::read_csv(synapser::synGet('syn64398051')$path)
+diffex<-readr::read_csv(synapser::synGet('syn64397743')$path)
+```
+
+## Decoupler analysis 
+Here we use the decoupler package to try to infer transcription factor activity from known databases
+
+```{r decoupleR analysis}
+library(decoupleR)
+library(OmnipathR)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+library(pheatmap)
+library(ggrepel)
+
+cmat<- counts|>
+  dplyr::select(hgnc_symbol,id,NumReads)|>
+  tidyr::pivot_wider(names_from='id',values_from='NumReads')|>
+  tibble::column_to_rownames(var='hgnc_symbol')
+
+design<-counts|>
+  dplyr::select(id,drug,time)|>
+  distinct()
+
+
+
+net <- decoupleR::get_collectri(organism = 'human', 
+                                split_complexes = FALSE)
+
+sample_acts <- decoupleR::run_ulm(mat = cmat, 
+                                  net = net, 
+                                  .source = 'source', 
+                                  .target = 'target',
+                                  .mor = 'mor', 
+                                  minsize = 5)
+
+##now we have putative transcritpion factors for each condition
+tfs<-sample_acts|>
+  dplyr::rename(id='condition')|>
+  left_join(design)
+print(head(tfs))
+```
+Now we have tf scores
+## Most variable transcription factors
+
+Let's start by plotting the most variable transcritpion factors
+
+```{r pressure, echo=FALSE}
+
+vars<-tfs|>group_by(source)|>summarize(var=var(score))|>arrange(desc(var))
+
+tf_mat<-sample_acts|>
+  subset(source%in%c(vars$source[1:25]))|>
+  dplyr::select(source,condition,score)|>
+  pivot_wider(names_from='source',values_from='score')|>
+  tibble::column_to_rownames('condition')
+
+ddesign<-design|>
+  tibble::column_to_rownames('id')
+
+pheatmap(tf_mat,annotation_row = ddesign,labels_row=c())
+
+
+sample_acts|>
+  dplyr::rename(id='condition')|>
+  mutate(log10p=(-log10(p_value)))|>
+  left_join(design)|>
+  subset(source%in%vars$source[1:25])|>
+  ggplot(aes(x=source,y=score,col=drug,shape=as.factor(time),size=log10p))+geom_point()+coord_flip()
+```
+
+I think this plot is more a message of where the outliers lie rather than the actual biological value of each of the TFs. 
+
+## Transcription factors by drug
+
+```{r tfs by drug}
+
+
+allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
+    do.call(rbind,lapply(unique(diffex$time),function(ti){
+      dtab<-subset(diffex,time==ti)|>
+        subset(!is.na(stat))|>
+        subset(drug==d)|>
+        group_by(hgnc_symbol,drug,time)|>
+        summarize(meanStat=mean(stat,na.rm=TRUE))|>
+        subset(hgnc_symbol!='')|>
+        tibble::column_to_rownames('hgnc_symbol')
+      
+      contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'meanStat', drop = FALSE], 
+                                    net = net, 
+                                    .source = 'source', 
+                                    .target = 'target',
+                                    .mor='mor', 
+                                    minsize = 5)|>
+        ungroup()|>
+        mutate(drug=d,time=ti)
+      return(contrast_acts)
+        }))
+    }))
+
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

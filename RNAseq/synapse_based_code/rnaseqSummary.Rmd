@@ -5,6 +5,7 @@ date: "2024-12-11"
 output: html_document
 ---
 
+
 The goal of this document is to pull all RNASeq files from synapse in a metadata-aware fashion and do the basic analysis needed for figure 1 and supplemental figure 1. 
 
 Currently we have three batches:
@@ -15,6 +16,7 @@ Currently we have three batches:
 |12/19/23 | DMSO, tram, selu, TNO, ribo, palbo, RMC, vorin |
 |12/27/23 | DMSO, decitabine, olap, trab, doxo, ifo, cap |
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -23,14 +25,14 @@ library(dplyr)
 synLogin()
 ```
 
-
+### RNASeq data from synapse.
 Created a helper function to get RNASeq data
 ```{r rnaseq}
 ##currently this function pulls all data mannually and parses the file names. 
 ##TODO: udpate using file views
 rnaSeqTab<-getRNASeq<-function(){
   ##metadata query first queries file view for all files - in this case i do counts.sf files, but you can also query by data type
-  manifest <- synapser::synTableQuery("select * from syn52369043 where name like '%quant.genes.sf'")|>
+  manifest <- synapser::synTableQuery("select * from syn52369043 where name like '%quant.genes.sf'")$asDataFrame()|>
     as.data.frame()|>
     dplyr::select(name,id)
   
@@ -84,17 +86,44 @@ rnaSeqTab<-getRNASeq<-function(){
 
 ```
 
-## Geta data from synapse
-We can now call our RNASeq helper function defined above to get data and visualize overall
+### Collect latest data
+We can now call our RNASeq helper function defined above to get data and visualize overall. Currently this pulls all data with a `quants.genes.sf` file but can be adjusted.
 
 ```{r data, echo=FALSE,warning=FALSE,message=FALSE}
 
-rnaseqdata<-rnaSeqTab()
+rnaseqdata<-rnaSeqTab()|>
+  tidyr::separate(Name,into=c('ensembl_gene_id','version'),remove=FALSE)
 
 print(paste("Got RNASeq from",length(unique(rnaseqdata$id)),'samples across',length(unique(rnaseqdata$drug)),'drugs and',length(unique(rnaseqdata$time)),'timepoints'))
+
+
+library(biomaRt)
+ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+
+
+map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
+
+rnaseqgenes<-rnaseqdata|>left_join(map)|>
+  subset(hgnc_symbol!="")|>
+  dplyr::group_by(hgnc_symbol,date,id,drug,time)|>
+  summarize(TPM=sum(TPM),NumReads=sum(NumReads))
+
+readr::write_csv(rnaseqdata,file='rnaseqcounts.csv')
+readr::write_csv(rnaseqgenes,file='rnaseqcounts_hgnc.csv')
+
+synFile <- synapser::File('rnaseqcounts.csv', parent = 'syn64004220')
+synapser::synStore(synFile)
+synFile <- synapser::File('rnaseqcounts_hgnc.csv', parent = 'syn64004220')
+synapser::synStore(synFile)
+
 ```
 
-Now first we visualize the samples to assess any batch effects by date.
+
+Here we do some pre-processing by removing lowly abundant transcripts and then plot to PCA.
+
+Open questions:
+- are there any outliers to remove?
+- are there any sample swaps here?
 
 ```{r plots and normaliztion}
 library(ggplot2)
@@ -131,7 +160,10 @@ pcvals<-pcs$rotation|>
  ggplot(pcvals,aes(x=PC1,y=PC2,col=drug,shape=time))+geom_point(aes(size=4))+facet_grid(~date)+scale_color_viridis_d()
 
 ```
-There seems to be a batch effect so let's correct for that using combat
+
+### Batch correction
+
+Clearly there is a batch effect so it will be good to correct for this to enable facile comparisons across datasets.
 
 ```{r batch correct}
 library(sva)
@@ -139,9 +171,13 @@ library(sva)
 
 
 ```
-## Differential expression
+### Differential expression
 
-Let's compute the differential expression of each drug/time point compared with DMSO
+Let's compute the differential expression of each drug/time point compared with DMSO. This analysis is at the core of what we're doing - trying to determine what changes are happening at each time point. 
+
+- Which drugs are causing the greatest changes?
+- Which time points are causing the greatest changes?
+- TBD: how do these changes vary across samples?
 
 ```{r diffex, echo=FALSE,warning=FALSE,message=FALSE}
 library("DESeq2")
@@ -192,6 +228,10 @@ print('now have differential expression calls')
 We can continue to tweak batches/outliers as we move on, but the general barplot should show differential expression.
 Next up we can experiment with other visualizations.
 
+### Alluvial plots? 
+
+I tried to get these to work but they don't show genes in common between time points. 
+
 ```{r alluvial}
 if(!require(ggalluvial)){
   install.packages('ggalluvial')
@@ -222,20 +262,25 @@ if(!require(ggalluvial)){
 
 ```
 
-## Gene based analysis
-Let's look at shared trends across the drugs.
+Todo: find better way to visualize?
+
+## Some genes show up in many drugs
+Let's look at shared trends across the drugs.This will enable us to do pathway enrichment. The question is what do we use to perform our enrichment? There are so very many categories. 
+
+We can simply measure the pathways up- and down-regulated in each condition described above. This will tell us precisely what is changing in each conditon. However, since our goal is to identify synergies, we should find drug changes that are unique to specific drugs. Below we see genes that are commonly up- and down-regulated across drug treatments. 
 
 ```{r gene ranking}
 
 drugscounts<-subset(diffex,signif)|>group_by(Gene,time,direction)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))
 
-library(biomaRt)
-ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-
 dgenes<-diffex|>
   tidyr::separate(Gene,sep="\\.",into=c('ensembl_gene_id','Version'))
 
-map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(dgenes$ensembl_gene_id), mart = ensembl)
+diffex_gene<-dgenes|>left_join(map)
+##let's save this back to synapse for future reference
+readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
+synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn64004220')
+synapser::synStore(synFile)
 
 drugscounts<-subset(dgenes,signif)|>group_by(ensembl_gene_id,time,direction)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))|>
   left_join(map)|>
@@ -250,13 +295,18 @@ ggplot(drugscounts,aes(x=ndrugs,fill=direction))+geom_bar(position='dodge')+ggti
 
 topgenes<-subset(drugscounts,ndrugs>8)
 
+##TODO check for duplicates
 subset(dgenes,ensembl_gene_id%in%topgenes$ensembl_gene_id)|>
    subset(signif)|>
      left_join(map)|>
-     ggplot(aes(col=drug,y=log2FoldChange,shape=signif,x=hgnc_symbol,size=1))+geom_point()+facet_grid(direction~time)+coord_flip()+ggtitle("Genes that are differentially expressed across more than 8 drugs")
+     ggplot(aes(col=drug,y=log2FoldChange,shape=signif,x=hgnc_symbol,size=1))+geom_point()+facet_grid(~time)+coord_flip()+ggtitle("Genes that are differentially expressed across more than 8 drugs")
 
 ```
-Most genes are only differentailly expressed upon a single drug treatment, but some are shared with other drugs. Targeting these canonical responders might be effective, but what if we can find distinct genes changing?
+Most genes are only differentially expressed upon a single drug treatment, but some are shared with other drugs. Targeting these canonical responders might be effective, but what if we can find distinct genes changing?
+
+Maybe we want drugs that exhibit inverse behavior for genes like UBASH3B? Uup in mirda/dox, 
+
+Here we ask for genes only changing in one drug - is this a more reliable list?
 
 ```{r distinct genes}
 
@@ -267,7 +317,11 @@ subset(dgenes,ensembl_gene_id%in%ugenes$ensembl_gene_id)|>
   group_by(drug,time,direction)|>
   summarize(ngenes=n())|>
   ggplot()+geom_bar(aes(x=drug,y=ngenes,fill=direction),stat='identity',position='dodge')+facet_grid(~time)+coord_flip()
+```
 
+Lastly, what if we only look at uniquely changing genes that are consistently changing? Are the pathways still the same? 
+
+```{r consistent genes}
 ##what about genes that are consistent across 8 and 24hr time point/
 ggenes<-dgenes|>subset(signif)|>group_by(drug,direction,ensembl_gene_id)|>summarize(ntime=n())|>subset(ntime==2)
 
