@@ -90,7 +90,7 @@ I think this plot is more a message of where the outliers lie rather than the ac
 
 ## Transcription factors by drug
 
-```{r tfs by drug}
+```{r tfs by drug,warning=FALSE, echo=FALSE}
 
 
 allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
@@ -115,6 +115,20 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
         }))
     }))
 
+allcontrast$padj<-p.adjust(allcontrast$p_value)
+subset(allcontrast,padj<0.05)|>ggplot(aes(x=source,y=score,col=drug,shape=as.factor(time)))+geom_point()+coord_flip()+facet_grid(~time)
+mat<-allcontrast|>dplyr::select(source,drug,time,score)|>tidyr::unite(drug,time,col='drugtime')|>pivot_wider(names_from=drugtime,values_from=score,values_fill = 0.0)
+
+
+```
+
+We can evaluate how the transcription factor values correlate with one another
+```{r tfcors}
+
+corval<-mat|>tibble::column_to_rownames('source')|>cor(use='pairwise.complete.obs')
+pheatmap(corval)
+
+pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
 
 
 ```
