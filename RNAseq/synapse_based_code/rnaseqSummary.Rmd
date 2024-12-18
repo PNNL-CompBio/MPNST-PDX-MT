@@ -78,6 +78,11 @@ rnaSeqTab<-getRNASeq<-function(){
      dplyr::mutate(id=x)
  }))|>left_join(meta)
   
+  drugnames<-list(DMSO='DMSO',MIRDA='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
+                  OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',TNO='TNO155',VOR='Vorinostat',
+                  RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
+  
+  mtab$drug<-unlist(sapply(mtab$drug,function(x) return(drugnames[[x]])))
   
  
  return(mtab)
@@ -157,15 +162,19 @@ pcvals<-pcs$rotation|>
   tibble::rownames_to_column('id')|>
   left_join(sampmeta)
 
- ggplot(pcvals,aes(x=PC1,y=PC2,col=drug,shape=time))+geom_point(aes(size=4))+facet_grid(~date)+scale_color_viridis_d()
+ ggplot(pcvals,aes(x=PC1,y=PC2,col=drug,shape=time))+geom_point(aes(size=4))+facet_grid(~date)+scale_color_discrete()
 
+ ggsave('batched_pca.png',width=12,height=6)
+ 
 ```
 
 ### Batch correction
 
-Clearly there is a batch effect so it will be good to correct for this to enable facile comparisons across datasets.
+Clearly there is a batch effect so it will be good to correct for this to enable facile comparisons across datasets. 
 
-```{r batch correct}
+TODO: put the SVA code here and upload a corrected file to synapse
+
+```{r batch correct, echo=FALSE, warning=FALSE, message=FALSE}
 library(sva)
 ##now to remove the batches for date while still correcting for drug and time
 
@@ -223,8 +232,19 @@ sumstats<-diffex|>subset(signif)|>
 print('now have differential expression calls')
  ggplot(sumstats,aes(x=drug,y=numgenes,fill=direction))+facet_grid(~time)+geom_bar(stat='identity',position='dodge')+coord_flip()+scale_fill_viridis_d()
  
- ggplot(sumstats,aes(x=drug,y=time,size=numgenes,col=drug))+geom_point()+facet_grid(~direction)+scale_size(range=c(1,15))+scale_color_viridis_d()+coord_flip()
+ ggplot(sumstats,aes(x=drug,y=time,size=numgenes,col=drug))+geom_point()+facet_grid(~direction)+scale_size(range=c(1,15))+scale_color_discrete()+coord_flip()
+ 
+ ggsave('diffExresults.png',height=6)
+ 
+ ##which drugs have more changes at 8 hrs? which at 24?
+ tp<-sumstats|>tidyr::pivot_wider(names_from='time',values_from='numgenes')|>
+   tidyr::replace_na(list(`24`=0.0))
+  tp$maxEffect=ifelse(tp$`24`>tp$`8`,'24hrs','8hrs')
+ tp|>ungroup()|>dplyr::select(drug,direction,maxEffect)|>
+   tidyr::pivot_wider(names_from='direction',values_from='maxEffect')|>
+   arrange(drug)
 ```
+
 We can continue to tweak batches/outliers as we move on, but the general barplot should show differential expression.
 Next up we can experiment with other visualizations.
 

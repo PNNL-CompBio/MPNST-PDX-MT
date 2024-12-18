@@ -16,6 +16,8 @@ synLogin()
 
 counts<-readr::read_csv(synapser::synGet('syn64398051')$path)
 diffex<-readr::read_csv(synapser::synGet('syn64397743')$path)
+counts_ens<-readr::read_csv(synapser::synGet('syn64398049')$path)
+
 ```
 
 ## Decoupler analysis 
@@ -30,12 +32,20 @@ library(ggplot2)
 library(pheatmap)
 library(ggrepel)
 
-cmat<- counts|>
-  dplyr::select(hgnc_symbol,id,NumReads)|>
-  tidyr::pivot_wider(names_from='id',values_from='NumReads')|>
-  tibble::column_to_rownames(var='hgnc_symbol')
 
-design<-counts|>
+library(biomaRt)
+ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+
+
+map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(counts_ens$ensembl_gene_id), mart = ensembl)
+
+
+cmat<- counts_ens|>
+  dplyr::select(ensembl_gene_id,id,NumReads)|>
+  tidyr::pivot_wider(names_from='id',values_from='NumReads', values_fn=mean)|>
+  tibble::column_to_rownames(var='ensembl_gene_id')
+
+design<-counts_ens|>
   dplyr::select(id,drug,time)|>
   distinct()
 
@@ -44,8 +54,13 @@ design<-counts|>
 net <- decoupleR::get_collectri(organism = 'human', 
                                 split_complexes = FALSE)
 
+enet<-net|>dplyr::rename(hgnc_symbol='target')|>
+  left_join(map)|>
+  subset(!is.na(ensembl_gene_id))|>
+  dplyr::select(source,target='ensembl_gene_id',mor)
+
 sample_acts <- decoupleR::run_ulm(mat = cmat, 
-                                  net = net, 
+                                  net = enet, 
                                   .source = 'source', 
                                   .target = 'target',
                                   .mor = 'mor', 
@@ -73,7 +88,8 @@ tf_mat<-sample_acts|>
   tibble::column_to_rownames('condition')
 
 ddesign<-design|>
-  tibble::column_to_rownames('id')
+  tibble::column_to_rownames('id')|>
+  mutate(time=as.factor(time))
 
 pheatmap(tf_mat,annotation_row = ddesign,labels_row=c())
 
@@ -82,15 +98,22 @@ sample_acts|>
   dplyr::rename(id='condition')|>
   mutate(log10p=(-log10(p_value)))|>
   left_join(design)|>
-  subset(source%in%vars$source[1:25])|>
-  ggplot(aes(x=source,y=score,col=drug,shape=as.factor(time),size=log10p))+geom_point()+coord_flip()
+  subset(source%in%vars$source[1:15])|>
+  ggplot(aes(x=drug,y=score,col=source,shape=as.factor(time),size=log10p))+geom_point()
+
+readr::write_csv(sample_acts,'allTFestimatesBySample.csv')
+sf<-synapser::File('allTFestimatesBySample.csv',parentId='syn64004220')
+synapser::synStore(sf)
+
 ```
 
-I think this plot is more a message of where the outliers lie rather than the actual biological value of each of the TFs. 
+I think this plot is more a message of where the outliers lie rather than the actual biological value of each of the TFs. It also shows the need for batch correction. 
 
 ## Transcription factors by drug
 
-```{r tfs by drug,warning=FALSE, echo=FALSE}
+Here we use t statistics as input to decoupler, so that we cna identify the TFs that are changing positively or negatively in each drug treatment. 
+
+```{r tfs by drug,warning=FALSE, message=FALSE}
 
 
 allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
@@ -117,6 +140,16 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
 
 allcontrast$padj<-p.adjust(allcontrast$p_value)
 subset(allcontrast,padj<0.05)|>ggplot(aes(x=source,y=score,col=drug,shape=as.factor(time)))+geom_point()+coord_flip()+facet_grid(~time)
+readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
+sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64004220')
+synapser::synStore(sf)
+
+md <- allcontrast|>
+  dplyr::select(drug,time)|>
+  distinct()|>
+  tidyr::unite(drug,time,col='drugtime',remove=FALSE)|>
+  tibble::column_to_rownames('drugtime')
+
 mat<-allcontrast|>dplyr::select(source,drug,time,score)|>tidyr::unite(drug,time,col='drugtime')|>pivot_wider(names_from=drugtime,values_from=score,values_fill = 0.0)
 
 
@@ -126,11 +159,13 @@ We can evaluate how the transcription factor values correlate with one another
 ```{r tfcors}
 
 corval<-mat|>tibble::column_to_rownames('source')|>cor(use='pairwise.complete.obs')
-pheatmap(corval)
+pheatmap(corval,annotation_row = md,annotation_col=md)
 
-pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
+pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|T|>prcomp()
 
-
+comps<-cbind(pcs$rotation[rownames(md),],md)|>unique()
+comps|>
+  ggplot(aes(x=PC1,y=PC2,col=drug,shape=as.factor(time),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=drug))
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

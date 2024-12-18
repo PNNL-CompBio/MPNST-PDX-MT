@@ -197,18 +197,18 @@ MAPK3 and MAPK1 exhibit changes in many conditions.
 We can use KSEA to do kinase enrichment
 
 ```{r}
-dirname='KinaseEnrichResults-forSara-2024-10-23/'
-ksea_files=list.files(dirname,pattern='KSEA-Kinase-scores')
-
-allkins<-do.call(rbind,lapply(ksea_files,function(x){
-  tab<-readr::read_csv(paste(dirname,x,sep='/'))
-  nl <- unlist(strsplit(x,split='_'))
-  tab$Drug=nl[1]
-  tab$time=nl[2]
-  tab$sample=nl[3]
-  tab$AdjP<- (-log10(p.adjust(tab$p.value)))
-  return(tab)
-}))|>
+# dirname='KinaseEnrichResults-forSara-2024-10-23/'
+# ksea_files=list.files(dirname,pattern='KSEA-Kinase-scores')
+# 
+# allkins<-do.call(rbind,lapply(ksea_files,function(x){
+#   tab<-readr::read_csv(paste(dirname,x,sep='/'))
+#   nl <- unlist(strsplit(x,split='_'))
+#   tab$Drug=nl[1]
+#   tab$time=nl[2]
+#   tab$sample=nl[3]
+#   tab$AdjP<- (-log10(p.adjust(tab$p.value)))
+#   return(tab)
+# }))|>
   
 allkins<-readr::read_csv(synapser::synGet('syn64322657')$path)|>
   mutate(AdjP=(-log10(p.adjust(p.value))))|>

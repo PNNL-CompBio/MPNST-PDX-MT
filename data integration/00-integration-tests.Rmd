@@ -1,0 +1,39 @@
+---
+title: "Data Integration"
+author: "Sara gosline"
+date: "2024-12-18"
+output: html_document
+---
+
+This file collects existing data - to date it is transcritpion factor and kinase enrichment stats from various drugs and time points, and experiments with ways to incorporate them across different studies.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(synapser)
+library(dplyr)
+synLogin()
+
+tfs
+
+kins
+
+```
+
+## Data summary
+First we need to collect where we're at with all the different types of analyses and time points
+
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
