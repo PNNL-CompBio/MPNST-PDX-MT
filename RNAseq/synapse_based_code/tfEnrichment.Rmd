@@ -121,13 +121,13 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
       dtab<-subset(diffex,time==ti)|>
         subset(!is.na(stat))|>
         subset(drug==d)|>
-        group_by(hgnc_symbol,drug,time)|>
-        summarize(meanStat=mean(stat,na.rm=TRUE))|>
-        subset(hgnc_symbol!='')|>
-        tibble::column_to_rownames('hgnc_symbol')
+        dplyr::select(ensembl_gene_id,drug,time,stat)|>
+        group_by(ensembl_gene_id,drug,time)|>
+        summarize(stat=mean(stat,na.rm=TRUE))|>
+        tibble::column_to_rownames('ensembl_gene_id')
       
-      contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'meanStat', drop = FALSE], 
-                                    net = net, 
+      contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'stat', drop = FALSE], 
+                                    net = enet, 
                                     .source = 'source', 
                                     .target = 'target',
                                     .mor='mor', 

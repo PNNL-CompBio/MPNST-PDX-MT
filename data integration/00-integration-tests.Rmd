@@ -14,9 +14,10 @@ library(synapser)
 library(dplyr)
 synLogin()
 
-tfs
+tfs<-readr::read_csv(synapser::synGet('syn64420968')$path)|>
+  mutate(sample=='MN.2')
 
-kins
+kins<-readr::read_csv(synapser::synGet('syn64322657')$path)
 
 ```
 
@@ -25,7 +26,9 @@ First we need to collect where we're at with all the different types of analyses
 
 
 ```{r cars}
-summary(cars)
+
+##figure out how many changes we have in each
+
 ```
 
 ## Including Plots
