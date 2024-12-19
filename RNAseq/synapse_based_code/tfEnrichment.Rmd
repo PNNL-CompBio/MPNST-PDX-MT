@@ -139,7 +139,8 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
     }))
 
 allcontrast$padj<-p.adjust(allcontrast$p_value)
-subset(allcontrast,padj<0.05)|>ggplot(aes(x=source,y=score,col=drug,shape=as.factor(time)))+geom_point()+coord_flip()+facet_grid(~time)
+allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
+subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=drug,shape=as.factor(time)))+geom_point()+coord_flip()+facet_grid(~time)
 
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64004220')
@@ -151,9 +152,12 @@ md <- allcontrast|>
   tidyr::unite(drug,time,col='drugtime',remove=FALSE)|>
   tibble::column_to_rownames('drugtime')
 
-mat<-allcontrast|>dplyr::select(source,drug,time,score)|>tidyr::unite(drug,time,col='drugtime')|>pivot_wider(names_from=drugtime,values_from=score,values_fill = 0.0)
+mat<-allcontrast|>
+  dplyr::select(source,drug,time,score)|>
+  tidyr::unite(drug,time,col='drugtime')|>
+  pivot_wider(names_from=drugtime,values_from=score,values_fill = 0.0)
 
-
+subset(allcontrast,source%in%c('ZEB1','STAT1','EGR1','RELA'))|>ggplot(aes(x=drug,y=score,size=signif,color=drug,shape=as.factor(time)))+geom_point()+facet_grid(~source)+coord_flip()
 ```
 
 We can evaluate how the transcription factor values correlate with one another
@@ -162,11 +166,11 @@ We can evaluate how the transcription factor values correlate with one another
 corval<-mat|>tibble::column_to_rownames('source')|>cor(use='pairwise.complete.obs')
 pheatmap(corval,annotation_row = md,annotation_col=md)
 
-pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|T|>prcomp()
+pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
 
 comps<-cbind(pcs$rotation[rownames(md),],md)|>unique()
 comps|>
   ggplot(aes(x=PC1,y=PC2,col=drug,shape=as.factor(time),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=drug))
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
