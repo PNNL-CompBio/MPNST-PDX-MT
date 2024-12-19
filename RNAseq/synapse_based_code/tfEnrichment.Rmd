@@ -140,6 +140,7 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
 
 allcontrast$padj<-p.adjust(allcontrast$p_value)
 subset(allcontrast,padj<0.05)|>ggplot(aes(x=source,y=score,col=drug,shape=as.factor(time)))+geom_point()+coord_flip()+facet_grid(~time)
+
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64004220')
 synapser::synStore(sf)
