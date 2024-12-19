@@ -61,7 +61,7 @@ Bar charts can also show changes by direction
 tcounts<-fullsum|>group_by(drug,sample,time,geneType,direction)|>summarize(count=n())
 tcounts<-tcounts|>mutate(regulators=ifelse(direction=='up',count,-1*count))
 
-ggplot(tcounts,aes(x=drug,y=dcount,fill=geneType))+geom_bar(stat='identity',position='dodge')+facet_grid(sample~time)+coord_flip()
+ggplot(tcounts,aes(x=drug,y=regulators,fill=geneType))+geom_bar(stat='identity',position='dodge')+facet_grid(sample~time)+coord_flip()
 
 ggsave('totalRegulatorCounts.png')
 
