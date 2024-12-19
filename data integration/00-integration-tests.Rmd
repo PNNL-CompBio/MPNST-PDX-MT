@@ -15,9 +15,15 @@ library(dplyr)
 synLogin()
 
 tfs<-readr::read_csv(synapser::synGet('syn64420968')$path)|>
-  mutate(sample=='MN.2')
+  mutate(sample='MN.2')
 
 kins<-readr::read_csv(synapser::synGet('syn64322657')$path)
+library(GGally)
+
+#ggtable(tips, "smoker", c("day", "time", "sex"))
+
+
+
 
 ```
 
@@ -25,18 +31,40 @@ kins<-readr::read_csv(synapser::synGet('syn64322657')$path)
 First we need to collect where we're at with all the different types of analyses and time points
 
 
-```{r cars}
+```{r data}
 
 ##figure out how many changes we have in each
 
+kinsum<-subset(kins,p.value<0.05)|>
+  dplyr::select(drug,sample,Gene='Kinase.Gene',score='z.score',time)|>
+  mutate(geneType='Kinase',time=as.factor(time))|>
+  mutate(direction=ifelse(score>0,'up','down'))
+
+tfsum<-subset(tfs,padj<0.05)|>
+  dplyr::select(drug,sample,time,Gene='source',score)|>
+  mutate(geneType='TF',time=as.factor(time))|>
+  mutate(direction=ifelse(score>0,'up','down'))
+
+fullsum<-rbind(kinsum,tfsum)
+
+ggtable(kinsum,'drug',c('sample','time','direction'))+ggtitle('Kinases active by drug and time')
+
+ggtable(tfsum,'drug',c('sample','time','direction'))+ggtitle("TFs active by drug and time")
+
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
+## trying more canonical plots
+Bar charts can also show changes by direction
 
 ```{r pressure, echo=FALSE}
-plot(pressure)
+
+tcounts<-fullsum|>group_by(drug,sample,time,geneType,direction)|>summarize(count=n())
+tcounts<-tcounts|>mutate(regulators=ifelse(direction=='up',count,-1*count))
+
+ggplot(tcounts,aes(x=drug,y=dcount,fill=geneType))+geom_bar(stat='identity',position='dodge')+facet_grid(sample~time)+coord_flip()
+
+ggsave('totalRegulatorCounts.png')
+
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
