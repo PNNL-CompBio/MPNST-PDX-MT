@@ -9,7 +9,7 @@ Here we take the differential expression and use it to infer transcrition factor
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
+#reticulate::use_virtualenv('r-reticulate')
 library(synapser)
 library(dplyr)
 synLogin()

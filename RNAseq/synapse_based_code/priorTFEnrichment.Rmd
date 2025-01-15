@@ -1,0 +1,129 @@
+---
+title: "Priori TF Enrichment"
+author: "Sara Gosline"
+date: "2025-01-14"
+output: html_document
+---
+
+
+Here we use the Prior package to run TF enrichment of the MPNST data 
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load libs}
+#library(reticulate)
+#reticulate::py_install('priori_regulon-enrichment')
+library(synapser)
+library(dplyr)
+library(readr)
+synLogin()
+fname=synapser::synGet('syn64398051')$path
+counts<-readr::read_csv(fname)
+
+mat <-counts|>
+  dplyr::select(features=hgnc_symbol,id,TPM)|>
+  tidyr::pivot_wider(names_from=id,values_from=TPM)
+
+readr::write_tsv(mat,file='TPMMat.txt')
+
+mdata <-counts|>
+  dplyr::select(id,date,time,drug)|>distinct()
+
+```
+
+## Run priori
+
+irst we use the reticulate package to navigate the python environments and run priori
+```{bash priori}
+priori TPMMat.txt pr_out
+```
+
+
+## Analyze results
+Now we can read in the results from prior
+
+```{r results, echo=FALSE}
+weights <-readr::read_tsv('pr_out/priori_activity_score_weights.tsv')
+scores <- readr::read_tsv("pr_out/priori_activity_scores.tsv")
+
+print(head(scores))
+
+##let's do PCA of the scores
+pcs<-scores|>tibble::column_to_rownames('id')|>as.matrix()|>t()|>prcomp()
+
+pcsdim<-pcs$rotation|>
+  as.data.frame()|>
+  tibble::rownames_to_column('id')|>
+    dplyr::left_join(mdata)
+
+library(ggplot2)
+
+ggplot(pcsdim,aes(x=PC1,y=PC2,col=drug,shape=as.factor(time),size=5))+geom_point()+facet_grid(~date)
+```
+
+Now that we have the scores we can join them with the metadata in the initial file and evaluate them.
+
+```{r score summaries}
+colnames(scores)[1]<-'id'
+
+lscores<-scores|>
+  tidyr::pivot_longer(colnames(scores)[-1],names_to='TF',values_to='activity score')
+lscores<-counts|>dplyr::select(date,id,drug,time)|>distinct()|>left_join(lscores)
+print(head(lscores))
+```
+
+Now we can evaluate significantly altered scores between conditions.
+
+```{r activity score changes}
+library(limma)
+
+scoremat<-scores|>
+  tibble::column_to_rownames('id')|>
+  as.matrix()|>
+  t()
+
+limmaFromMatrix<-function(mat,samps){
+  
+  design <- model.matrix(~0+drug+time+drug*time*date+date, data=samps)
+  res <- lmFit(2^(mat),design)
+  res <- eBayes(res)
+  
+  rtab<-topTable(res,number=nrow(mat))|>
+    dplyr::select(AveExpr,F,P.Value,adj.P.Val)
+  return(rtab)
+               
+}
+
+diffexCalls<-do.call(rbind,lapply(unique(mdata$date),function(dval){
+  datemeta<-subset(mdata,date==dval)|>
+    subset(drug!='DMSO')
+  ##check for each drug at the date
+  do.call(rbind,lapply(unique(datemeta$drug),function(d_name){
+    ##check for each time point at the drug/date
+    print(d_name)
+   do.call(rbind,lapply(c('8','24'),function(tval){
+    print(tval)
+    samps<-subset(mdata,date==dval)|>
+       subset(time==tval)|>
+       subset(drug%in%c(d_name,"DMSO"))|>
+       tibble::column_to_rownames('id')
+    if(length(unique(samps$drug))<2)
+        return(NULL)
+    mat<-scoremat[,rownames(samps)]
+      ##rewrite this for limma
+    dds <- limmaFromMatrix(mat,samps)
+    dres<-dds|>
+       as.data.frame()|>
+       tibble::rownames_to_column('Gene')|>
+       mutate(drug=d_name,time=tval,date=dval)
+    return(dres)
+   })) 
+  }))
+}))
+
+
+
+```
