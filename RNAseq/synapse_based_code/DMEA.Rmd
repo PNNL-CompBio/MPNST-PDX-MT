@@ -1,0 +1,157 @@
+---
+title: "DMEA"
+author: "Belinda B. Garana"
+date: "2025-01-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load packages
+if (require(panSEA)) {
+  if (!require("devtools", quietly = TRUE))
+  install.packages("devtools")
+  
+  devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
+}
+
+library(synapser);library(panSEA)
+
+# load helper function
+get_CCLE_RNA <- function(hgnc = FALSE) {
+  message("Loading adherent CCLE RNA-seq data version 19Q4")
+  if (hgnc) {
+    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")) {
+      download.file(
+        paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin"
+        ),
+        destfile =
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin"
+      )
+    }
+    
+    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")) {
+      download.file(
+        paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin"
+        ),
+        destfile =
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin"
+      )
+    }
+    
+    RNA.first200 <- readRDS("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")
+    RNA.rest <- readRDS("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")
+    RNA.df <- rbind(RNA.first200, RNA.rest) 
+  } else {
+    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin")) {
+      download.file(
+        paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin"
+        ),
+        destfile =
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin"
+      )
+    }
+    
+    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin")) {
+      download.file(
+        paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin"
+        ),
+        destfile =
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin"
+      )
+    }
+    
+    load("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin")
+    load("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin")
+    RNA.df <- rbind(RNA.first200, RNA.rest) 
+  }
+  return(RNA.df)
+}
+```
+
+## load inputs
+```{r load inputs, echo = FALSE}
+# RNA-seq data with HGNC symbols (update once batch-corrected)
+rnaseqdata <- read.csv(synapser::synGet()$path)
+
+# CCLE RNA-seq with HGNC symbols
+ccle <- get_CCLE_RNA(hgnc = TRUE)
+
+# PRISM drug sensitivity (i.e., AUC)
+prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
+        "DMEA/shiny-app/Inputs/PRISM_drug_mean_AUC_6-23-21.csv"))
+
+# PRISM drug mechanism of action annotations
+gmt.drug <- GSA::GSA.read.gmt(file = paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/",
+          "Inputs/MOA_gmt_file_n6_no_special_chars.gmt"))
+
+```
+
+## prep metadata
+```{r prep metadata, echo = FALSE}
+
+```
+
+## run diffexp, GSEA, and DMEA using panSEA
+```{r panSEA, echo = FALSE}
+drug.info <- list("CDK inhibitor" = c("palbociclib","ribociclib"),
+                  "Chemotherapy" = "trabectidin",
+                  "DNA alkylating agent" = "ifosfamide",
+                  "DNA methyltransferase inhibitor" = "decitabine",
+                  "HDAC inhibitor" = "vorinostat",
+                  "MEK inhibitor" = c("mirdametinib","selumetinib","trametinib"),
+                  "MET inhibitor" = "capmatinib",
+                  "PARP inhibitor" = "olaparib",
+                  "SHP2 inhibitor" = c("RMC4630","TNO155",),
+                  "topoisomerase inhibitor" = "doxorubicin")
+# compare treated vs. untreated
+# Log2FC > 0: genes up with treatment
+# GSEA NES > 0: pathways up with treatment
+# DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
+synapse_id <- ""
+base.path <- getwd()
+timepoints <- c() # get from metadata
+for (k in timepoints) {
+  
+ for (i in 1:length(drug.info)) {
+  setwd(base.path)
+  dir.create(names(drug.info)[i])
+  setwd(names(drug.info)[i])
+  synMOA <- synapser::synStore(synapser::Folder(names(drug.info)[i],
+                                        parent = synapse_id))
+  
+  # filter for relevant samples (MOA vs. untreated)
+  
+  
+  # run analysis for each MOA
+  moaResults <- panSEA::panSEA()
+  
+  # see if the same MOA is identified as more toxic to untreated samples
+  
+  for (j in 1:length(drug.info[[i]])) {
+    setwd(file.path(base.path, names(drug.info)[i]))
+    dir.create(drug.info[[i]][j])
+    setwd(drug.info[[i]][j])
+    synDrug <- synapser::synStore(synapser::Folder(drug.info[[i]][j],
+                                                  parent = synMOA))
+    
+    # filter for drug vs. untreated
+    
+    # also run analysis for each drug
+    drugResults <- panSEA::panSEA()
+  }
+} 
+}
+
+```
+
