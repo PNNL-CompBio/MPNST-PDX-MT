@@ -85,45 +85,46 @@ scoremat<-scores|>
   as.matrix()|>
   t()
 
-limmaFromMatrix<-function(mat,samps){
+##can we run limma just once for all the conditions? 
+limmaFromMatrix<-function(mat,samps,d){
+  print(d)
+  nsamps<-subset(samps,drug==d)
   
-  design <- model.matrix(~0+drug+time+drug*time*date+date, data=samps)
-  res <- lmFit(2^(mat),design)
+  nsamps<-subset(samps,date==nsamps$date[1])|>
+    subset(drug=='DMSO')|>
+    rbind(nsamps)
+  nsamps$drug=as.factor(nsamps$drug)
+  nsamps$time=as.factor(nsamps$time)
+  
+  design <- model.matrix(~0+drug+time+drug*time, data=nsamps)
+  res <- lmFit(2^(mat[,nsamps$id]),design)
   res <- eBayes(res)
-  
-  rtab<-topTable(res,number=nrow(mat))|>
-    dplyr::select(AveExpr,F,P.Value,adj.P.Val)
-  return(rtab)
+
+  fulltab<- topTable(res,coef=paste0('drug',d),number=nrow(mat))|>
+      tibble::rownames_to_column('TF')|>
+      mutate(drug=d)
+#  rtab<-topTable(res,number=nrow(mat))
+  return(fulltab)
                
 }
 
-diffexCalls<-do.call(rbind,lapply(unique(mdata$date),function(dval){
-  datemeta<-subset(mdata,date==dval)|>
-    subset(drug!='DMSO')
-  ##check for each drug at the date
-  do.call(rbind,lapply(unique(datemeta$drug),function(d_name){
-    ##check for each time point at the drug/date
-    print(d_name)
-   do.call(rbind,lapply(c('8','24'),function(tval){
-    print(tval)
-    samps<-subset(mdata,date==dval)|>
-       subset(time==tval)|>
-       subset(drug%in%c(d_name,"DMSO"))|>
-       tibble::column_to_rownames('id')
-    if(length(unique(samps$drug))<2)
-        return(NULL)
-    mat<-scoremat[,rownames(samps)]
-      ##rewrite this for limma
-    dds <- limmaFromMatrix(mat,samps)
-    dres<-dds|>
-       as.data.frame()|>
-       tibble::rownames_to_column('Gene')|>
-       mutate(drug=d_name,time=tval,date=dval)
-    return(dres)
-   })) 
-  }))
-}))
+res<-do.call(rbind,lapply(setdiff(samps$drug,'DMSO'), function(d) limmaFromMatrix(scoremat,mdata,d)))
 
+res|>subset(adj.P.Val<0.01)|>ggplot(aes(x=drug))+geom_bar()+coord_flip()
+
+res|>subset(adj.P.Val<0.01)|>ggplot(aes(x=TF))+geom_bar()+coord_flip()
+
+res|>subset(adj.P.Val<.01)|>group_by(TF)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))
+
+res|>subset(adj.P.Val<.01)|>group_by(TF)|>summarize(ndrugs=n())|>arrange(ndrugs)
+```
+
+MAPK14 and PCBP1 are significant in each experiment and things like EGR3 and CXCL8 are only found in 1 treatment.  HOw do these look?
+
+```{r test plots}
 
 
 ```
+
+
+
