@@ -207,7 +207,10 @@ TPM_b2_2=TPM_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_c
 PCA_Plot_3_shape(t(TPM_b2_2), Annotation_b2, "specimenID", "Drug", "Timepoint")+scale_color_manual(values=drug_colors)+facet_grid(~Date)
 
 ```
- 
+```{r}
+# upload pdf to synapse syn64612888
+```
+
 
 ```{r}
 knitr::knit_exit()
