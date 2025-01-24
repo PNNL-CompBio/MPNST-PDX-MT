@@ -16,9 +16,11 @@ if (require(panSEA)) {
   devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
 }
 
-library(synapser);library(panSEA)
+library(plyr);library(dplyr);library(ggplot2);library(synapser);library(panSEA)
+library(data.table)
 
-# load helper function
+# load helper functions
+#source("https://github.com/PNNL-CompBio/coderdata/blob/main/build/lincs/05-LINCS_perturbations.R")
 get_CCLE_RNA <- function(hgnc = FALSE) {
   message("Loading adherent CCLE RNA-seq data version 19Q4")
   if (hgnc) {
@@ -80,8 +82,10 @@ get_CCLE_RNA <- function(hgnc = FALSE) {
 
 ## load inputs
 ```{r load inputs, echo = FALSE}
+synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
-rnaseqdata <- read.csv(synapser::synGet()$path)
+diffexp <- read.csv(synapser::synGet('syn64397743')$path) # 646576 genes
+degs <- diffexp[diffexp$padj <= 0.05,] # 233233 genes
 
 # CCLE RNA-seq with HGNC symbols
 ccle <- get_CCLE_RNA(hgnc = TRUE)
@@ -89,6 +93,7 @@ ccle <- get_CCLE_RNA(hgnc = TRUE)
 # PRISM drug sensitivity (i.e., AUC)
 prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
         "DMEA/shiny-app/Inputs/PRISM_drug_mean_AUC_6-23-21.csv"))
+prism$X <- NULL
 
 # PRISM drug mechanism of action annotations
 gmt.drug <- GSA::GSA.read.gmt(file = paste0(
@@ -97,61 +102,126 @@ gmt.drug <- GSA::GSA.read.gmt(file = paste0(
 
 ```
 
-## prep metadata
-```{r prep metadata, echo = FALSE}
+## run DMEA
+```{r DMEA, echo = FALSE}
+drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
+                  "Chemotherapy" = "Trabectidin",
+                  "DNA alkylating agent" = "Ifosfamide",
+                  "DNA methyltransferase inhibitor" = "Decitabine",
+                  "HDAC inhibitor" = "Vorinostat",
+                  "MEK inhibitor" = c("Mirdametinib","Selumetinib","Trametinib"),
+                  "MET inhibitor" = "Capmatinib",
+                  "PARP inhibitor" = "Olaparib",
+                  "SHP2 inhibitor" = c("RMC4630","TNO155"),
+                  "topoisomerase inhibitor" = "Doxorubicin",
+                  "TEADi" = "Verteporfin")
+# compare treated vs. untreated
+# DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
+synapse_id <- "syn64618500"
+timepoints <- na.omit(unique(degs$time))
+base.path <- getwd()
+dmea.sens <- list()
+dmea.pert <- list()
+drug.corr.sens <- list()
+drug.corr.pert <- list()
 
+for (i in timepoints) {
+  setwd(base.path)
+  dir.create(paste0(i,"h"))
+  setwd(paste0(i,"h"))
+  timeSyn <- synapser::synStore(synapser::Folder(paste0(i,"h"), 
+                                parent = synapse_id)) 
+  
+  # filter for time
+  time.deg <- degs[degs$time == i,]
+  
+  # prep inputs for each drug
+  drug.degs <- list()
+  expr <- list()
+  all.drugs <- na.omit(unique(time.deg$drug))
+  for (j in all.drugs) {
+    temp.deg <- na.omit(dplyr::distinct(
+      time.deg[time.deg$drug == j,c("hgnc_symbol","log2FoldChange")]))
+    colnames(temp.deg) <- c("Gene", "Log2FC")
+    if (any(duplicated(temp.deg$Gene))) {
+      temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
+                              Log2FC = mean(Log2FC))
+    }
+    expr[[j]] <- ccle
+  }
+  
+  # also run analysis for each drug
+  drugResults <- panSEA::mDMEA(drug.sensitivity = prism, gmt = gmt.drug,
+                                 expression = expr, weights = drug.degs,
+                                 types = names(drug.degs))
+  time.files <- lapply(drugResults, extract_DMEA_files)
+  time.files[["Compiled"]] <- 
+    list("DMEA_results.csv" = drugResults$compiled.results$results,
+         "Compiled_DMEA_results.csv" = drugResults$compiled.results$mean.results,
+         "DMEA_venn_diagram.pdf" = drugResults$compiled.results$venn.diagram,
+         "DMEA_dot_plot.pdf" = drugResults$compiled.results$dot.plot,
+         "DMEA_correlations.csv" = drugResults$compiled.results$corr,
+         "DMEA_correlation_matrix.pdf" =drugResults$compiled.results$corr.matrix)
+  save_to_synapse_v2(time.files, timeSyn)
+  
+  dmea.sens[[as.character(i)]] <- drugResults$compiled.results$result
+  
+  # also compile drug correlations
+  drug.corr.list <- list()
+  for (j in all.drugs) {
+    drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
+  }
+  drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "Drug")
+  drug.corr.sens[[as.character(i)]] <- drug.corr.df
+} 
+setwd(base.path)
+drug.corr.sens.df <- data.table::rbindlist(drug.corr.sens, use.names=TRUE, idcol="Time")
+dmea.sens.df <- data.table::rbindlist(dmea.sens, use.names=TRUE, idcol="Time")
+write.csv(dmea.sens.df,paste0("DMEA_results_",Sys.Date(),".csv"), row.names = FALSE)
+write.csv(drug.corr.sens.df,paste0("DMEA_correlations_",Sys.Date(),".csv"), row.names = FALSE)
 ```
 
-## run diffexp, GSEA, and DMEA using panSEA
-```{r panSEA, echo = FALSE}
-drug.info <- list("CDK inhibitor" = c("palbociclib","ribociclib"),
-                  "Chemotherapy" = "trabectidin",
-                  "DNA alkylating agent" = "ifosfamide",
-                  "DNA methyltransferase inhibitor" = "decitabine",
-                  "HDAC inhibitor" = "vorinostat",
-                  "MEK inhibitor" = c("mirdametinib","selumetinib","trametinib"),
-                  "MET inhibitor" = "capmatinib",
-                  "PARP inhibitor" = "olaparib",
-                  "SHP2 inhibitor" = c("RMC4630","TNO155",),
-                  "topoisomerase inhibitor" = "doxorubicin")
-# compare treated vs. untreated
-# Log2FC > 0: genes up with treatment
-# GSEA NES > 0: pathways up with treatment
-# DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
-synapse_id <- ""
-base.path <- getwd()
-timepoints <- c() # get from metadata
-for (k in timepoints) {
-  
- for (i in 1:length(drug.info)) {
-  setwd(base.path)
-  dir.create(names(drug.info)[i])
-  setwd(names(drug.info)[i])
-  synMOA <- synapser::synStore(synapser::Folder(names(drug.info)[i],
-                                        parent = synapse_id))
-  
-  # filter for relevant samples (MOA vs. untreated)
-  
-  
-  # run analysis for each MOA
-  moaResults <- panSEA::panSEA()
-  
-  # see if the same MOA is identified as more toxic to untreated samples
-  
-  for (j in 1:length(drug.info[[i]])) {
-    setwd(file.path(base.path, names(drug.info)[i]))
-    dir.create(drug.info[[i]][j])
-    setwd(drug.info[[i]][j])
-    synDrug <- synapser::synStore(synapser::Folder(drug.info[[i]][j],
-                                                  parent = synMOA))
-    
-    # filter for drug vs. untreated
-    
-    # also run analysis for each drug
-    drugResults <- panSEA::panSEA()
-  }
-} 
+### plot number of correlated drugs, enriched MOAs
+```{r plot # of results, echo = FALSE}
+## drug mechanisms
+# prep data
+sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 & 
+                           dmea.sens.df$p_value <= 0.05,]
+nMOAs <- plyr:ddply(dmea.sens.df, .(drug, time), dplyr::summarize,
+                    N = dplyr::n())
+nMOAs$moa <- NA
+for (i in 1:length(drug.info)) {
+  nMOAs[nMOAs$drug %in% drug.info[[i]],]$moa <- names(drug.info)[i]
 }
 
+# generate plot
+ggplot2::ggplot(nMOAs, aes(x=time, y=N, color=drug, shape=moa)) + geom_point() +
+  ylab("# of Enriched Drug Mechanisms") + theme_classic(base_size=12)
+ggplot2::ggsave("N_enrichedDrugMechanisms.pdf", width=5, height=5)
+
+## drugs
+# prep data
+sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$FDR_q_value <= 0.25 & 
+                           drug.corr.sens.df$p_value <= 0.05,]
+nDrugs <- plyr:ddply(sig.drug.corr, .(drug, time), dplyr::summarize,
+                    N = dplyr::n())
+nDrugs$moa <- NA
+for (i in 1:length(drug.info)) {
+  nDrugs[nDrugs$drug %in% drug.info[[i]],]$moa <- names(drug.info)[i]
+}
+
+# generate plot
+ggplot2::ggplot(nDrugs, aes(x=time, y=N, color=drug, shape=moa)) + geom_point() +
+  ylab("# of Correlated Drugs") + theme_classic(base_size=12)
+ggplot2::ggsave("N_correlatedDrugs.pdf", width=5, height=5)
 ```
 
+### plot top correlated drugs, enriched MOAs
+```{r plot top results, echo = FALSE}
+
+```
+
+### upset plots to see overlap across drug treatments
+```{r plot overlap of results, echo = FALSE}
+
+```
