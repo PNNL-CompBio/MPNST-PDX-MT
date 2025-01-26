@@ -18,6 +18,7 @@ if (require(panSEA)) {
 
 library(plyr);library(dplyr);library(ggplot2);library(synapser);library(panSEA)
 library(data.table)
+source("https://github.com/PNNL-CompBio/MPNST_Chr8/blob/main/panSEA_helper_20240913.R")
 
 # load helper functions
 #source("https://github.com/PNNL-CompBio/coderdata/blob/main/build/lincs/05-LINCS_perturbations.R")
@@ -124,13 +125,15 @@ drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
 synapse_id <- "syn64618500"
 timepoints <- na.omit(unique(degs$time))
 base.path <- getwd()
+dmea.path <- file.path(base.path, "DMEA")
+dir.create("DMEA")
 dmea.sens <- list()
 dmea.pert <- list()
 drug.corr.sens <- list()
 drug.corr.pert <- list()
 
 for (i in timepoints) {
-  setwd(base.path)
+  setwd(dmea.path)
   dir.create(paste0(i,"h"))
   setwd(paste0(i,"h"))
   timeSyn <- synapser::synStore(synapser::Folder(paste0(i,"h"), 
@@ -162,7 +165,11 @@ for (i in timepoints) {
   drugResults <- panSEA::mDMEA(drug.sensitivity = prism, gmt = gmt.drug,
                                  expression = expr, weights = drug.degs,
                                  types = names(drug.degs))
-  time.files <- lapply(drugResults, extract_DMEA_files)
+  time.files <- list()
+  tested.drugs <- names(drugResults$all.results)
+  for (j in tested.drugs) {
+    time.files[[j]] <- extract_DMEA_files(drugResults, j)
+  }
   time.files[["Compiled"]] <- 
     list("DMEA_results.csv" = drugResults$compiled.results$results,
          "Compiled_DMEA_results.csv" = drugResults$compiled.results$mean.results,
@@ -176,13 +183,13 @@ for (i in timepoints) {
   
   # also compile drug correlations
   drug.corr.list <- list()
-  for (j in all.drugs) {
+  for (j in tested.drugs) {
     drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
   }
   drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "Drug")
   drug.corr.sens[[as.character(i)]] <- drug.corr.df
 } 
-setwd(base.path)
+setwd(dmea.path)
 drug.corr.sens.df <- data.table::rbindlist(drug.corr.sens, use.names=TRUE, idcol="Time")
 dmea.sens.df <- data.table::rbindlist(dmea.sens, use.names=TRUE, idcol="Time")
 write.csv(dmea.sens.df,paste0("DMEA_results_",Sys.Date(),".csv"), row.names = FALSE)
