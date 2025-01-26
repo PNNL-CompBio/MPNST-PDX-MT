@@ -90,6 +90,10 @@ degs <- diffexp[diffexp$padj <= 0.05,] # 233233 genes
 # CCLE RNA-seq with HGNC symbols
 ccle <- get_CCLE_RNA(hgnc = TRUE)
 
+# reduce to overlapping genes
+degs <- degs[degs$hgnc_symbol %in% colnames(ccle)[2:ncol(ccle)],] # 55746 genes
+ccle <- ccle[,c("CCLE_ID", degs$hgnc_symbol)]
+
 # PRISM drug sensitivity (i.e., AUC)
 prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
         "DMEA/shiny-app/Inputs/PRISM_drug_mean_AUC_6-23-21.csv"))
@@ -147,7 +151,11 @@ for (i in timepoints) {
       temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
                               Log2FC = mean(Log2FC))
     }
-    expr[[j]] <- ccle
+    temp.deg <- temp.deg[temp.deg$Gene %in% colnames(ccle)[2:ncol(ccle)],]
+    if (nrow(temp.deg) > 0) {
+      drug.degs[[j]] <- temp.deg
+      expr[[j]] <- ccle[,c("CCLE_ID", temp.deg$Gene)]
+    }
   }
   
   # also run analysis for each drug
