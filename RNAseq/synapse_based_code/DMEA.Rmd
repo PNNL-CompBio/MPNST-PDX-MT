@@ -186,12 +186,15 @@ for (i in timepoints) {
   for (j in tested.drugs) {
     drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
   }
-  drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "Drug")
+  drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "DrugTreatment")
   drug.corr.sens[[as.character(i)]] <- drug.corr.df
 } 
 setwd(dmea.path)
 drug.corr.sens.df <- data.table::rbindlist(drug.corr.sens, use.names=TRUE, idcol="Time")
 dmea.sens.df <- data.table::rbindlist(dmea.sens, use.names=TRUE, idcol="Time")
+colnames(dmea.sens.df)[2] <- "DrugTreatment"
+dmea.sens.df[dmea.sens.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
+drug.corr.sens.df[drug.corr.sens.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
 write.csv(dmea.sens.df,paste0("DMEA_results_",Sys.Date(),".csv"), row.names = FALSE)
 write.csv(drug.corr.sens.df,paste0("DMEA_correlations_",Sys.Date(),".csv"), row.names = FALSE)
 ```
@@ -200,39 +203,184 @@ write.csv(drug.corr.sens.df,paste0("DMEA_correlations_",Sys.Date(),".csv"), row.
 ```{r plot # of results, echo = FALSE}
 ## drug mechanisms
 # prep data
+library(plyr);library(dplyr);library(ggplot2)
 sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 & 
                            dmea.sens.df$p_value <= 0.05,]
-nMOAs <- plyr:ddply(dmea.sens.df, .(drug, time), dplyr::summarize,
-                    N = dplyr::n())
+nMOAs <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
+                    N = length(na.omit(unique(Drug_set))))
+
+# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.5664
+cat("# of MOAs enriched at 8h vs. 24h")
+t.test(nMOAs[nMOAs$Time=="8",]$N, nMOAs[nMOAs$Time=="24",]$N)
+
 nMOAs$moa <- NA
 for (i in 1:length(drug.info)) {
-  nMOAs[nMOAs$drug %in% drug.info[[i]],]$moa <- names(drug.info)[i]
+  if (any(nMOAs$DrugTreatment %in% drug.info[[i]])) {
+   nMOAs[nMOAs$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i] 
+  }
 }
 
 # generate plot
-ggplot2::ggplot(nMOAs, aes(x=time, y=N, color=drug, shape=moa)) + geom_point() +
-  ylab("# of Enriched Drug Mechanisms") + theme_classic(base_size=12)
-ggplot2::ggsave("N_enrichedDrugMechanisms.pdf", width=5, height=5)
+nMOAs$Time <- factor(nMOAs$Time, levels=timepoints)
+nMOAs$moa <- factor(nMOAs$moa, levels=sort(na.omit(unique(nMOAs$moa))))
+ggplot2::ggplot(nMOAs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=DrugTreatment, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + 
+  labs(x="Time (Hours)", y="# of Enriched Drug Mechanisms",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:nlevels(nMOAs$moa)) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("N_enrichedDrugMechanisms.pdf", width=5.5, height=4)
 
 ## drugs
 # prep data
-sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$FDR_q_value <= 0.25 & 
-                           drug.corr.sens.df$p_value <= 0.05,]
-nDrugs <- plyr:ddply(sig.drug.corr, .(drug, time), dplyr::summarize,
-                    N = dplyr::n())
+sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$Pearson.q <= 0.05,]
+nDrugs <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
+                    N = length(na.omit(unique(Drug))))
+
+# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.6278
+cat("# of drugs correlated at 8h vs. 24h")
+t.test(nDrugs[nDrugs$Time=="8",]$N, nDrugs[nDrugs$Time=="24",]$N)
+
 nDrugs$moa <- NA
 for (i in 1:length(drug.info)) {
-  nDrugs[nDrugs$drug %in% drug.info[[i]],]$moa <- names(drug.info)[i]
+  if (any(nDrugs$DrugTreatment %in% drug.info[[i]])) {
+   nDrugs[nDrugs$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i] 
+  }
 }
 
 # generate plot
-ggplot2::ggplot(nDrugs, aes(x=time, y=N, color=drug, shape=moa)) + geom_point() +
-  ylab("# of Correlated Drugs") + theme_classic(base_size=12)
-ggplot2::ggsave("N_correlatedDrugs.pdf", width=5, height=5)
+nDrugs$Time <- factor(nDrugs$Time, levels=timepoints)
+nDrugs$moa <- factor(nDrugs$moa, levels=sort(na.omit(unique(nDrugs$moa))))
+ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=DrugTreatment, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + 
+  scale_y_continuous(trans="log10") + labs(x="Time (Hours)", y="Log(# of Correlated Drugs)",
+                                           color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:nlevels(nDrugs$moa)) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("N_correlatedDrugs.pdf", width=5.5, height=4)
 ```
 
 ### plot top correlated drugs, enriched MOAs
 ```{r plot top results, echo = FALSE}
+### MOA
+mean.gsea <- mean.gsea[mean.gsea$Feature_set %in% topGenes,]
+geneOrder <- mean.gsea[order(mean.gsea$mean_NES),]$Feature_set
+geneFace <- rep("plain", length(geneOrder))
+names(geneFace) <- geneOrder
+sigInRNA <- mean.gsea[grepl("RNA", mean.gsea$sig_types),]$Feature_set
+geneFace[sigInRNA] <- "italic"
+sigInBoth <- mean.gsea[grepl("RNA, Protein", mean.gsea$sig_types),]$Feature_set
+geneFace[sigInBoth] <- "bold"
+# if not sig in both or sig only in RNA, then sig only in Protein; if needed, could use "bold.italic" face style
+
+dot.df <- all.gsea[all.gsea$Feature_set %in% topGenes &
+                     all.gsea$Omics %in% c("RNA", "Protein"),]
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+dot.df$Omics <- factor(dot.df$Omics, levels=c("RNA", "Protein"))
+dot.df[dot.df$Collection == "Oncogenic_signatures",]$Collection <- "Oncogenic"
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = Omics, y = Feature_set, color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = geneOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey") +
+  #viridis::scale_color_viridis() +
+  theme_classic() +
+  ggplot2::labs(
+    x = "Omics Type",
+    y = "Gene Set",
+    color = "NES", size = "-log(FDR)"
+  ) + 
+  theme(axis.text.y=element_text(face=geneFace)) +
+  facet_wrap(vars(cols = Collection))
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("Enriched_geneSets_dotPlot_facetCollection.pdf", dot.plot, width=9, height=9)
+
+# maybe do for each collection and then combine
+collections <- c("Hallmark", "Oncogenic", "PID")
+#mean.gsea[mean.gsea$Collection == "Oncogenic_signatures",]$Collection <- "Oncogenic"
+#gsea.rna.prot[gsea.rna.prot$Collection == "Oncogenic_signatures",]$Collection <- "Oncogenic"
+maxAbsNES <- max(abs(gsea.rna.prot[gsea.rna.prot$Collection %in% collections,]$NES))
+maxLogFDR <- max(gsea.rna.prot[gsea.rna.prot$Collection %in% collections,]$minusLogFDR)
+library(patchwork); library(ggplot2)
+for (i in collections) {
+  nGenes <- length(unique(gsea.rna.prot[gsea.rna.prot$Collection == i,])$Feature_set)
+  topGenes <- unique(gsea.rna.prot[gsea.rna.prot$Significant &
+                                             gsea.rna.prot$Collection == i,]$Feature_set) # 48
+  nTopGenes <- length(topGenes)
+  temp.mean.gsea <- mean.gsea[mean.gsea$Feature_set %in% topGenes,]
+  geneOrder <- temp.mean.gsea[order(temp.mean.gsea$mean_NES),]$Feature_set
+  # geneFace <- rep("plain", length(geneOrder))
+  # names(geneFace) <- geneOrder
+  # sigInRNA <- temp.mean.gsea[grepl("RNA", temp.mean.gsea$sig_types),]$Feature_set
+  # geneFace[sigInRNA] <- "italic"
+  # sigInBoth <- temp.mean.gsea[grepl("RNA, Protein", temp.mean.gsea$sig_types),]$Feature_set
+  # geneFace[sigInBoth] <- "bold"
+  # if not sig in both or sig only in RNA, then sig only in Protein; if needed, could use "bold.italic" face style
+  
+  geneFace <- rep("plain", length(geneOrder))
+  names(geneFace) <- geneOrder
+  MYC.pathways <- geneOrder[grepl("MYC", geneOrder)]
+  SHH.pathways <- geneOrder[grepl("SHH", geneOrder) | grepl("HEDGEHOG", geneOrder)]
+  poi <- c(MYC.pathways, SHH.pathways)
+  geneFace[poi] <- "bold"
+  
+  temp.dot.df <- all.gsea[all.gsea$Feature_set %in% topGenes &
+                       all.gsea$Omics %in% c("RNA", "Protein"),]
+  if (any(temp.dot.df$FDR_q_value == 0)) {
+    temp.dot.df[temp.dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+  }
+  temp.dot.df$minusLogP <- -log(temp.dot.df[,"p_value"], base = 10)
+  temp.dot.df$minusLogFDR <- -log(temp.dot.df[,"FDR_q_value"], base = 10)
+  temp.dot.df$Omics <- factor(temp.dot.df$Omics, levels=c("RNA", "Protein"))
+  #temp.dot.df[temp.dot.df$Collection == "Oncogenic_signatures",]$Collection <- "Oncogenic"
+  dot.plot <- ggplot2::ggplot(
+    na.omit(temp.dot.df),
+    ggplot2::aes(
+      x = Omics, y = Feature_set, color = NES,
+      size = minusLogFDR
+    )
+  ) + scale_size(limits=c(0,maxLogFDR), range = c(0.5,4)) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = geneOrder) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", limits=c(-maxAbsNES, maxAbsNES)) +
+    #viridis::scale_color_viridis() +
+    theme_classic() +
+    ggplot2::labs(
+      x = "Omics Type",
+      y = "Gene Set",
+      color = "NES", size = "-log(FDR)"
+    ) + 
+    theme(axis.text.y=element_text(face=geneFace)) +
+    geom_point(data = subset(temp.dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
+    theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+  plot.annot <- paste0(i, " (", nTopGenes, " / ", nGenes, " gene sets enriched)")
+  dot.plot <- dot.plot + ggtitle(plot.annot) + theme(plot.title = element_text(hjust = 0.5, face="bold", size=16))
+  dot.plot
+  if (i == collections[1]) {
+    gsea.dot.plots <- (dot.plot + theme(legend.position = "none"))
+  } else if (i == collections[2]) {
+    gsea.dot.plots <- gsea.dot.plots / dot.plot
+  } else {
+    gsea.dot.plots <- gsea.dot.plots / (dot.plot + theme(legend.position = "none"))
+  }
+  # most are only in prot and not in RNA
+  
+}
+gsea.dot.plots
+#ggplot2::ggsave("Enriched_geneSets_dotPlot_patchworkCollection_boldMYCandSHH.pdf", gsea.dot.plots, width=9, height=9)
+ggplot2::ggsave("Enriched_geneSets_dotPlot_patchworkCollection_boldMYCandSHH_boldTitles.pdf", gsea.dot.plots, width=9, height=9)
 
 ```
 
