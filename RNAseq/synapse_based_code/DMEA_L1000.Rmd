@@ -1,0 +1,369 @@
+---
+title: "DMEA"
+author: "Belinda B. Garana"
+date: "2025-01-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load packages
+if (require(panSEA)) {
+  if (!require("devtools", quietly = TRUE))
+  install.packages("devtools")
+  
+  devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
+}
+
+library(plyr);library(dplyr);library(ggplot2);library(synapser);library(panSEA)
+library(data.table)
+source("https://github.com/PNNL-CompBio/MPNST_Chr8/blob/main/panSEA_helper_20240913.R")
+
+# load helper functions
+# adapted from: https://github.com/PNNL-CompBio/coderdata/blob/main/build/lincs/05-LINCS_perturbations.R
+build_L1000 <- function() {
+  options(timeout = 300)
+
+  # identify URLs
+  #basename="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE101406"
+  L1000 <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5FLevel4%5FZSPCINF%5Fmlr12k%5Fn1667x12328.gctx.gz'
+  L1000.genes <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Fgene%5Finfo.txt.gz'
+  L1000.inst <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Finst%5Finfo.txt.gz'
+
+  # download source sample & perturbation info
+  L1000.genes.info <- readr::read_delim(L1000.genes, "\t") # pr_gene_symbol, pr_gene_id
+  L1000.inst.info <- readr::read_delim(L1000.inst, "\t") # pert_iname; pert_type = "trt_cp" if drug, "ctl_vehicle" if DMSO; cell_id
+  L1000.inst.info <- L1000.inst.info[L1000.inst.info$pert_type == "trt_cp", ] # only keep drug treatments (remove DMSO controls)
+
+  # download L1000 data
+  res<-download.file(L1000,'L1000.gctx.gz', mode="wb")
+  #R.utils::gunzip('L1000.gctx.gz', 'L1000.gctx') # unzip file before reading it
+  L1000.df<-cmapR::parse_gctx(gzfile('L1000.gctx.gz'))
+
+  # put data into long format
+  L1000.long <- cmapR::melt_gct(L1000.df)
+  colnames(L1000.long) <- c("inst_id", "pr_gene_id", "data_value")
+  L1000.long$pr_gene_id <- as.numeric(L1000.long$pr_gene_id)
+
+  # join with L1000.gene.info based on pr_gene_id;
+  # L1000.inst.info based on inst_id;
+  # keep only cell_id, pert_type, pert_iname, gene_symbol, data_value
+  L1000.full <- L1000.long |>
+    dplyr::left_join(L1000.genes.info) |>
+    dplyr::left_join(L1000.inst.info) |>
+    dplyr::select(cell_id,pert_type,pert_iname,pr_gene_symbol,data_value)|>
+    dplyr::distinct()
+  L1000.long <- NULL # save space
+
+  # add relevant columns
+  L1000.full <- na.omit(L1000.full)
+  colnames(L1000.full)[1] <- "other_names" # match samples column name
+  colnames(L1000.full)[4] <- "gene_symbol" # match genes column name
+  colnames(L1000.full)[3] <- "chem_name"
+  L1000.full$data_type <- "transcriptomics"
+  L1000.full$source <- "Broad"
+  L1000.full$study <- "LINCS"
+  L1000.full$perturbation_type <- "drug" # all entries have pert_type="trt_cp"
+  return(L1000.full)
+}
+```
+
+## load inputs
+```{r load inputs, echo = FALSE}
+synapser::synLogin()
+# RNA-seq data with HGNC symbols (update once batch-corrected)
+diffexp <- read.csv(synapser::synGet('syn64397743')$path) # 646576 genes
+degs <- diffexp[diffexp$padj <= 0.05,] # 233233 genes
+
+# reduce to L1000 genes
+L1000.genes <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Fgene%5Finfo.txt.gz'
+L1000.genes.info <- readr::read_delim(L1000.genes, "\t") # pr_gene_symbol, pr_gene_id
+degs2 <- degs[degs$hgnc_symbol %in% L1000.genes.info$pr_gene_symbol,] # 39804 / 55746
+
+# CCLE RNA-seq with HGNC symbols
+#L1000 <- build_L1000()
+
+```
+
+## produce GMTs
+```{r DMEA, echo = FALSE}
+drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
+                  "Chemotherapy" = "Trabectidin",
+                  "DNA alkylating agent" = "Ifosfamide",
+                  "DNA methyltransferase inhibitor" = "Decitabine",
+                  "HDAC inhibitor" = "Vorinostat",
+                  "MEK inhibitor" = c("Mirdametinib","Selumetinib","Trametinib"),
+                  "MET inhibitor" = "Capmatinib",
+                  "PARP inhibitor" = "Olaparib",
+                  "SHP2 inhibitor" = c("RMC4630","TNO155"),
+                  "topoisomerase inhibitor" = "Doxorubicin",
+                  "TEADi" = "Verteporfin")
+# compare treated vs. untreated
+# DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
+synapse_id <- "syn64618500"
+timepoints <- na.omit(unique(degs$time))
+base.path <- getwd()
+dmea.path <- file.path(base.path, "DMEA")
+dir.create("DMEA")
+dmea.sens <- list()
+dmea.pert <- list()
+drug.corr.sens <- list()
+drug.corr.pert <- list()
+
+for (i in timepoints) {
+  setwd(dmea.path)
+  dir.create(paste0(i,"h"))
+  setwd(paste0(i,"h"))
+  timeSyn <- synapser::synStore(synapser::Folder(paste0(i,"h"), 
+                                parent = synapse_id)) 
+  
+  # filter for time
+  time.deg <- degs[degs$time == i,]
+  
+  # prep inputs for each drug
+  drug.degs <- list()
+  expr <- list()
+  all.drugs <- na.omit(unique(time.deg$drug))
+  for (j in all.drugs) {
+    temp.deg <- na.omit(dplyr::distinct(
+      time.deg[time.deg$drug == j,c("hgnc_symbol","log2FoldChange")]))
+    colnames(temp.deg) <- c("Gene", "Log2FC")
+    if (any(duplicated(temp.deg$Gene))) {
+      temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
+                              Log2FC = mean(Log2FC))
+    }
+    temp.deg <- temp.deg[temp.deg$Gene %in% colnames(ccle)[2:ncol(ccle)],]
+    if (nrow(temp.deg) > 0) {
+      drug.degs[[j]] <- temp.deg
+      expr[[j]] <- ccle[,c("CCLE_ID", temp.deg$Gene)]
+    }
+  }
+  
+  # also run analysis for each drug
+  drugResults <- panSEA::mDMEA(drug.sensitivity = prism, gmt = gmt.drug,
+                                 expression = expr, weights = drug.degs,
+                                 types = names(drug.degs))
+  time.files <- list()
+  tested.drugs <- names(drugResults$all.results)
+  for (j in tested.drugs) {
+    time.files[[j]] <- extract_DMEA_files(drugResults, j)
+  }
+  time.files[["Compiled"]] <- 
+    list("DMEA_results.csv" = drugResults$compiled.results$results,
+         "Compiled_DMEA_results.csv" = drugResults$compiled.results$mean.results,
+         "DMEA_venn_diagram.pdf" = drugResults$compiled.results$venn.diagram,
+         "DMEA_dot_plot.pdf" = drugResults$compiled.results$dot.plot,
+         "DMEA_correlations.csv" = drugResults$compiled.results$corr,
+         "DMEA_correlation_matrix.pdf" =drugResults$compiled.results$corr.matrix)
+  save_to_synapse_v2(time.files, timeSyn)
+  
+  dmea.sens[[as.character(i)]] <- drugResults$compiled.results$result
+  
+  # also compile drug correlations
+  drug.corr.list <- list()
+  for (j in tested.drugs) {
+    drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
+  }
+  drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "DrugTreatment")
+  drug.corr.sens[[as.character(i)]] <- drug.corr.df
+} 
+setwd(dmea.path)
+drug.corr.sens.df <- data.table::rbindlist(drug.corr.sens, use.names=TRUE, idcol="Time")
+dmea.sens.df <- data.table::rbindlist(dmea.sens, use.names=TRUE, idcol="Time")
+colnames(dmea.sens.df)[2] <- "DrugTreatment"
+dmea.sens.df[dmea.sens.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
+drug.corr.sens.df[drug.corr.sens.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
+write.csv(dmea.sens.df,paste0("DMEA_results_",Sys.Date(),".csv"), row.names = FALSE)
+write.csv(drug.corr.sens.df,paste0("DMEA_correlations_",Sys.Date(),".csv"), row.names = FALSE)
+```
+
+### plot number of correlated drugs, enriched MOAs
+```{r plot # of results, echo = FALSE}
+## drug mechanisms
+# prep data
+library(plyr);library(dplyr);library(ggplot2)
+sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 & 
+                           dmea.sens.df$p_value <= 0.05,]
+nMOAs <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
+                    N = length(na.omit(unique(Drug_set))))
+
+# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.5664
+cat("# of MOAs enriched at 8h vs. 24h")
+t.test(nMOAs[nMOAs$Time=="8",]$N, nMOAs[nMOAs$Time=="24",]$N)
+
+nMOAs$moa <- NA
+for (i in 1:length(drug.info)) {
+  if (any(nMOAs$DrugTreatment %in% drug.info[[i]])) {
+   nMOAs[nMOAs$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i] 
+  }
+}
+
+# generate plot
+nMOAs$Time <- factor(nMOAs$Time, levels=timepoints)
+nMOAs$moa <- factor(nMOAs$moa, levels=sort(na.omit(unique(nMOAs$moa))))
+ggplot2::ggplot(nMOAs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=DrugTreatment, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + 
+  labs(x="Time (Hours)", y="# of Enriched Drug Mechanisms",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:nlevels(nMOAs$moa)) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("N_enrichedDrugMechanisms.pdf", width=5.5, height=4)
+
+## drugs
+# prep data
+sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$Pearson.q <= 0.05,]
+nDrugs <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
+                    N = length(na.omit(unique(Drug))))
+
+# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.6278
+cat("# of drugs correlated at 8h vs. 24h")
+t.test(nDrugs[nDrugs$Time=="8",]$N, nDrugs[nDrugs$Time=="24",]$N)
+
+nDrugs$moa <- NA
+for (i in 1:length(drug.info)) {
+  if (any(nDrugs$DrugTreatment %in% drug.info[[i]])) {
+   nDrugs[nDrugs$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i] 
+  }
+}
+
+# generate plot
+nDrugs$Time <- factor(nDrugs$Time, levels=timepoints)
+nDrugs$moa <- factor(nDrugs$moa, levels=sort(na.omit(unique(nDrugs$moa))))
+ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=DrugTreatment, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + 
+  scale_y_continuous(trans="log10") + labs(x="Time (Hours)", y="Log(# of Correlated Drugs)",
+                                           color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:nlevels(nDrugs$moa)) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("N_correlatedDrugs.pdf", width=5.5, height=4)
+```
+
+### plot top correlated drugs, enriched MOAs
+```{r plot top results, echo = FALSE}
+### MOA
+mean.gsea <- mean.gsea[mean.gsea$Feature_set %in% topGenes,]
+geneOrder <- mean.gsea[order(mean.gsea$mean_NES),]$Feature_set
+geneFace <- rep("plain", length(geneOrder))
+names(geneFace) <- geneOrder
+sigInRNA <- mean.gsea[grepl("RNA", mean.gsea$sig_types),]$Feature_set
+geneFace[sigInRNA] <- "italic"
+sigInBoth <- mean.gsea[grepl("RNA, Protein", mean.gsea$sig_types),]$Feature_set
+geneFace[sigInBoth] <- "bold"
+# if not sig in both or sig only in RNA, then sig only in Protein; if needed, could use "bold.italic" face style
+
+dot.df <- all.gsea[all.gsea$Feature_set %in% topGenes &
+                     all.gsea$Omics %in% c("RNA", "Protein"),]
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+dot.df$Omics <- factor(dot.df$Omics, levels=c("RNA", "Protein"))
+dot.df[dot.df$Collection == "Oncogenic_signatures",]$Collection <- "Oncogenic"
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = Omics, y = Feature_set, color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = geneOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey") +
+  #viridis::scale_color_viridis() +
+  theme_classic() +
+  ggplot2::labs(
+    x = "Omics Type",
+    y = "Gene Set",
+    color = "NES", size = "-log(FDR)"
+  ) + 
+  theme(axis.text.y=element_text(face=geneFace)) +
+  facet_wrap(vars(cols = Collection))
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("Enriched_geneSets_dotPlot_facetCollection.pdf", dot.plot, width=9, height=9)
+
+# maybe do for each collection and then combine
+collections <- c("Hallmark", "Oncogenic", "PID")
+#mean.gsea[mean.gsea$Collection == "Oncogenic_signatures",]$Collection <- "Oncogenic"
+#gsea.rna.prot[gsea.rna.prot$Collection == "Oncogenic_signatures",]$Collection <- "Oncogenic"
+maxAbsNES <- max(abs(gsea.rna.prot[gsea.rna.prot$Collection %in% collections,]$NES))
+maxLogFDR <- max(gsea.rna.prot[gsea.rna.prot$Collection %in% collections,]$minusLogFDR)
+library(patchwork); library(ggplot2)
+for (i in collections) {
+  nGenes <- length(unique(gsea.rna.prot[gsea.rna.prot$Collection == i,])$Feature_set)
+  topGenes <- unique(gsea.rna.prot[gsea.rna.prot$Significant &
+                                             gsea.rna.prot$Collection == i,]$Feature_set) # 48
+  nTopGenes <- length(topGenes)
+  temp.mean.gsea <- mean.gsea[mean.gsea$Feature_set %in% topGenes,]
+  geneOrder <- temp.mean.gsea[order(temp.mean.gsea$mean_NES),]$Feature_set
+  # geneFace <- rep("plain", length(geneOrder))
+  # names(geneFace) <- geneOrder
+  # sigInRNA <- temp.mean.gsea[grepl("RNA", temp.mean.gsea$sig_types),]$Feature_set
+  # geneFace[sigInRNA] <- "italic"
+  # sigInBoth <- temp.mean.gsea[grepl("RNA, Protein", temp.mean.gsea$sig_types),]$Feature_set
+  # geneFace[sigInBoth] <- "bold"
+  # if not sig in both or sig only in RNA, then sig only in Protein; if needed, could use "bold.italic" face style
+  
+  geneFace <- rep("plain", length(geneOrder))
+  names(geneFace) <- geneOrder
+  MYC.pathways <- geneOrder[grepl("MYC", geneOrder)]
+  SHH.pathways <- geneOrder[grepl("SHH", geneOrder) | grepl("HEDGEHOG", geneOrder)]
+  poi <- c(MYC.pathways, SHH.pathways)
+  geneFace[poi] <- "bold"
+  
+  temp.dot.df <- all.gsea[all.gsea$Feature_set %in% topGenes &
+                       all.gsea$Omics %in% c("RNA", "Protein"),]
+  if (any(temp.dot.df$FDR_q_value == 0)) {
+    temp.dot.df[temp.dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+  }
+  temp.dot.df$minusLogP <- -log(temp.dot.df[,"p_value"], base = 10)
+  temp.dot.df$minusLogFDR <- -log(temp.dot.df[,"FDR_q_value"], base = 10)
+  temp.dot.df$Omics <- factor(temp.dot.df$Omics, levels=c("RNA", "Protein"))
+  #temp.dot.df[temp.dot.df$Collection == "Oncogenic_signatures",]$Collection <- "Oncogenic"
+  dot.plot <- ggplot2::ggplot(
+    na.omit(temp.dot.df),
+    ggplot2::aes(
+      x = Omics, y = Feature_set, color = NES,
+      size = minusLogFDR
+    )
+  ) + scale_size(limits=c(0,maxLogFDR), range = c(0.5,4)) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = geneOrder) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", limits=c(-maxAbsNES, maxAbsNES)) +
+    #viridis::scale_color_viridis() +
+    theme_classic() +
+    ggplot2::labs(
+      x = "Omics Type",
+      y = "Gene Set",
+      color = "NES", size = "-log(FDR)"
+    ) + 
+    theme(axis.text.y=element_text(face=geneFace)) +
+    geom_point(data = subset(temp.dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
+    theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+  plot.annot <- paste0(i, " (", nTopGenes, " / ", nGenes, " gene sets enriched)")
+  dot.plot <- dot.plot + ggtitle(plot.annot) + theme(plot.title = element_text(hjust = 0.5, face="bold", size=16))
+  dot.plot
+  if (i == collections[1]) {
+    gsea.dot.plots <- (dot.plot + theme(legend.position = "none"))
+  } else if (i == collections[2]) {
+    gsea.dot.plots <- gsea.dot.plots / dot.plot
+  } else {
+    gsea.dot.plots <- gsea.dot.plots / (dot.plot + theme(legend.position = "none"))
+  }
+  # most are only in prot and not in RNA
+  
+}
+gsea.dot.plots
+#ggplot2::ggsave("Enriched_geneSets_dotPlot_patchworkCollection_boldMYCandSHH.pdf", gsea.dot.plots, width=9, height=9)
+ggplot2::ggsave("Enriched_geneSets_dotPlot_patchworkCollection_boldMYCandSHH_boldTitles.pdf", gsea.dot.plots, width=9, height=9)
+
+```
+
+### upset plots to see overlap across drug treatments
+```{r plot overlap of results, echo = FALSE}
+
+```
