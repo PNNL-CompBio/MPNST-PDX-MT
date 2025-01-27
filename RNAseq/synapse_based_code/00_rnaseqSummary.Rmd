@@ -6,7 +6,7 @@ output: html_document
 ---
 
 
-The goal of this document is to pull all RNASeq files from synapse in a metadata-aware fashion and do the basic analysis needed for figure 1 and supplemental figure 1. 
+The goal of this document is to pull all RNASeq files from synapse in a metadata-aware fashion and do the basic analysis needed for figure 1 and supplemental figure 1.
 
 Currently we have three batches:
 
@@ -26,7 +26,8 @@ synLogin()
 ```
 
 ### RNASeq data from synapse.
-Created a helper function to get RNASeq data
+Created a helper function to get RNASeq data. Currently this uses the file names for metadata. The goal is to update with metadata from synapse directly. 
+
 ```{r rnaseq}
 ##currently this function pulls all data mannually and parses the file names. 
 ##TODO: udpate using file views
@@ -92,12 +93,23 @@ rnaSeqTab<-getRNASeq<-function(){
 ```
 
 ### Collect latest data
-We can now call our RNASeq helper function defined above to get data and visualize overall. Currently this pulls all data with a `quants.genes.sf` file but can be adjusted.
+We can now call our RNASeq helper function defined above to get data and visualize overall. Currently this pulls all data with a `quants.genes.sf` file but can be adjusted. It also does a manual swap of time points for the batch 2 DMSO.
+
+
 
 ```{r data, echo=FALSE,warning=FALSE,message=FALSE}
 
 rnaseqdata<-rnaSeqTab()|>
   tidyr::separate(Name,into=c('ensembl_gene_id','version'),remove=FALSE)
+
+##swap batch 2 issues - DMSO time points
+needswap8<-intersect(intersect(which(rnaseqdata$drug=="DMSO"),which(rnaseqdata$date=='12-19-23')),which(rnaseqdata$time=='8'))
+needswap24<-intersect(intersect(which(rnaseqdata$drug=="DMSO"),which(rnaseqdata$date=='12-19-23')),which(rnaseqdata$time=='24'))
+
+rnaseqdata[needswap8,'time']='24'
+rnaseqdata[needswap24,'time']='8'
+
+
 
 print(paste("Got RNASeq from",length(unique(rnaseqdata$id)),'samples across',length(unique(rnaseqdata$drug)),'drugs and',length(unique(rnaseqdata$time)),'timepoints'))
 
@@ -141,7 +153,8 @@ zeroes<-rnaseqdata|>
 samps<-length(unique(rnaseqdata$id))
 toremove<-subset(zeroes,zvals>samps/2)
 
-reduced.data<-subset(rnaseqdata,!Name%in%toremove$Name)
+reduced.data<-subset(rnaseqdata,!Name%in%toremove$Name)|>
+  subset(id!='syn64326059') ## possible outlier??
 
 ##first do some pretty PCA
 tpm<-reduced.data|>
@@ -175,7 +188,7 @@ Clearly there is a batch effect so it will be good to correct for this to enable
 TODO: put the SVA code here and upload a corrected file to synapse
 
 ```{r batch correct, echo=FALSE, warning=FALSE, message=FALSE}
-library(sva)
+#library(sva)
 ##now to remove the batches for date while still correcting for drug and time
 
 
@@ -206,8 +219,9 @@ diffexCalls<-do.call(rbind,lapply(unique(sampmeta$date),function(dval){
    do.call(rbind,lapply(c('8','24'),function(tval){
      samps<-subset(sampmeta,date==dval)|>
        subset(time==tval)|>
-       subset(drug%in%c(d_name,"DMSO"))
-      cts<-counts[,samps$id]
+       subset(drug%in%c(d_name,"DMSO"))|>
+       subset(id%in%colnames(counts))
+      cts<-counts[,intersect(samps$id,colnames(counts))]
      dds <- DESeqDataSetFromMatrix(countData = round(cts),
                               colData = samps,
                               design = ~ drug)
@@ -313,7 +327,7 @@ ggplot(drugscounts,aes(x=ndrugs,fill=direction))+geom_bar(position='dodge')+ggti
 #  tidyr::separate(Name,sep="\\.",into=c('ensembl_gene_id','Version'))|>
 #   left_join(map)
 
-topgenes<-subset(drugscounts,ndrugs>8)
+topgenes<-subset(drugscounts,ndrugs>5)
 
 ##TODO check for duplicates
 subset(dgenes,ensembl_gene_id%in%topgenes$ensembl_gene_id)|>
