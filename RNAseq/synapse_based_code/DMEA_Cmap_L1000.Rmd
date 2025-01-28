@@ -144,6 +144,10 @@ write.csv(all.drug.degs,paste0("Top_150_DEGs_by_absLog2FC_noTies_",Sys.Date(),".
 #write.csv(all.drug.degs,paste0("DEGs_unfiltered_",Sys.Date(),".csv"), row.names = FALSE)
 ```
 
+### compile results
+```{r compile results}
+```
+
 ### plot number of correlated drugs, enriched MOAs
 ```{r plot # of results, echo = FALSE}
 ## drug mechanisms
@@ -534,5 +538,43 @@ ggplot2::ggsave("validatedDrugs_scatterPlot_v2.pdf", validation.plot, width=5.5,
 
 ### upset plots to see overlap across drug treatments
 ```{r plot overlap of results, echo = FALSE}
+library(ComplexHeatmap)
+# inspired by: https://jokergoo.github.io/ComplexHeatmap-reference/book/upset-plot.html#upset-making-the-plot
+### MOA
+# generate list of significant results
+sigList <- list()
+for (i in unique(unlist(drug.info))) {
+  sigList[[i]] <- na.omit(unique(dmea.sens.df[dmea.sens.df$DrugTreatment == i & dmea.sens.df$sig,]$Drug_set))
+}
 
+# convert to matrix
+m = ComplexHeatmap::make_comb_mat(sigList)
+moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
+myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
+names(myCol) <- names(drug.info)
+# moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(moa.info2[order(unique(unlist(drug.info))),], name = "Mechanism", 
+#                                                    col = RColorBrewer::brewer.pal(length(unique(moa.info2$moa)), "Set2"), which="row")
+moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
+ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
+#ComplexHeatmap::UpSet(m)
+
+### drug correlations
+# generate list of significant results
+sigList <- list()
+for (i in unique(unlist(drug.info))) {
+  sigList[[i]] <- na.omit(unique(drug.corr.sens.df[drug.corr.sens.df$DrugTreatment == i & drug.corr.sens.df$Pearson.q <= 0.05,]$Drug))
+}
+
+# convert to matrix
+m = ComplexHeatmap::make_comb_mat(sigList)
+moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
+myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
+names(myCol) <- names(drug.info)
+# moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(moa.info2[order(unique(unlist(drug.info))),], name = "Mechanism", 
+#                                                    col = RColorBrewer::brewer.pal(length(unique(moa.info2$moa)), "Set2"), which="row")
+moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
+ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
+#ComplexHeatmap::UpSet(m)
+
+# could also repeat for individual timepoints or filtered for "optimal" timepoints (max validation / inhibition of known targets)
 ```
