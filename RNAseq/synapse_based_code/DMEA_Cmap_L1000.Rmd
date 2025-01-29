@@ -77,7 +77,7 @@ build_L1000 <- function() {
 synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
 diffexp <- read.csv(synapser::synGet('syn64397743')$path) # 646576 genes
-degs <- na.omit(diffexp[diffexp$padj <= 0.05,]) # 233233 genes
+degs <- na.omit(diffexp[diffexp$padj <= 0.05,]) # 73933 genes
 if (any(degs$drug=="Ribociblib")) {
  degs[degs$drug=="Ribociblib",]$drug <- "Ribociclib" 
 }
@@ -85,7 +85,7 @@ if (any(degs$drug=="Ribociblib")) {
 # reduce to overlapping genes, check for overlapping drugsL1000.genes <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Fgene%5Finfo.txt.gz'
 L1000.genes <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Fgene%5Finfo.txt.gz'
 L1000.genes.info <- readr::read_delim(L1000.genes, "\t") # pr_gene_symbol, pr_gene_id
-degs.L1000 <- degs[degs$hgnc_symbol %in% L1000.genes.info$pr_gene_symbol,] # 40027 / 62734
+degs.L1000 <- degs[degs$hgnc_symbol %in% L1000.genes.info$pr_gene_symbol,] # 46337 / 62734
 ```
 
 ## produce GMTs
@@ -103,7 +103,7 @@ drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
                   "TEADi" = "Verteporfin")
 # compare treated vs. untreated
 # DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
-timepoints <- na.omit(unique(degs$time))
+timepoints <- na.omit(unique(degs.L1000$Timepoint))
 base.path <- getwd()
 dmea.path <- file.path(base.path, "DMEA_Cmap_L1000")
 dir.create("DMEA_Cmap_L1000")
@@ -111,15 +111,15 @@ dir.create("DMEA_Cmap_L1000")
 all.drug.degs <- data.frame()
 for (i in timepoints) {
   # filter for time
-  time.deg <- degs.L1000[degs.L1000$time == i,]
+  time.deg <- degs.L1000[degs.L1000$Timepoint == i,]
   
   # prep inputs for each drug
   drug.degs <- list()
   #expr <- list()
-  all.drugs <- na.omit(unique(time.deg$drug))
+  all.drugs <- na.omit(unique(time.deg$Drug))
   for (j in all.drugs) {
     temp.deg <- na.omit(dplyr::distinct(
-      time.deg[time.deg$drug == j,c("hgnc_symbol","log2FoldChange")]))
+      time.deg[time.deg$Drug == j,c("hgnc_symbol","log2FoldChange")]))
     colnames(temp.deg) <- c("Gene", "Log2FC")
     if (any(duplicated(temp.deg$Gene))) {
       temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
@@ -135,7 +135,7 @@ for (i in timepoints) {
     }
   }
   drug.degs.df <- data.table::rbindlist(drug.degs, use.names=TRUE, idcol="DrugTreatment")
-  drug.degs.df$Time <- i
+  drug.degs.df$Time <- substr(i,1,nchar(i)-1)
   all.drug.degs <- rbind(all.drug.degs, drug.degs.df)
 } 
 setwd(dmea.path)
@@ -147,11 +147,12 @@ write.csv(all.drug.degs,paste0("Top_150_DEGs_by_absLog2FC_noTies_",Sys.Date(),".
 ```{r compile results, echo=FALSE}
 dmea.path <- file.path(getwd(), "DMEA_Cmap_L1000")
 setwd(dmea.path)
-all.drug.degs <- read.csv(paste0("Top_150_DEGs_by_absLog2FC_noTies_","2025-01-27",".csv"))
+all.drug.degs <- read.csv(paste0("Top_150_DEGs_by_absLog2FC_noTies_","2025-01-29",".csv"))
 timepoints <- na.omit(unique(all.drug.degs$Time))
 cmap.outputs <- list()
 outputs <- list()
 inputs <- list()
+
 for (i in timepoints) {
   cmap.results <- list()
   moa.results <- list()
@@ -175,7 +176,6 @@ for (i in timepoints) {
       fname2 <- "arfs/TAG/query_result.gct" # this points to Cmap MOA results
       fname3 <- paste0(dir.name, fname2)
       rank.data <- read.delim(file=archive::archive_extract(fname, files=fname3), skip = 2)
-      rank.name <- paste0("CMap_L1000_",rank.data[1,ncol(rank.data)])
       
       # filter drug list
       cat(file=stderr(), "About to filter input", "\n")
@@ -587,7 +587,7 @@ validation.plot <- ggplot2::ggplot(validations, aes(x=as.numeric(Time), y=NES, c
        color = "Drug Treatment", shape = "Mechanism") +
   scale_shape_manual(values=1:nlevels(validations$Drug_set)) + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
-ggplot2::ggsave("validatedDrugMechanisms_scatterPlot_v2.pdf", validation.plot, width=5.5, height=3)
+ggplot2::ggsave("validatedDrugMechanisms_scatterPlot.pdf", validation.plot, width=5.5, height=3)
 
 ### Drug correlations
 drugValidations <- drug.corr.sens.df[tolower(drug.corr.sens.df$Drug) == tolower(drug.corr.sens.df$DrugTreatment) &
@@ -598,7 +598,7 @@ validation.plot <- ggplot2::ggplot(drugValidations, aes(x=as.numeric(Time), y=no
   labs(x="Time (Hours)", y="Normalized Connectivity Score",
        color = "Drug Treatment", shape = "Mechanism") + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
-ggplot2::ggsave("validatedDrugs_scatterPlot_v2.pdf", validation.plot, width=5.5, height=3)
+ggplot2::ggsave("validatedDrugs_scatterPlot.pdf", validation.plot, width=5.5, height=3)
 
 ```
 
@@ -618,8 +618,6 @@ m = ComplexHeatmap::make_comb_mat(sigList)
 moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
 myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
 names(myCol) <- names(drug.info)
-# moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(moa.info2[order(unique(unlist(drug.info))),], name = "Mechanism", 
-#                                                    col = RColorBrewer::brewer.pal(length(unique(moa.info2$moa)), "Set2"), which="row")
 moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
 ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
 ComplexHeatmap::UpSet(m)
@@ -637,8 +635,6 @@ m = ComplexHeatmap::make_comb_mat(sigList)
 moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
 myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
 names(myCol) <- names(drug.info)
-# moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(moa.info2[order(unique(unlist(drug.info))),], name = "Mechanism", 
-#                                                    col = RColorBrewer::brewer.pal(length(unique(moa.info2$moa)), "Set2"), which="row")
 moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
 ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
 ComplexHeatmap::UpSet(m)

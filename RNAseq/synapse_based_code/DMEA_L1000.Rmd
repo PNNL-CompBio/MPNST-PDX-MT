@@ -179,8 +179,6 @@ setwd(dmea.path)
 drug.corr.sens.df <- data.table::rbindlist(drug.corr.sens, use.names=TRUE, idcol="Time")
 dmea.sens.df <- data.table::rbindlist(dmea.sens, use.names=TRUE, idcol="Time")
 colnames(dmea.sens.df)[2] <- "DrugTreatment"
-#dmea.sens.df[dmea.sens.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
-#drug.corr.sens.df[drug.corr.sens.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
 write.csv(dmea.sens.df,paste0("DMEA_results_",Sys.Date(),".csv"), row.names = FALSE)
 write.csv(drug.corr.sens.df,paste0("DMEA_correlations_",Sys.Date(),".csv"), row.names = FALSE)
 ```
@@ -616,11 +614,9 @@ m = ComplexHeatmap::make_comb_mat(sigList)
 moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
 myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
 names(myCol) <- names(drug.info)
-# moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(moa.info2[order(unique(unlist(drug.info))),], name = "Mechanism", 
-#                                                    col = RColorBrewer::brewer.pal(length(unique(moa.info2$moa)), "Set2"), which="row")
 moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
 ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
-#ComplexHeatmap::UpSet(m)
+ComplexHeatmap::UpSet(m)
 
 ### drug correlations
 # generate list of significant results
@@ -634,11 +630,9 @@ m = ComplexHeatmap::make_comb_mat(sigList)
 moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
 myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
 names(myCol) <- names(drug.info)
-# moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(moa.info2[order(unique(unlist(drug.info))),], name = "Mechanism", 
-#                                                    col = RColorBrewer::brewer.pal(length(unique(moa.info2$moa)), "Set2"), which="row")
 moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
 ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
-#ComplexHeatmap::UpSet(m)
+ComplexHeatmap::UpSet(m)
 
 # could also repeat for individual timepoints or filtered for "optimal" timepoints (max validation / inhibition of known targets)
 ```
