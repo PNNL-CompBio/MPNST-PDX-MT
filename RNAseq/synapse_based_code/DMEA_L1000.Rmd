@@ -78,8 +78,8 @@ synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
 diffexp <- read.csv(synapser::synGet('syn64397743')$path) # 646576 genes
 degs <- na.omit(diffexp[diffexp$padj <= 0.05,]) # 233233 genes
-if (any(degs$drug=="Ribociblib")) {
- degs[degs$drug=="Ribociblib",]$drug <- "Ribociclib" 
+if (any(degs$Drug=="Ribociblib")) {
+ degs[degs$Drug=="Ribociblib",]$Drug <- "Ribociclib" 
 }
 
 # # CCLE RNA-seq with HGNC symbols
@@ -90,11 +90,11 @@ degs.L1000 <- degs[degs$hgnc_symbol %in% L1000$gene_symbol,] # 40027 / 62734
 
 # check for overlapping drugs
 L1000.drugs <- na.omit(unique(L1000$chem_name))
-drug.overlap <- na.omit(unique(degs$drug[tolower(degs$drug) %in% tolower(L1000.drugs)])) # 5
+drug.overlap <- na.omit(unique(degs$Drug[tolower(degs$Drug) %in% tolower(L1000.drugs)])) # 5
 cat("Drugs in both our data and the L1000:", drug.overlap)
 ```
 
-## produce GMTs
+## run DMEA, ranking drugs based on correlation with Cmap signatures
 ```{r DMEA, echo = FALSE}
 drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
                   "Chemotherapy" = "Trabectidin",
@@ -110,7 +110,7 @@ drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
 # compare treated vs. untreated
 # DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
 synapse_id <- "syn64660160"
-timepoints <- na.omit(unique(degs$time))
+timepoints <- na.omit(unique(degs$Timepoint))
 base.path <- getwd()
 dmea.path <- file.path(base.path, "DMEA_L1000")
 dir.create("DMEA_L1000")
@@ -127,15 +127,15 @@ for (i in timepoints) {
                                 parent = synapse_id)) 
   
   # filter for time
-  time.deg <- degs[degs$time == i,]
+  time.deg <- degs[degs$Timepoint == i,]
   
   # prep inputs for each drug
   drug.degs <- list()
   #expr <- list()
-  all.drugs <- na.omit(unique(time.deg$drug))
+  all.drugs <- na.omit(unique(time.deg$Drug))
   for (j in all.drugs) {
     temp.deg <- na.omit(dplyr::distinct(
-      time.deg[time.deg$drug == j,c("hgnc_symbol","log2FoldChange")]))
+      time.deg[time.deg$Drug == j,c("hgnc_symbol","log2FoldChange")]))
     colnames(temp.deg) <- c("Gene", "Log2FC")
     if (any(duplicated(temp.deg$Gene))) {
       temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
@@ -181,6 +181,10 @@ dmea.sens.df <- data.table::rbindlist(dmea.sens, use.names=TRUE, idcol="Time")
 colnames(dmea.sens.df)[2] <- "DrugTreatment"
 write.csv(dmea.sens.df,paste0("DMEA_results_",Sys.Date(),".csv"), row.names = FALSE)
 write.csv(drug.corr.sens.df,paste0("DMEA_correlations_",Sys.Date(),".csv"), row.names = FALSE)
+dmea.files <- list(paste0("DMEA_results_",Sys.Date(),".csv") = dmea.sens.df,
+                   paste0("DMEA_correlations_",Sys.Date(),".csv") = drug.corr.sens.df)
+save_to_synapse_v2(dmea.files, synapse_id)
+
 ```
 
 ### plot number of correlated drugs, enriched MOAs
@@ -193,9 +197,9 @@ sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 &
 nMOAs <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug_set))))
 
-# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.1723
+# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.8388
 cat("# of MOAs enriched at 8h vs. 24h")
-t.test(nMOAs[nMOAs$Time=="8",]$N, nMOAs[nMOAs$Time=="24",]$N)
+t.test(nMOAs[nMOAs$Time=="8h",]$N, nMOAs[nMOAs$Time=="24h",]$N)
 
 nMOAs$moa <- NA
 for (i in 1:length(drug.info)) {
@@ -222,9 +226,9 @@ sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$Pearson.q <= 0.05,]
 nDrugs <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug))))
 
-# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.2543
+# are there more/less correlated drugs at 8h vs. 24h? Yes, more at 8h: p = 0.002403
 cat("# of drugs correlated at 8h vs. 24h")
-t.test(nDrugs[nDrugs$Time=="8",]$N, nDrugs[nDrugs$Time=="24",]$N)
+t.test(nDrugs[nDrugs$Time=="8h",]$N, nDrugs[nDrugs$Time=="24h",]$N)
 
 nDrugs$moa <- NA
 for (i in 1:length(drug.info)) {
@@ -251,8 +255,8 @@ ggplot2::ggsave("N_correlatedDrugs.pdf", width=5.5, height=4)
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA_L1000")
 setwd(dmea.path)
-dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-27",".csv"))
-drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-27",".csv"))
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 ### MOA
 topSets <- unique(dmea.sens.df[dmea.sens.df$sig,]$Drug_set)
 mean.results <- plyr::ddply(dmea.sens.df, .(Drug_set), summarize,
@@ -362,8 +366,8 @@ ggplot2::ggsave("Correlated_drugs_dotPlot_facetTime.pdf", dot.plot, width=8, hei
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA_L1000")
 setwd(dmea.path)
-dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-27",".csv"))
-drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-27",".csv"))
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 ### MOA
 topSigMOA <- data.frame()
 for (i in tested.drugs) {
@@ -479,8 +483,8 @@ for (n.top in n.top.list) {
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA_L1000")
 setwd(dmea.path)
-dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-27",".csv"))
-drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-27",".csv"))
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 ### MOA
 topSets <- names(drug.info)
 sigTopSets <- topSets[topSets %in% dmea.sens.df[dmea.sens.df$sig,]$Drug_set]
@@ -546,8 +550,7 @@ dot.plot
 ggplot2::ggsave("Validation_MOAs_dotPlot_facetTime.pdf", dot.plot, width=10, height=3)
 
 # also plot just sig validations as scatter plot over time
-#validations$Time <- factor(validations$Time, levels=timepoints)
-#validations$Time <- as.numeric(validations$Time)
+validations$Time <- as.numeric(substr(validations$Time,1,nchar(validations$Time)-1))
 validations$Drug_set <- factor(validations$Drug_set, levels=sort(na.omit(unique(validations$Drug_set))))
 validation.plot <- ggplot2::ggplot(validations, aes(x=Time, y=NES, color=DrugTreatment)) + 
   geom_point(aes(shape=Drug_set)) + geom_line(linetype="dashed") +
@@ -556,18 +559,19 @@ validation.plot <- ggplot2::ggplot(validations, aes(x=Time, y=NES, color=DrugTre
        color = "Drug Treatment", shape = "Mechanism") +
   scale_shape_manual(values=1:nlevels(validations$Drug_set)) + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
-ggplot2::ggsave("validatedDrugMechanisms_scatterPlot_v2.pdf", validation.plot, width=5.5, height=3)
+ggplot2::ggsave("validatedDrugMechanisms_scatterPlot.pdf", validation.plot, width=5.5, height=3)
 
 ### Drug correlations
 drugValidations <- drug.corr.sens.df[tolower(drug.corr.sens.df$Drug) == tolower(drug.corr.sens.df$DrugTreatment) &
                                        drug.corr.sens.df$Pearson.q <= 0.05,]
+drugValidations$Time <- as.numeric(substr(drugValidations$Time,1,nchar(drugValidations$Time)-1))
 validation.plot <- ggplot2::ggplot(drugValidations, aes(x=Time, y=Pearson.est, color=DrugTreatment)) + 
   geom_point() + geom_line(linetype="dashed") +
   scale_x_continuous(trans="log10") +
   labs(x="Time (Hours)", y="Pearson r",
        color = "Drug Treatment", shape = "Mechanism") + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
-ggplot2::ggsave("validatedDrugs_scatterPlot_v2.pdf", validation.plot, width=5.5, height=3)
+ggplot2::ggsave("validatedDrugs_scatterPlot.pdf", validation.plot, width=5.5, height=3)
 
 ```
 

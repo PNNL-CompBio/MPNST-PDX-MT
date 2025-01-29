@@ -231,7 +231,7 @@ sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 &
 nMOAs <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug_set))))
 
-# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.6325
+# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.2876
 cat("# of MOAs enriched at 8h vs. 24h")
 t.test(nMOAs[nMOAs$Time=="8",]$N, nMOAs[nMOAs$Time=="24",]$N)
 
@@ -261,7 +261,7 @@ sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$fdr_q_nlog10 >= -log(0.05, 
 nDrugs <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug))))
 
-# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.1492
+# are there more/less correlated drugs at 8h vs. 24h? Yes, more at 8h: p=0.003954
 cat("# of drugs correlated at 8h vs. 24h")
 t.test(nDrugs[nDrugs$Time=="8",]$N, nDrugs[nDrugs$Time=="24",]$N)
 
@@ -290,8 +290,8 @@ ggplot2::ggsave("N_correlatedDrugs.pdf", width=5.5, height=4)
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA_Cmap_L1000")
 setwd(dmea.path)
-#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-27",".csv"))
-#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-27",".csv"))
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 ### MOA
 topSets <- unique(dmea.sens.df[dmea.sens.df$sig,]$Drug_set)
 mean.results <- plyr::ddply(dmea.sens.df, .(Drug_set), summarize,
@@ -398,8 +398,8 @@ ggplot2::ggsave("Correlated_drugs_dotPlot_facetTime.pdf", dot.plot, width=8, hei
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA_Cmap_L1000")
 setwd(dmea.path)
-#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-27",".csv"))
-#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-27",".csv"))
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 ### MOA
 topSigMOA <- data.frame()
 for (i in tested.drugs) {
@@ -510,8 +510,8 @@ for (n.top in n.top.list) {
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA_Cmap_L1000")
 setwd(dmea.path)
-#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-27",".csv"))
-#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-27",".csv"))
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 ### MOA
 topSets <- names(drug.info)
 sigTopSets <- topSets[topSets %in% dmea.sens.df[dmea.sens.df$sig,]$Drug_set]

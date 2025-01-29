@@ -123,7 +123,7 @@ drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
 # compare treated vs. untreated
 # DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
 synapse_id <- "syn64618500"
-timepoints <- na.omit(unique(degs$time))
+timepoints <- na.omit(unique(degs$Timepoint))
 base.path <- getwd()
 dmea.path <- file.path(base.path, "DMEA")
 dir.create("DMEA")
@@ -134,21 +134,21 @@ drug.corr.pert <- list()
 
 for (i in timepoints) {
   setwd(dmea.path)
-  dir.create(paste0(i,"h"))
-  setwd(paste0(i,"h"))
-  timeSyn <- synapser::synStore(synapser::Folder(paste0(i,"h"), 
+  dir.create(i)
+  setwd(i)
+  timeSyn <- synapser::synStore(synapser::Folder(i, 
                                 parent = synapse_id)) 
   
   # filter for time
-  time.deg <- degs[degs$time == i,]
+  time.deg <- degs[degs$Timepoint == i,]
   
   # prep inputs for each drug
   drug.degs <- list()
   expr <- list()
-  all.drugs <- na.omit(unique(time.deg$drug))
+  all.drugs <- na.omit(unique(time.deg$Drug))
   for (j in all.drugs) {
     temp.deg <- na.omit(dplyr::distinct(
-      time.deg[time.deg$drug == j,c("hgnc_symbol","log2FoldChange")]))
+      time.deg[time.deg$Drug == j,c("hgnc_symbol","log2FoldChange")]))
     colnames(temp.deg) <- c("Gene", "Log2FC")
     if (any(duplicated(temp.deg$Gene))) {
       temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
@@ -205,16 +205,16 @@ write.csv(drug.corr.sens.df,paste0("DMEA_correlations_",Sys.Date(),".csv"), row.
 # prep data
 library(plyr);library(dplyr);library(ggplot2);library(patchwork)
 setwd(dmea.path)
-dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-26",".csv"))
-drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-26",".csv"))
+dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 & 
                            dmea.sens.df$p_value <= 0.05,]
 nMOAs <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug_set))))
 
-# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.5664
+# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.967
 cat("# of MOAs enriched at 8h vs. 24h")
-t.test(nMOAs[nMOAs$Time=="8",]$N, nMOAs[nMOAs$Time=="24",]$N)
+t.test(nMOAs[nMOAs$Time=="8h",]$N, nMOAs[nMOAs$Time=="24h",]$N)
 
 nMOAs$moa <- NA
 for (i in 1:length(drug.info)) {
@@ -241,9 +241,9 @@ sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$Pearson.q <= 0.05,]
 nDrugs <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug))))
 
-# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.6278
+# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.549
 cat("# of drugs correlated at 8h vs. 24h")
-t.test(nDrugs[nDrugs$Time=="8",]$N, nDrugs[nDrugs$Time=="24",]$N)
+t.test(nDrugs[nDrugs$Time=="8h",]$N, nDrugs[nDrugs$Time=="24h",]$N)
 
 nDrugs$moa <- NA
 for (i in 1:length(drug.info)) {
@@ -275,8 +275,8 @@ ggplot2::ggsave("N_drugsAndMOAs_taller.pdf", patchN.plot, width=8, height=6)
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
-#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-26",".csv"))
-#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-26",".csv"))
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 ### MOA
 topSets <- unique(dmea.sens.df[dmea.sens.df$sig,]$Drug_set)
 mean.results <- plyr::ddply(dmea.sens.df, .(Drug_set), summarize,
@@ -378,32 +378,6 @@ dot.plot <- ggplot2::ggplot(
 dot.plot
 # most are only in prot and not in RNA
 ggplot2::ggsave("Correlated_drugs_dotPlot_facetTime.pdf", dot.plot, width=8, height=12)
-
-#moa.info <- dplyr::distinct(nDrugs[,c("DrugTreatment","moa")])
-moa.info <- read.csv("https://raw.githubusercontent.com/BelindaBGarana/DMEA/refs/heads/shiny-app/Inputs/PRISM_secondary-screen-replicate-treatment-info.csv")
-moa.info <- dplyr::distinct(moa.info[,c("name","moa")])
-colnames(moa.info)[1] <- "Drug"
-top.moa.info <- data.frame()
-for (i in unique(dmea.sens.df$Drug_set)) {
-  temp.moa.info <- moa.info[grepl(i, moa.info$moa, ignore.case = TRUE),]
-  top.moa.info <- rbind(top.moa.info, temp.moa.info)
-}
-test <- drug.corr.sens.df[drug.corr.sens.df$Drug %in% top.moa.info$Drug,]
-top.gmt <- DMEA::as_gmt(top.moa.info, sep=", ")
-for (i in timepoints) {
-  time.plot <- NULL
-  temp.df <- drug.corr.sens.df[drug.corr.sens.df$Time == i,]
-  temp.df <- reshape2::dcast(temp.df, Drug ~ DrugTreatment, value.var="Pearson.est")
-  drug.heatmaps <- make_heatmaps(temp.df, moa.info, 
-                               top.pathways=dmea.sens.df[dmea.sens.df$sig,],
-                               top.gmt = top.gmt)
-  setwd(file.path(dmea.path, "8h"))
-  save_to_synapse_v2(drug.heatmaps)
-}
-drug.heatmaps <- make_heatmaps(drug.corr.sens.df[drug.corr.sens.df$Time=="8",-1], moa.info, 
-                               top.pathways=dmea.sens.df[dmea.sens.df$sig,],
-                               top.gmt = drug.info[unique(dmea.sens.df[dmea.sens.df$sig,]$Drug_set)])
-
 ```
 
 ### plot top correlated drugs, enriched MOAs
@@ -412,8 +386,8 @@ drug.heatmaps <- make_heatmaps(drug.corr.sens.df[drug.corr.sens.df$Time=="8",-1]
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
-#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-26",".csv"))
-#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-26",".csv"))
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
 ### MOA
 topSigMOA <- data.frame()
 for (i in tested.drugs) {
@@ -459,7 +433,7 @@ dot.plot <- ggplot2::ggplot(
   geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
   facet_wrap(vars(cols = Time))
 dot.plot
-ggplot2::ggsave("Top_5_enriched_MOAs_dotPlot_facetTime.pdf", dot.plot, width=10, height=6)
+ggplot2::ggsave("Top_5_enriched_MOAs_dotPlot_facetTime.pdf", dot.plot, width=10, height=4)
 
 # create tile plot for MOA annotations
 moa.info2 <- dplyr::distinct(nMOAs[,c("DrugTreatment","moa")])
@@ -596,8 +570,7 @@ dot.plot
 ggplot2::ggsave("Validation_MOAs_dotPlot_facetTime.pdf", dot.plot, width=10, height=3)
 
 # also plot just sig validations as scatter plot over time
-#validations$Time <- factor(validations$Time, levels=timepoints)
-#validations$Time <- as.numeric(validations$Time)
+validations$Time <- as.numeric(substr(validations$Time, 1, nchar(validations$Time)-1))
 validations$Drug_set <- factor(validations$Drug_set, levels=sort(na.omit(unique(validations$Drug_set))))
 validation.plot <- ggplot2::ggplot(validations, aes(x=Time, y=NES, color=DrugTreatment)) + 
   geom_point(aes(shape=Drug_set)) + geom_line(linetype="dashed") +
@@ -611,6 +584,7 @@ ggplot2::ggsave("validatedDrugMechanisms_scatterPlot.pdf", validation.plot, widt
 ### Drug correlations
 drugValidations <- drug.corr.sens.df[tolower(drug.corr.sens.df$Drug) == tolower(drug.corr.sens.df$DrugTreatment) &
                                        drug.corr.sens.df$Pearson.q <= 0.05,] # 0
+drugValidations$Time <- as.numeric(substr(drugValidations$Time, 1, nchar(drugValidations$Time)-1))
 validation.plot <- ggplot2::ggplot(drugValidations, aes(x=Time, y=Pearson.est, color=DrugTreatment)) + 
   geom_point() + geom_line(linetype="dashed") +
   scale_x_continuous(trans="log10") +
