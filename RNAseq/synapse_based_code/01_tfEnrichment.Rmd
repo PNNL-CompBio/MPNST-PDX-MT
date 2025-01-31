@@ -53,11 +53,24 @@ design<-counts_ens|>
 
 net <- decoupleR::get_collectri(organism = 'human', 
                                 split_complexes = FALSE)
+readr::write_csv(net,file='collecTRI_complexes_network.csv')
+
+
+net <- decoupleR::get_collectri(organism = 'human', 
+                                split_complexes = TRUE)
+readr::write_csv(net,file='collecTRI_genes_network.csv')
 
 enet<-net|>dplyr::rename(hgnc_symbol='target')|>
   left_join(map)|>
   subset(!is.na(ensembl_gene_id))|>
   dplyr::select(source,target='ensembl_gene_id',mor)
+
+##write net to file and store at syn64693461
+sf<-synapser::File('collecTRI_complexes_network.csv',parentId='syn64693461')
+synapser::synStore(sf)
+
+sf<-synapser::File('collecTRI_genes_network.csv',parentId='syn64693461')
+synapser::synStore(sf)
 
 sample_acts <- decoupleR::run_ulm(mat = cmat, 
                                   net = enet, 
@@ -143,7 +156,7 @@ allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
 subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+geom_point()+coord_flip()+facet_grid(~Timepoint)
 
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
-sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64004220')
+sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
 synapser::synStore(sf)
 
 md <- allcontrast|>
