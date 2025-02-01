@@ -5,12 +5,27 @@ MPNST-PDX-MT-RNAseq_data
 2. batch2: All drugs on MN2
 ## Analysis scripts which read to and from Synapse
 ### Differential expression analysis
-rnaseqSummary.Rmd: pulls counts and uploads differential expression
+#### Filename: rnaseqSummary.Rmd
+#### Pulls: sample counts
+#### Uploads: counts crosstab; differential expression
 
 ### Transcription factor enrichment analysis
-tfEnrichment.Rmd: pulls differential expression and uploads transcription factor enrichment
+#### Filename: tfEnrichment.Rmd
+#### Pulls: counts crosstab; differential expression
+#### Uploads: transcription factor enrichment
 
-### Drug mechanism enrichment analysis
-1. DMEA.Rmd: pulls differential expression and public adherent CCLE RNA-seq and PRISM drug sensitivity data and uploads drug rankings based on sensitivity
-2. DMEA_L1000.Rmd: pulls differential expression and public Connectivity Map L1000 data to run correlations and uploads drug rankings based on similarity
-3. DMEA_Cmap_L1000.Rmd: pulls differential expression and public Connectivity Map L1000 data to run clue.io Query and uploads drug rankings based on similarity
+### Drug mechanism enrichment analysis (DMEA)
+1. 
+#### Filename: DMEA.Rmd
+#### Pulls: differential expression; public adherent CCLE RNA-seq and PRISM drug sensitivity
+#### Uploads: DMEA results based on sensitivity
+
+2. 
+#### Filename: DMEA_L1000.Rmd
+#### Pulls: differential expression; public Connectivity Map L1000
+#### Uploads: DMEA results based on similarity (i.e., correlations)
+
+3. 
+#### Filename: DMEA_Cmap_L1000.Rmd
+#### Pulls: differential expression; public Connectivity Map L1000
+#### Uploads: DMEA results based on similarity (i.e., clue.io Cmap L1000 Query)
