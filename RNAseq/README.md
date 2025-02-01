@@ -1,8 +1,8 @@
 # Project
 MPNST-PDX-MT-RNAseq_data
 # Batches
-1. batch1: Mirda on JH-2-002
-2. batch2: All drugs on MN2
+1. batch1: Mirda on MN2
+2. batch2: Other drugs on MN2
 
 # Running code (download rmd files, Rfunction.R and config.yml in your local computer; set up config.yml before running)
 1. Running Counts_TPM_batch1_2.Rmd 
