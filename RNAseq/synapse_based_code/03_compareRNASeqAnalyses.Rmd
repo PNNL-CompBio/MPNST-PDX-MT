@@ -9,7 +9,19 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(synapser)
+n <- 15
+library(RColorBrewer)
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(n-8,'Set2'))
+ 
+pie(rep(1,n), col=sample(cols, n))
+
+drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
+                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',TNO='TNO155',VOR='Vorinostat',
+                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
+
+names(cols)<-unlist(drugnames)
 ```
+
 
 Here we want to compare the various RNAseq analyses. We want to ask:
 1. Which drugs elicit the most similar response? 
@@ -27,11 +39,9 @@ Here we want to compare the various RNAseq analyses. We want to ask:
 
 ## Get all data so far
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Here the files are all on synapse
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r load data}
+```{r load data,message=FALSE,error=FALSE}
 synLogin()
 all_exp<-readr::read_csv(synGet('syn64398051')$path)
 diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
@@ -53,9 +63,11 @@ genemat<-diffex_genes|>
 genecor<-cor(genemat,use='pairwise.complete.obs')
 #pheatmap(genecor,main='Gene based correlation')
 
-subset(diffex_genes,padj<0.01)|>group_by(Drug,Timepoint,direction,Date)|>
+genecount<-subset(diffex_genes,padj<0.01)|>group_by(Drug,Timepoint,direction,Date)|>
   summarize(ngenes=n_distinct(hgnc_symbol))|>
-  mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
+  mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))
+
+genecount|>
   ggplot(aes(x=Drug,fill=Timepoint,y=dgenes))+geom_bar(stat='identity',position='dodge')+
   ggtitle('Differentially expressed genes at each time point for each drug')+coord_flip()
 
@@ -66,11 +78,13 @@ tfmat<-diffex_tfs|>
   tibble::column_to_rownames('source')|>
   as.matrix()
 
-subset(diffex_tfs,padj<0.01)|>
+tfcount<-subset(diffex_tfs,padj<0.01)|>
   mutate(direction=ifelse(score<0,'down','up'))|>
   group_by(Drug,Timepoint,direction)|>
   summarize(ngenes=n_distinct(source))|>
-  mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
+  mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))
+
+tfcount|>
   ggplot(aes(x=Drug,fill=Timepoint,y=dgenes))+geom_bar(stat='identity',position='dodge')+
   ggtitle('Differentially expressed TFs at each time point for each drug')+coord_flip()
 
