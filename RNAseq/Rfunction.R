@@ -1281,6 +1281,169 @@ plot_pathway_heatmap <- function(data, pathway_col, padj_col, NES_col, group_col
   return(heatmap_plot)
 }
 
+plot_pathway_heatmap_2 <- function(data, pathway_col, padj_col, NES_col, group_col, drug_col, timepoint_col, Drug_colors_set, Timepoint_color_set) {
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+  library(cowplot)
+  library(gridExtra)
+  
+  # Ensure the input data is a data frame
+  if (!is.data.frame(data)) stop("Input data must be a data frame")
+  
+  # Check if the required columns exist
+  required_cols <- c(pathway_col, padj_col, NES_col, group_col, drug_col, timepoint_col)
+  if (!all(required_cols %in% colnames(data))) {
+    stop("Specified columns do not exist in the data frame")
+  }
+  
+  # Compute metrics for sorting pathways
+  metrics <- data %>%
+    group_by(.data[[pathway_col]]) %>%
+    summarise(
+      drugs = paste(sort(unique(.data[[drug_col]])), collapse = "+"),
+      sig_count = sum(.data[[padj_col]] < 0.05),
+      NES_sum = n(),
+      NES_value = sum(.data[[NES_col]]),
+      Var = prod(.data[[NES_col]])
+    ) %>%
+    ungroup()
+  
+  # Sort pathways based on significance and NES
+  sorted_pathways <- metrics %>%
+    arrange(desc(NES_sum), drugs, desc(Var), desc(sig_count), desc(NES_value)) %>%
+    mutate(!!sym(pathway_col) := factor(.data[[pathway_col]], levels = unique(.data[[pathway_col]])))
+  
+  # Merge sorted pathways with the input data
+  plot_data <- data %>%
+    mutate(
+      color_val = ifelse(.data[[padj_col]] > 0.05, NA, .data[[NES_col]])
+    )
+  
+  # Ensure pathway order follows sorted pathways
+  plot_data[[pathway_col]] <- factor(plot_data[[pathway_col]], levels = rev(sorted_pathways[[pathway_col]]))
+  
+  # Prepare annotation data for Drug and Timepoint, aligning with samples
+  annotation_data <- plot_data %>%
+    select(.data[[group_col]], .data[[drug_col]], .data[[timepoint_col]]) %>%
+    distinct() %>%
+    arrange(.data[[group_col]])
+  
+  # Create Drug annotation plot (without legend)
+  drug_annotation_plot <- ggplot(annotation_data, aes(x = .data[[group_col]], y = "Drug", fill = .data[[drug_col]])) +
+    geom_tile() +
+    geom_text(aes(label = .data[[drug_col]]), vjust = -1, size = 3.5, fontface = "bold") +  # Add drug names on top
+    scale_fill_manual(values = Drug_colors_set) +
+    theme_void() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      legend.position = "right"
+    )
+  # Compute unique drug positions for labeling
+  unique_drug_labels <- annotation_data %>%
+    group_by(.data[[drug_col]]) %>%
+    summarise(xpos = median(as.numeric(factor(.data[[group_col]], levels = unique(annotation_data[[group_col]]))))) %>%
+    ungroup()
+  
+  # Create Drug annotation plot with unique drug labels
+  drug_annotation_plot <- ggplot(annotation_data, aes(x = .data[[group_col]], y = "Drug", fill = .data[[drug_col]])) +
+    geom_tile() +
+    geom_text(data = unique_drug_labels, aes(x = xpos, y = "Drug", label = .data[[drug_col]]),  
+              vjust = -1, size = 4, fontface = "bold") +  # Ensure unique, centered drug labels
+    scale_fill_manual(values = Drug_colors_set) +
+    theme_void() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      legend.position = "none"
+    )
+  
+  
+  # Create Timepoint annotation plot (without legend)
+  timepoint_annotation_plot <- ggplot(annotation_data, aes(x = .data[[group_col]], y = "Timepoint", fill = .data[[timepoint_col]])) +
+    geom_tile() +
+    scale_fill_manual(values = Timepoint_color_set) +
+    theme_void() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(size = 10, face = "bold"),
+      legend.position = "right"
+    )
+  
+  # Extract legends before removing them
+  drug_legend <- cowplot::get_legend(
+    ggplot(annotation_data, aes(x = .data[[group_col]], fill = .data[[drug_col]])) +
+      geom_bar() +
+      scale_fill_manual(values = Drug_colors_set) +
+      theme(legend.position = "top")
+  )
+  
+  timepoint_legend <- cowplot::get_legend(
+    ggplot(annotation_data, aes(x = .data[[group_col]], fill = .data[[timepoint_col]])) +
+      geom_bar() +
+      scale_fill_manual(values = Timepoint_color_set) +
+      theme(legend.position = "top")
+  )
+  
+  # Assign colors to vertical lines based on drug colors
+  vline_data <- annotation_data %>%
+    mutate(xpos = as.numeric(factor(.data[[group_col]], levels = unique(.data[[group_col]])))) %>%
+    arrange(xpos)
+  
+  drug_boundaries <- annotation_data %>%mutate(xpos = as.numeric(factor(.data[[group_col]])))%>%
+    group_by(.data[[drug_col]]) %>%
+    summarise(boundary = max(xpos)+0.5 ) %>%
+    ungroup()
+  
+  # Create the heatmap plot with light grey background
+  heatmap_plot <- ggplot(plot_data, aes(
+    x = .data[[group_col]], 
+    y = .data[[pathway_col]], 
+    fill = color_val, 
+    size = -log10(.data[[padj_col]])
+  )) +
+    geom_point(shape = 21, color = "black") +
+    scale_fill_gradient2(
+      low = "blue", high = "red", mid = "white", midpoint = 0, limits = c(-6, 6),
+      na.value = "grey"
+    ) +
+    scale_size(range = c(2, 10)) +
+    #geom_vline(data = vline_data, aes(xintercept = xpos + 0.5, color = .data[[drug_col]]), size = 1.5, linetype = "dotted") +  
+    geom_vline(data = vline_data, aes(xintercept = xpos + 0.5), size = 1.5, linetype = "dotted") +
+    geom_vline(data = drug_boundaries, aes(xintercept = boundary), size = 1.5, linetype = "solid", color = "black") +  # Dark lines between drugs
+    scale_color_manual(values = Drug_colors_set, guide = "none") +  
+    labs(
+      x = "Group (Samples)",
+      y = "Pathway",
+      fill = "NES",
+      size = "-log10(padj)"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+      axis.text.y = element_text(size = 20),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_rect(fill = "white"),  # Set light grey background
+      legend.position = "right"
+    )
+  
+  # Combine annotation and heatmap plots, ensuring proper alignment
+  combined_plot <- cowplot::plot_grid(
+    drug_annotation_plot,
+    timepoint_annotation_plot,
+    heatmap_plot,
+    ncol = 1,
+    align = "v",
+    rel_heights = c(0.05, 0.025, 1)  # Increased height for drug labels
+  )
+  
+  # Return both plots (heatmap + separate legend)
+  #return(list(heatmap = combined_plot, drug_legend = drug_legend, timepoint_legend = timepoint_legend))
+  return(combined_plot)
+}
 
 # Define the function
 get_synapse_annotations <- function(syn_id) {
@@ -1324,3 +1487,70 @@ get_synapse_annotations <- function(syn_id) {
   return(annotations_df)
 }
 
+
+get_DEG_counts <- function(Result_list) {
+  DEG_summary <- lapply(names(Result_list), function(drug) {
+    res_list <- Result_list[[drug]]$Res
+    lapply(c("8h", "24h"), function(timepoint) {
+      # Get DEGs for the drug at this timepoint
+      DEG_data <- res_list[[timepoint]][[paste0(drug, "_", timepoint, "_vs_", "DMSO_", timepoint, "_", "DEGs")]]
+      
+      # Count upregulated and downregulated genes
+      data.frame(
+        Drug = drug,
+        Timepoint = timepoint,
+        Upregulated = sum(DEG_data$log2FoldChange > 0),
+        Downregulated = sum(DEG_data$log2FoldChange < 0)
+      )
+    }) %>% bind_rows()
+  }) %>% bind_rows()
+  
+  return(DEG_summary)
+}
+
+get_sig_FGSEA <- function(Result_list, padj_cutoff = 0.05) {
+  library(dplyr)
+  
+  FGSEA_summary <- lapply(names(Result_list), function(drug) {
+    res_list <- Result_list[[drug]]$FGSEA
+    
+    lapply(c("8h", "24h"), function(timepoint) {
+      # Check if the timepoint exists in the FGSEA results
+      if (timepoint %in% names(res_list)) {
+        # Extract and filter FGSEA results
+        data <- res_list[[timepoint]][[paste0(drug, "_", timepoint, "_vs_", "DMSO_", timepoint)]]
+        
+        if (!is.null(data)) {
+          data <- as.data.frame(data) %>%
+            dplyr::filter(padj < padj_cutoff) %>%
+            mutate(Drug = drug, Timepoint = timepoint,Group=paste0(Drug, "_", timepoint, "_vs_", "DMSO_", timepoint))  # Add metadata columns
+          
+          return(data)
+        }
+      }
+      return(NULL)
+    }) %>% bind_rows()  # Combine results for all timepoints
+  }) %>% bind_rows()  # Combine results for all drugs
+  
+  return(FGSEA_summary)
+}
+
+
+download_synapse_folder <- function(folder_id, destination_path = ".") {
+  # Ensure synapser is loaded
+  library(synapser)
+  
+  # Get folder contents
+  folder_contents_iter <- synGetChildren(folder_id)
+  Test2=folder_contents_iter%>%as.list()
+  out=lapply(Test2,function(x) x$id )%>%unlist()
+  sapply(out, function(item) {
+    file_path <- synGet(item, downloadLocation = destination_path,ifcollision="keep.local")
+    
+  })
+
+  
+  message("Download complete. Files saved to: ", normalizePath(destination_path))
+}
+
+  
