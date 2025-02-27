@@ -167,9 +167,19 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$Drug),function(d){
     }))
 
 allcontrast$padj<-p.adjust(allcontrast$p_value)
+
 allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
 subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+geom_point()+coord_flip()+facet_grid(~Timepoint)+scale_color_manual(values=cols)
 
+tcounts=allcontrast|>subset(signif)|>
+  group_by(Timepoint,Date,Drug)|>
+  summarise(numTfs=n())|>
+  arrange(desc(numTfs))
+tcounts|>
+  mutate(Drug=factor(Drug,levels=unique(tcounts$Drug)))|>
+  ggplot(aes(x=Timepoint,y=numTfs,fill=Drug))+geom_bar(position='dodge',stat='identity')+scale_fill_manual(values=cols)
+
+ggsave('tfsActive.png')
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
 synapser::synStore(sf)
@@ -191,17 +201,23 @@ subset(allcontrast,source%in%c('BRD4','STAT3','EGR1','E2F1','FOXM1'))|>ggplot(ae
 
 subset(allcontrast,source%in%c('FOXC1','HOXB8','MSX2','FOXD1','HOXD13','SNAI2'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()+scale_color_manual(values=cols)
 
-cortab<-corval|>
-  as.data.frame()|>
- tibble::rownames_to_column('drug_exp1')|>tidyr::pivot_longer(contains('h'),names_to='drug_exp2',values_to='cor')
 ```
 
 We can evaluate how the transcription factor values correlate with one another
 ```{r tfcors}
 
 corval<-mat|>tibble::column_to_rownames('source')|>cor(use='pairwise.complete.obs')
+
+
+cortab<-corval|>
+  as.data.frame()|>
+ tibble::rownames_to_column('drug_exp1')|>tidyr::pivot_longer(contains('h'),names_to='drug_exp2',values_to='cor')|>
+  arrange(cor)
+
+print(cortab)
+
 md$Date=as.factor(md$Date)
-pheatmap(corval,annotation_row = md,annotation_col=md)
+pheatmap(corval,annotation_row = md,annotation_col=md,annotation_colors=list(Drug=cols,Timepoint=tcolors))
 
 pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
 

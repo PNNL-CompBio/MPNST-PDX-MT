@@ -39,6 +39,7 @@ drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine'
 
 names(cols)<-unlist(drugnames)
    
+tcolors=c(`8h`='white',`24h`='darkgrey')
   
 ```
 
@@ -250,10 +251,19 @@ assay(vsd) <- mat
 
 
 plotPCA(vsd,intgroup='Timepoint')
-plotPCA(vsd,intgroup='Date')
-plotPCA(vsd,intgroup='Drug')+scale_color_manual(values=cols)
-ggsave('bcorrected_pca.png')
+ggsave('bcorrected_pca_time.png')
 
+plotPCA(vsd,intgroup='Date')
+ggsave('bcorrected_pca_date.png')
+
+plotPCA(vsd,intgroup='Drug')+scale_color_manual(values=cols)
+ggsave('bcorrected_pca_drug.png')
+
+
+##cortab
+md=colData(vsd)[,c('Drug','Timepoint','Date')]
+corvsd=cor(assay(vsd),use='pairwise.complete.obs')
+pheatmap::pheatmap(corvsd,annotation_row=md,annotation_col=md)
 
 ##now add the VSD counts to the table
 vtab<-assay(vsd)|>as.data.frame()|>
@@ -357,6 +367,24 @@ sumstats$Drug=factor(sumstats$Drug,levels=levs$Drug)
  tp|>ungroup()|>dplyr::select(Drug,direction,maxEffect)|>
    tidyr::pivot_wider(names_from='direction',values_from='maxEffect')|>
    arrange(Drug)
+ 
+ 
+ ###lets look at correlation across drug patterns and samples
+ dmat<-diffex|>dplyr::select(Gene,log2FoldChange,Drug,Timepoint,Date)|>
+   tidyr::unite(Drug,Timepoint,Date,col='sample',sep='_')|>
+   tidyr::pivot_wider(names_from=sample,values_from=log2FoldChange)|>
+   tibble::column_to_rownames('Gene')
+ 
+ cmat<-cor(dmat,use='pairwise.complete.obs',method='spearman')
+ meta<-diffex|>dplyr::select(Drug,Timepoint,Date)|>
+   distinct()|>
+   tidyr::unite(Drug,Timepoint,Date,col='sample',sep='_',remove=FALSE)|>
+   tibble::column_to_rownames('sample')
+ meta$Date=as.factor(meta$Date)
+ 
+ pheatmap::pheatmap(cmat,annotation_row=meta,annotation_col=meta,annotation_colors = list(Drug=cols,Timepoint=tcolors))
+
+   
 ```
 
 We can continue to tweak batches/outliers as we move on, but the general barplot should show differential expression.
