@@ -1,5 +1,5 @@
 ---
-title: "1_Counts_TPM_data_from_batch1_and_batch2"
+title: "2_DEGs_GSEA_Singscore"
 author: "`r config::get(file = 'config.yml')$document$author`"
 date: "`r Sys.Date()`"
 output:
@@ -14,7 +14,7 @@ knit: (
   function(inputFile, encoding) {
     config=config::get(file = 'config.yml') 
     
-    pSubTitle <- paste0(config$PT_ID, "Batch1_2_Counts_TPM_QC_check.pdf")
+    pSubTitle <- paste0(config$PT_ID, "2_DEGs_GSEA_Singscore.pdf")
     
     base_output_dir <- paste0(config$Path,"/","Report")
     
@@ -82,6 +82,8 @@ if (! file.exists( file.path(Reference_path,"Human_GSEA","Protein_coding_genelis
 ```{r}
 # Batch1 data dowloading from synapse
 Rawdata_path=file.path(Working_path,"Rawdata_update")
+Processed_path=file.path(Working_path,"Processed_data")
+dir.create(Processed_path)
 Rawdata_path_b1=file.path(Rawdata_path,"b1")
 # login synapse
 Token=read.table(Authtoken)%>%as.character()
@@ -119,6 +121,12 @@ for (i in c(Rawcounts_syID_b2,RawTPM_syID_b2,Annotation_syID_b2)){
 Drug_table_syID="syn64608501"
 
 synapser::synGet(Drug_table_syID,downloadLocation = Rawdata_path,ifcollision="keep.local")
+
+# human GMT files download
+GMT_folder_id="	syn63828408"
+GSEA_path=file.path(Reference_path,"Human_GSEA")
+download_synapse_folder(folder_id=GMT_folder_id, destination_path=GSEA_path)
+
 ```
 
 
@@ -148,22 +156,7 @@ names(drug_colors) = sort(Drug_name)
 
 ```
 
-```{r}
-PCA_Plot_3_shape<- function (data,Annotation,VAR,Color,Shape) {
-  # logcountdata row:genes,column: samples
-  pca <- prcomp(data) 
-  pca_out<-as.data.frame(pca$x)
-  df_out<- pca_out %>%tibble::rownames_to_column(var=VAR)  %>% left_join(., Annotation) 
-  #df_out<- merge (pca_out,Annotation,by.x=0,by.y=0) 
-  
-  # label_color<- factor(df_out[,group])
-  ggplot(df_out,aes_string(x="PC1",y="PC2")) +geom_point(aes_string(colour = Color,shape=Shape),size=5)
-}
-```
-
-# Batch1 data check
-
-## PCA plot (TPM data)
+## batch1 data loading
 ```{r,include=T,fig.width=6,fig.height=4}
 set.seed(12345)
 
@@ -174,41 +167,140 @@ Annotation_b1=read.table(file.path(Rawdata_path_b1,"01172025_Batch1_Samplemap.cs
 Annotation_b1$Drug=factor(Annotation_b1$Drug,levels = c("DMSO","MIR"))
 Annotation_b1$Timepoint=factor(Annotation_b1$Timepoint,levels=c("0h","8h","24h"))
 TPM_b1_2=TPM_counts_b1%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
+Counts_b1_2=Raw_counts_b1%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()%>%mutate_all(.,as.integer)
 
-PCA_Plot_3_shape(t(TPM_b1_2), Annotation_b1, "specimenID", "Drug", "Timepoint")+scale_color_manual(values=drug_colors)
-
-```
-
-## MAPK pathways (Gene list from 10.1038/s41698-018-0051-4): TPM data
-```{r,include=T,fig.width=10,fig.height=6}
-anno_2=Annotation_b1[c("specimenID","Drug","Timepoint")]%>%arrange(Timepoint,Drug)%>%matrix.please()%>%as.data.frame()
-TPM_b1_2_arrange=TPM_b1_2[,rownames(anno_2)]
-MAPK_genes=c("PHLDA1","SPRY2", "SPRY4", "ETV4", "ETV5", "DUSP4", "DUSP6", "CCND1", "EPHA2", "EPHA4") 
-Color_list=list(Drug= drug_colors[unique(anno_2$Drug)])
-number= anno_2%>%dplyr::filter(Timepoint=="8h")%>%nrow()
-
-TPM_heatmap(TPM_b1_2_arrange,MAPK_genes,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title="MAPK genes")
-```
-
-# Batch2 QC Validataion  (PCA plot for TPM data)
-
- 
-```{r,include=T,fig.width=12,fig.height=6}
-set.seed(12345)
-
-dir(Rawdata_path_b2)
 Raw_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T)
 TPM_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_tpm.tsv_corrected_ID.csv"),sep=",",header = T)
 Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap.csv"),sep=",",header = T)
 Annotation_b2$Drug=factor(Annotation_b2$Drug)
 Annotation_b2$Timepoint=factor(Annotation_b2$Timepoint,levels=c("0h","8h","24h"))
 TPM_b2_2=TPM_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
-
-PCA_Plot_3_shape(t(TPM_b2_2), Annotation_b2, "specimenID", "Drug", "Timepoint")+scale_color_manual(values=drug_colors)+facet_grid(~Date)
+Counts_b2_2=Raw_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()%>%mutate_all(.,as.integer)
 
 ```
+
+```{r}
+
+GMT_files=list.files(file.path(Reference_path,"Human_GSEA"),pattern="all.v7.5.1.symbols.gmt.txt",full.names = T)%>%.[grepl("c2|c5|h",.)]
+
+```
+
+
+
 ```{r}
 # upload pdf to synapse syn64612888
+```
+
+```{r,include=F}
+if (! file.exists(file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))){
+
+Annotation_file=rbind(Annotation_b1,Annotation_b2[,colnames(Annotation_b1)])
+Drug_list=unique(Annotation_file$Drug)%>%unique%>%.[!grepl("DMSO",.)] 
+Rawcounts=cbind(Counts_b1_2,Counts_b2_2)
+Result_list=list()
+for (i in Drug_list) {
+   drug_pickup=Annotation_file%>%dplyr::filter(Drug==i)
+   Paired_DMSO=Annotation_file%>%dplyr::filter(Drug=="DMSO"&Date==unique(drug_pickup$Date))
+   new_anno=rbind(drug_pickup,Paired_DMSO)%>%mutate(Sample_name=specimenID)%>%dplyr::filter(Timepoint!="0h")%>%mutate(Group=paste0(Drug,"_",Timepoint))
+   rownames(new_anno)=new_anno$specimenID 
+   new_anno$Group=factor(new_anno$Group,levels=unique(new_anno$Group))
+   new_counts=Rawcounts[,rownames(new_anno)]
+   if (isTRUE(unique(colnames(new_counts)==rownames(new_anno)))) {
+     print ("correct")
+   }
+   keep.exprs <- selectGenes_BY_group(new_counts, min.count=10, N=0.90,new_anno)
+   keep.exprs_2=keep.exprs%>%mutate(Sum=apply(.,1,sum))%>%dplyr::filter(Sum>2)
+   myFilt <- new_counts[rownames(keep.exprs_2),]
+   deseq2Data=DESeq2:: DESeqDataSetFromMatrix(countData =myFilt,colData = new_anno,design = ~Group)
+   dds <- DESeq2::DESeq(deseq2Data)
+   res_list=list()
+   FGSEA_list=list()
+   FGSEA_q005_list=list()
+   Timepoint=c("8h","24h")
+   for (t in Timepoint) {
+    drug_0h=paste0(i,"_","0h")
+    DMSO_t=paste0("DMSO","_",t)
+    group1=paste0(i,"_",t)
+    # res_list[[t]]=list(drug_vs_0h=DESeq2::results(dds, contrast = c("Group", group1, drug_0h)),
+    #                   drug_vs_DMSO=DESeq2::results(dds, contrast = c("Group", group1, DMSO_t)))
+    #names(res_list[[t]])=c(paste0(i,"_",t,"_vs_",i ,"_0h"), paste0(i,"_",t,"_vs_","DMSO_",t))
+    Res_out=DESeq2::results(dds, contrast = c("Group", group1, DMSO_t))
+    DEGs=Res_out%>%as.data.frame()%>%dplyr::filter(padj<0.05&abs(log2FoldChange)>0.27) # fc>1.2
+    res_list[[t]]=list(Res_all=Res_out,DEGs=DEGs)
+    name2=paste0(i,"_",t,"_vs_","DMSO_",t)
+    name_deg=paste0(i,"_",t,"_vs_","DMSO_",t,"_","DEGs")
+    names(res_list[[t]])=c(name2,name_deg)
+    ############3
+    
+    data=Res_out%>%as.data.frame()
+    res_q005=data%>%dplyr::filter(padj<0.05)
+    res_q005_rank=res_q005%>%arrange(log2FoldChange) %>%.[c("log2FoldChange")]%>%as.data.frame() %>%tibble::rownames_to_column()
+    ranks <- tibble::deframe(res_q005_rank)
+    out_list=list()
+    for (x in 1:length(GMT_files)){
+       data=fgsea::gmtPathways(GMT_files[x])
+       set.seed(12345)
+       out_list[[x]] <- fgsea::fgseaMultilevel(data, ranks,
+                           minSize=10,
+                           maxSize=500,nPermSimple = 10000)
+    }
+   FGSEA_out= do.call("rbind",out_list)                
+   FGSEA_list[[t]]=list(drug_vs_DMSO=FGSEA_out)
+   names(FGSEA_list[[t]])=name2
+   
+   #FGSEA_q005_list[[name2]]=do.call("rbind",out_list)%>%as.data.frame()%>%dplyr::filter(padj<0.05)
+   
+   
+  }
+   Result_list[[i]][["Res"]]=res_list
+   Result_list[[i]][["FGSEA"]]=FGSEA_list
+}
+
+save(Result_list,file=file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))
+} else {
+  
+  load(file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))
+}
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Function to extract DEG counts from Result_list
+
+
+# Extract DEG counts
+DEG_summary <- get_DEG_counts(Result_list)
+
+# Reshape data for plotting
+DEG_summary_long <- DEG_summary %>%
+  pivot_longer(cols = c("Upregulated", "Downregulated"), names_to = "Direction", values_to = "Count")
+
+DEG_summary_long$Timepoint=factor(DEG_summary_long$Timepoint,levels=c("8h","24h"))
+# Plot the number of upregulated and downregulated genes
+P1=ggplot(DEG_summary_long, aes(x = Timepoint, y = Count, fill = Direction)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Drug, scales = "free_y") +
+  theme_minimal() +ylim(c(0,4000))+
+  labs(
+    title = "Number of Upregulated and Downregulated Genes",
+    x = "Timepoint",
+    y = paste0("padj<0.05","_",""),
+    fill = "Regulation Direction"
+  ) +
+  theme(
+     axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(size = 10, face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+```
+
+```{r,fig.width=12,fig.height=16,include=T}
+P1
 ```
 
 
