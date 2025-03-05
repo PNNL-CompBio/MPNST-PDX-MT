@@ -1,0 +1,305 @@
+---
+title: "Priori TF Enrichment"
+author: "Sara Gosline"
+Date: "2025-01-14"
+output: html_document
+---
+
+Here we use the Prior package to run TF enrichment of the MPNST data. The goal is to estimate TF activity at each condition based on the correlation between TF activity and its known targets, and then identify those that are changing the most with each Drug treatment.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Get data
+First we load the required packages and download the original RNASeq data. Hopefully this will be batch normalized at some point.
+
+```{r load libs, message=FALSE, warning=FALSE}
+#reticulate::py_install('priori_regulon-enrichment')
+#install.packages('https://cran.r-project.org/src/contrib/Archive/rjson/rjson_0.2.21.tar.gz')
+library(synapser)
+library(dplyr)
+library(readr)
+synLogin()
+
+
+diffex<-readr::read_csv(synapser::synGet('syn64397743')$path)
+fname=synapser::synGet('syn64398051')$path
+counts<-readr::read_csv(fname)
+
+mat <-counts|>
+  dplyr::select(features=hgnc_symbol,id,TPM)|>
+  tidyr::pivot_wider(names_from=id,values_from=TPM)
+
+readr::write_tsv(mat,file='TPMMat.txt')
+
+mn<-function(x){
+  mean(x,na.rm=T)
+}
+
+dmat <- diffex|>
+  tidyr::unite(Drug,Timepoint,sep='_',col='sample')|>
+  subset(!is.na(hgnc_symbol))|>
+  dplyr::select(features='hgnc_symbol',log2FoldChange,sample)|>
+  distinct()|>
+  tidyr::pivot_wider(names_from=sample,values_from=log2FoldChange,values_fn=mn,values_fill=0)
+
+dmat[is.na(dmat)]<-0.0
+readr::write_tsv(dmat,file='diffexMat.txt')
+
+
+mdata <-counts|>
+  dplyr::select(id,Date,Timepoint,Drug)|>distinct()
+
+```
+
+## Run priori
+
+We saved the data to a text file so we can run priori on the results. We do this on both the differential expression measurements and the individual Timepoint points. I'm not clear which is best. 
+
+```{bash priori, echo=FALSE, message=FALSE, error=FALSE}
+priori TPMMat.txt pr_tpm_out
+priori diffexMat.txt pr_de_out
+```
+
+## Analyze individual results
+
+Now we can read in the results from prior to see what the estimated transcritpion factor activity is for each sample/replicate.
+
+```{r tpm results, echo=FALSE}
+weights <-readr::read_tsv('pr_tpm_out/priori_activity_score_weights.tsv')
+scores <- readr::read_tsv("pr_tpm_out/priori_activity_scores.tsv")
+
+colnames(scores)[1]<-'id'
+print(head(scores))
+
+##let's do PCA of the scores
+pcs<-scores|>tibble::column_to_rownames('id')|>as.matrix()|>t()|>prcomp()
+
+pcsdim<-pcs$rotation|>
+  as.data.frame()|>
+  tibble::rownames_to_column('id')|>
+    dplyr::left_join(mdata)
+
+library(ggplot2)
+
+ggplot(pcsdim,aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=5))+
+  geom_point()+
+  facet_grid(~Date)
+
+tfspc<-scores|>tibble::column_to_rownames('id')|>as.matrix()|>prcomp()
+tfpcdim<-tfspc$rotation|>
+  as.data.frame()|>
+  tibble::rownames_to_column('id')|>
+    dplyr::left_join(mdata)
+
+library(ggplot2)
+
+ggplot(tfpcdim,aes(x=PC1,y=PC2,size=5))+
+  geom_point()
+
+```
+
+Now that we have the scores we can join them with the metadata in the initial file and evaluate them.
+
+```{r score summaries}
+colnames(scores)[1]<-'id'
+
+lscores<-scores|>
+  tidyr::pivot_longer(colnames(scores)[-1],names_to='TF',values_to='activity score')
+lscores<-counts|>dplyr::select(Date,id,Drug,Timepoint)|>distinct()|>left_join(lscores)
+print(head(lscores))
+
+write_csv(lscores,file='priori_activity_scores.csv')
+sf<-synapser::File('priori_activity_scores.csv',parentId='syn64693461')
+synapser::synStore(sf)
+
+mscores <-lscores|>
+  group_by(Drug,Timepoint,TF)|>
+  subset(Timepoint!='0h')|>
+  summarize(meanScore=mean(`activity score`))|>
+  tidyr::pivot_wider(names_from=Drug,values_from=meanScore)|>
+  tidyr::pivot_longer(cols=setdiff(lscores$Drug,'DMSO'),names_to='Drug',values_to='meanScore')|>
+  mutate(meanDiff=meanScore-DMSO)
+
+mscores|>group_by(TF)|>summarize(varDiff=var(meanDiff))|>arrange(desc(varDiff))
+
+
+```
+
+Now we can evaluate significantly altered scores between conditions.
+
+```{r activity score changes}
+library(limma)
+
+scoremat<-scores|>
+  tibble::column_to_rownames('id')|>
+  as.matrix()|>
+  t()
+
+##can we run limma just once for all the conditions? 
+limmaFromMatrix<-function(mat,samps,d,ti){
+  print(d)
+  nsamps<-subset(samps,Drug==d)|>
+    subset(Timepoint==ti)
+  
+  nsamps<-subset(samps,Date==nsamps$Date[1])|>
+    subset(Drug=='DMSO')|>
+    subset(Timepoint==ti)|>
+    rbind(nsamps)
+  
+  nsamps$Drug=as.factor(nsamps$Drug)
+ # nsamps$Timepoint=as.factor(nsamps$Timepoint)
+  
+  design <- model.matrix(~0+Drug, data=nsamps)
+  res <- lmFit(2^(mat[,nsamps$id]),design)
+  res <- eBayes(res)
+
+  fulltab<- topTable(res,coef=paste0('Drug',d),number=nrow(mat))|>
+      tibble::rownames_to_column('TF')|>
+      mutate(Drug=d)|>
+      mutate(Timepoint=ti)
+#  rtab<-topTable(res,number=nrow(mat))
+  return(fulltab)
+               
+}
+
+res<-do.call(rbind,lapply(setdiff(mdata$Drug,'DMSO'), 
+                            function(d) do.call(rbind,lapply(setdiff(mdata$Timepoint,"0h"),
+                                          function(t) limmaFromMatrix(scoremat,mdata,d,t))
+                                      )))
+
+res|>subset(adj.P.Val<0.0001)|>ggplot(aes(x=Drug))+geom_bar()+coord_flip()
+
+res|>subset(adj.P.Val<0.001)|>ggplot(aes(x=TF))+geom_bar()+coord_flip()
+
+res|>subset(adj.P.Val<.01)|>group_by(TF)|>summarize(nDrugs=n())|>arrange(desc(nDrugs))
+
+res|>subset(adj.P.Val<.01)|>group_by(TF)|>summarize(nDrugs=n())|>arrange(nDrugs)
+```
+
+MAPK14 and PCBP1 are significant in each experiment and things like EGR3 and CXCL8 are only found in 1 treatment. HOw do these look?
+
+## Analyze diffex results
+
+Now we can read in the results from prior
+
+```{r diffex results, echo=FALSE}
+de_weights <-readr::read_tsv('pr_de_out/priori_activity_score_weights.tsv')
+de_scores <- readr::read_tsv("pr_de_out/priori_activity_scores.tsv")
+
+colnames(de_scores)[1]<-'id'
+
+##let's do PCA of the scores
+pcs<-de_scores|>tibble::column_to_rownames('id')|>as.matrix()|>t()|>prcomp()
+
+pcsdim<-pcs$rotation|>
+  as.data.frame()|>
+  tibble::rownames_to_column('id')|>
+  tidyr::separate(id,into=c('Drug','Timepoint'),sep='_')
+  
+library(ggplot2)
+
+ggplot(pcsdim,aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=5))+geom_point()
+
+
+```
+
+OK this is looking more tangible
+
+We need to compare the limma results to the other results. I prefer limma because it ascribes some sort of p-value to the TFs instead of just scores. but in theory the scores should correlate. 
+
+```{r compare} 
+de_res<-de_scores|>   
+  tidyr::pivot_longer(c(2:ncol(de_scores)),names_to='TF',values_to='score')|>   tidyr::separate(id,into=c('Drug','Timepoint'),sep='_')
+
+tres<-res|>dplyr::select(TF,logFC,Drug,Timepoint,adj.P.Val)|>
+  mutate(Timepoint=as.character(Timepoint))|>
+  left_join(de_res)
+
+ cor(tres$logFC,tres$score)
+
+corvals<-tres|>group_by(Timepoint,Drug)|>summarize(corval=cor(logFC,score))|>arrange(desc(corval))
+corvals
+
+ggplot(corvals,aes(x=Drug,y=corval,fill=Timepoint))+geom_bar(position='dodge',stat='identity')
+
+sigcor<-tres|>subset(adj.P.Val<0.01)|>
+  group_by(Timepoint,Drug)|>summarize(corval=cor(logFC,score))|>arrange(desc(corval))
+
+sigcor
+ggplot(sigcor,aes(x=Drug,y=corval,fill=Timepoint))+geom_bar(position='dodge',stat='identity')
+
+numSig<-tres|>subset(adj.P.Val<0.01)|>
+  group_by(Timepoint,Drug)|>summarize(numTfs=n())|>arrange(desc(numTfs))
+
+ggplot(numSig,aes(x=Drug,y=numTfs,fill=Timepoint))+geom_bar(position='dodge',stat='identity')
+
+
+tres|>subset(adj.P.Val<0.01)|>
+  group_by(TF)|>
+  summarize(corval=cor(logFC,score))|>
+  arrange(corval)
+
+write_csv(tres,file='priori_TF_diffex_scores.csv')
+sf<-synapser::File('priori_TF_diffex_scores.csv',parentId='syn64693461')
+synapser::synStore(sf)
+```
+
+Some Drugs have highly correlated scores, some do not.In the manuscript they compute 'mean difference' between treated and untreated samples. We can try that.
+
+```{r mean difference}
+
+mscores <- lscores|>group_by(Drug,Timepoint,TF)|>
+  subset(Timepoint!='0h')|>
+  summarize(meanScore=mean(`activity score`))|>
+  tidyr::pivot_wider(names_from=Drug,values_from=meanScore)|>
+  tidyr::pivot_longer(cols=setdiff(lscores$Drug,"DMSO"),names_to='Drug',values_to='meanScore')|>
+  mutate(tfChange=meanScore-DMSO)
+
+write_csv(mscores,file='priori_TF_DrugChangeScores.csv')
+synapser::synStore(sf)
+
+
+subset(mscores,TF=='SRF')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle("SRF")
+
+
+subset(mscores,TF=='MAPK3')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('MAPK3')
+
+subset(mscores,TF=='E2F3')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('E2F3')
+
+subset(mscores,TF=='VEGFA')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('VEGFA')
+
+mat<-mscores|>
+  tidyr::unite(Timepoint,Drug,col='condition',sep='_')|>
+  dplyr::select(TF,condition,tfChange)|>
+  tidyr::pivot_wider(names_from=TF,values_from=tfChange)|>
+  tibble::column_to_rownames('condition')
+
+pcs<-mat|>as.matrix()|>t()|>prcomp()
+
+comps<-pcs$rotation|>
+  as.data.frame()|>
+  tibble::rownames_to_column('condition')|>
+  tidyr::separate(condition,into=c('Timepoint','Drug'),sep='_')
+
+comps|>
+  ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))
+
+```
+
+What if we just compute the correlation between Drug treatments across the differents TF scores? THe logic being that the highly anticorrelated Drugs will be more synergistic. 
+
+```{r tf score cors}
+scoremat<-mscores|>tidyr::unite(Timepoint,TF,col='condition')|>dplyr::select(condition,Drug,tfChange)|>tidyr::pivot_wider(names_from=Drug,values_from=tfChange)|>tibble::column_to_rownames('condition')
+
+earlyScores<-mscores|>ungroup()|>subset(Timepoint=='8h')|>dplyr::select(TF,Drug,tfChange)|>tidyr::pivot_wider(names_from=Drug,values_from=tfChange)|>tibble::column_to_rownames('TF')
+
+lateScores<-mscores|>ungroup()|>subset(Timepoint=='24h')|>dplyr::select(TF,Drug,tfChange)|>tidyr::pivot_wider(names_from=Drug,values_from=tfChange)|>tibble::column_to_rownames('TF')
+
+corvals<-cor(scoremat)
+
+earlyCor=cor(earlyScores)
+lateCor=cor(lateScores)
+```

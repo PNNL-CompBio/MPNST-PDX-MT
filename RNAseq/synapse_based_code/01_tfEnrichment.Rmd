@@ -9,7 +9,7 @@ Here we take the differential expression and use it to infer transcrition factor
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
+#reticulate::use_virtualenv('r-reticulate')
 library(synapser)
 library(dplyr)
 synLogin()
@@ -46,18 +46,31 @@ cmat<- counts_ens|>
   tibble::column_to_rownames(var='ensembl_gene_id')
 
 design<-counts_ens|>
-  dplyr::select(id,drug,time)|>
+  dplyr::select(id,Drug,Timepoint)|>
   distinct()
 
 
 
 net <- decoupleR::get_collectri(organism = 'human', 
                                 split_complexes = FALSE)
+readr::write_csv(net,file='collecTRI_complexes_network.csv')
+
+
+net <- decoupleR::get_collectri(organism = 'human', 
+                                split_complexes = TRUE)
+readr::write_csv(net,file='collecTRI_genes_network.csv')
 
 enet<-net|>dplyr::rename(hgnc_symbol='target')|>
   left_join(map)|>
   subset(!is.na(ensembl_gene_id))|>
   dplyr::select(source,target='ensembl_gene_id',mor)
+
+##write net to file and store at syn64693461
+sf<-synapser::File('collecTRI_complexes_network.csv',parentId='syn64693461')
+synapser::synStore(sf)
+
+sf<-synapser::File('collecTRI_genes_network.csv',parentId='syn64693461')
+synapser::synStore(sf)
 
 sample_acts <- decoupleR::run_ulm(mat = cmat, 
                                   net = enet, 
@@ -89,7 +102,7 @@ tf_mat<-sample_acts|>
 
 ddesign<-design|>
   tibble::column_to_rownames('id')|>
-  mutate(time=as.factor(time))
+  mutate(Timepoint=as.factor(Timepoint))
 
 pheatmap(tf_mat,annotation_row = ddesign,labels_row=c())
 
@@ -99,30 +112,30 @@ sample_acts|>
   mutate(log10p=(-log10(p_value)))|>
   left_join(design)|>
   subset(source%in%vars$source[1:15])|>
-  ggplot(aes(x=drug,y=score,col=source,shape=as.factor(time),size=log10p))+geom_point()
+  ggplot(aes(x=Drug,y=score,col=source,shape=as.factor(Timepoint),size=log10p))+geom_point()
 
 readr::write_csv(sample_acts,'allTFestimatesBySample.csv')
-sf<-synapser::File('allTFestimatesBySample.csv',parentId='syn64004220')
+sf<-synapser::File('allTFestimatesBySample.csv',parentId='syn64693461')
 synapser::synStore(sf)
 
 ```
 
 I think this plot is more a message of where the outliers lie rather than the actual biological value of each of the TFs. It also shows the need for batch correction. 
 
-## Transcription factors by drug
+## Transcription factors by Drug
 
-Here we use t statistics as input to decoupler, so that we cna identify the TFs that are changing positively or negatively in each drug treatment. 
+Here we use t statistics as input to decoupler, so that we cna identify the TFs that are changing positively or negatively in each Drug treatment. 
 
-```{r tfs by drug,warning=FALSE, message=FALSE}
+```{r tfs by Drug,warning=FALSE, message=FALSE}
 
 
-allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
-    do.call(rbind,lapply(unique(diffex$time),function(ti){
-      dtab<-subset(diffex,time==ti)|>
+allcontrast<-do.call(rbind,lapply(unique(diffex$Drug),function(d){
+    do.call(rbind,lapply(unique(diffex$Timepoint),function(ti){
+      dtab<-subset(diffex,Timepoint==ti)|>
         subset(!is.na(stat))|>
-        subset(drug==d)|>
-        dplyr::select(ensembl_gene_id,drug,time,stat)|>
-        group_by(ensembl_gene_id,drug,time)|>
+        subset(Drug==d)|>
+        dplyr::select(ensembl_gene_id,Drug,Timepoint,stat)|>
+        group_by(ensembl_gene_id,Drug,Timepoint)|>
         summarize(stat=mean(stat,na.rm=TRUE))|>
         tibble::column_to_rownames('ensembl_gene_id')
       
@@ -133,31 +146,31 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$drug),function(d){
                                     .mor='mor', 
                                     minsize = 5)|>
         ungroup()|>
-        mutate(drug=d,time=ti)
+        mutate(Drug=d,Timepoint=ti)
       return(contrast_acts)
         }))
     }))
 
 allcontrast$padj<-p.adjust(allcontrast$p_value)
 allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
-subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=drug,shape=as.factor(time)))+geom_point()+coord_flip()+facet_grid(~time)
+subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+geom_point()+coord_flip()+facet_grid(~Timepoint)
 
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
-sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64004220')
+sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
 synapser::synStore(sf)
 
 md <- allcontrast|>
-  dplyr::select(drug,time)|>
+  dplyr::select(Drug,Timepoint)|>
   distinct()|>
-  tidyr::unite(drug,time,col='drugtime',remove=FALSE)|>
-  tibble::column_to_rownames('drugtime')
+  tidyr::unite(Drug,Timepoint,col='DrugTimepoint',remove=FALSE)|>
+  tibble::column_to_rownames('DrugTimepoint')
 
 mat<-allcontrast|>
-  dplyr::select(source,drug,time,score)|>
-  tidyr::unite(drug,time,col='drugtime')|>
-  pivot_wider(names_from=drugtime,values_from=score,values_fill = 0.0)
+  dplyr::select(source,Drug,Timepoint,score)|>
+  tidyr::unite(Drug,Timepoint,col='DrugTimepoint')|>
+  pivot_wider(names_from=DrugTimepoint,values_from=score,values_fill = 0.0)
 
-subset(allcontrast,source%in%c('ZEB1','STAT1','EGR1','RELA'))|>ggplot(aes(x=drug,y=score,size=signif,color=drug,shape=as.factor(time)))+geom_point()+facet_grid(~source)+coord_flip()
+subset(allcontrast,source%in%c('ZEB1','STAT1','EGR1','RELA'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()
 ```
 
 We can evaluate how the transcription factor values correlate with one another
@@ -170,7 +183,7 @@ pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
 
 comps<-cbind(pcs$rotation[rownames(md),],md)|>unique()
 comps|>
-  ggplot(aes(x=PC1,y=PC2,col=drug,shape=as.factor(time),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=drug))
+  ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))
 ```
 
 

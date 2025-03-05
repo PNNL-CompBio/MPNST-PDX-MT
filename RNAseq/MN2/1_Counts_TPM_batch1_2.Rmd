@@ -1,0 +1,219 @@
+---
+title: "1_Counts_TPM_data_from_batch1_and_batch2"
+author: "`r config::get(file = 'config.yml')$document$author`"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    keep_tex: true
+    latex_engine: pdflatex
+    fig_caption: yes
+    highlight: haddock
+    number_sections: yes
+
+knit: (
+  function(inputFile, encoding) {
+    config=config::get(file = 'config.yml') 
+    
+    pSubTitle <- paste0(config$PT_ID, "Batch1_2_Counts_TPM_QC_check.pdf")
+    
+    base_output_dir <- paste0(config$Path,"/","Report")
+    
+    DIR=file.path(base_output_dir)
+    
+    rmarkdown::render( 
+      input       = inputFile, 
+      encoding    = encoding, 
+      output_file = pSubTitle,
+      output_dir =DIR )}
+    )
+---
+
+
+
+```{r,include=F}
+rm(list=ls())
+```
+
+```{r,include=F}
+library(dplyr)
+library(ggplot2)
+library(synapser)
+library(dplyr)
+library(readr)
+library(tidyr)
+
+```
+
+
+# Define your own config
+```{r,setup, include=FALSE}
+getwd()
+config <- config::get(file = 'config.yml')
+# 
+Working_path=config$Path
+base_output_dir <- paste0(Working_path,"/","Report")
+email=config$Email
+Authtoken=config$Token_file
+knitr::opts_chunk$set(echo = F,warnings =F, message=F,include=F)
+options(knitr.table.format = 'markdown',encoding = 'UTF-8',warnings =F, message=F ) 
+# Check and create output directory if it doesn't exist
+output_dir <- file.path(Working_path, "Data_preparation")
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+Reference_path=config$Reference_path
+
+dir(Reference_path)
+# load function
+source(file.path(getwd(),"Rfunction.R" ))
+```
+
+
+```{r}
+if (! file.exists( file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))){
+   syID="syn63828384"
+    synapser::synGet(syID,downloadLocation = Reference_path,ifcollision="keep.local")
+
+}
+
+```
+
+# Download raw coutns, TPM and annoation data from synapse
+```{r}
+# Batch1 data dowloading from synapse
+Rawdata_path=file.path(Working_path,"Rawdata_update")
+Rawdata_path_b1=file.path(Rawdata_path,"b1")
+# login synapse
+Token=read.table(Authtoken)%>%as.character()
+synapser::synLogin(email=email,authToken=Token)
+# download files from synapse
+Rawcounts_syID_b1="syn64608365"
+RawTPM_syID_b1="syn64608366"
+Annotation_syID_b1="syn64608368"
+
+for (i in c(Rawcounts_syID_b1,RawTPM_syID_b1,Annotation_syID_b1)){
+   synapser::synGet(i,downloadLocation = Rawdata_path_b1,ifcollision="keep.local")
+
+  
+}
+
+
+# Download Batch2 data from synapse
+
+Rawdata_path=file.path(Working_path,"Rawdata_update")
+Rawdata_path_b2=file.path(Rawdata_path,"b2")
+# login synapse
+Token=read.table(Authtoken)%>%as.character()
+synapser::synLogin(email=email,authToken=Token)
+# download files from synapse
+Rawcounts_syID_b2="syn64608369"
+RawTPM_syID_b2="syn64608370"
+Annotation_syID_b2="syn64608372"
+
+for (i in c(Rawcounts_syID_b2,RawTPM_syID_b2,Annotation_syID_b2)){
+   synapser::synGet(i,downloadLocation = Rawdata_path_b2,ifcollision="keep.local")
+
+  
+}
+
+Drug_table_syID="syn64608501"
+
+synapser::synGet(Drug_table_syID,downloadLocation = Rawdata_path,ifcollision="keep.local")
+```
+
+
+```{r}
+load(file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))
+Drug_anno=readxl::read_excel(file.path(Rawdata_path,"Drug_annotation.xlsx"))%>%arrange(Drug_class)
+Drug_name = Drug_anno$Drug %>% unique()%>%na.omit()
+Drug_name=factor(Drug_name,levels = c("DMSO" ,"PAL",  "RIB" , "DEC" , "VOR" , "TRA"  ,"MIR"  ,"SEL"  ,"OLA",  "TNO",  "RMC" , "CAP"  ,"TRAB", "DOX"  ,"IFO"  ,"IRI"))
+
+length(Drug_name)
+# Ensure you have 14 unique Drug names (1 for black, 13 other colors)
+if (length(Drug_name) != 16) {
+  stop("The number of unique drugs should be 16, including the one colored black.")
+}
+
+# Use RColorBrewer to get 13 colors from the Paired palette
+paired_colors =RColorBrewer:: brewer.pal(n = 12, name = "Paired")
+extra_color =RColorBrewer:: brewer.pal(n = 8, name = "Set3")[1:3]  # Take one color from another palette (e.g., Set3)
+
+
+# Combine black and the 13 colors
+drug_colors = c("black", paired_colors, extra_color)
+
+# Ensure the color vector matches the order of Drug_name
+names(drug_colors) = sort(Drug_name)
+
+
+```
+
+```{r}
+PCA_Plot_3_shape<- function (data,Annotation,VAR,Color,Shape) {
+  # logcountdata row:genes,column: samples
+  pca <- prcomp(data) 
+  pca_out<-as.data.frame(pca$x)
+  df_out<- pca_out %>%tibble::rownames_to_column(var=VAR)  %>% left_join(., Annotation) 
+  #df_out<- merge (pca_out,Annotation,by.x=0,by.y=0) 
+  
+  # label_color<- factor(df_out[,group])
+  ggplot(df_out,aes_string(x="PC1",y="PC2")) +geom_point(aes_string(colour = Color,shape=Shape),size=5)
+}
+```
+
+# Batch1 data check
+
+## PCA plot (TPM data)
+```{r,include=T,fig.width=6,fig.height=4}
+set.seed(12345)
+
+dir(Rawdata_path_b1)
+Raw_counts_b1=read.table(file.path(Rawdata_path_b1,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T,row.names = 1)
+TPM_counts_b1=read.table(file.path(Rawdata_path_b1,"salmon.merged.gene_tpm_corrected_id.csv"),sep=",",header = T,row.names = 1)
+Annotation_b1=read.table(file.path(Rawdata_path_b1,"01172025_Batch1_Samplemap.csv"),sep=",",header = T)
+Annotation_b1$Drug=factor(Annotation_b1$Drug,levels = c("DMSO","MIR"))
+Annotation_b1$Timepoint=factor(Annotation_b1$Timepoint,levels=c("0h","8h","24h"))
+TPM_b1_2=TPM_counts_b1%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
+
+PCA_Plot_3_shape(t(TPM_b1_2), Annotation_b1, "specimenID", "Drug", "Timepoint")+scale_color_manual(values=drug_colors)
+
+```
+
+## MAPK pathways (Gene list from 10.1038/s41698-018-0051-4): TPM data
+```{r,include=T,fig.width=10,fig.height=6}
+anno_2=Annotation_b1[c("specimenID","Drug","Timepoint")]%>%arrange(Timepoint,Drug)%>%matrix.please()%>%as.data.frame()
+TPM_b1_2_arrange=TPM_b1_2[,rownames(anno_2)]
+MAPK_genes=c("PHLDA1","SPRY2", "SPRY4", "ETV4", "ETV5", "DUSP4", "DUSP6", "CCND1", "EPHA2", "EPHA4") 
+Color_list=list(Drug= drug_colors[unique(anno_2$Drug)])
+number= anno_2%>%dplyr::filter(Timepoint=="8h")%>%nrow()
+
+TPM_heatmap(TPM_b1_2_arrange,MAPK_genes,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title="MAPK genes")
+```
+
+# Batch2 QC Validataion  (PCA plot for TPM data)
+
+ 
+```{r,include=T,fig.width=12,fig.height=6}
+set.seed(12345)
+
+dir(Rawdata_path_b2)
+Raw_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T)
+TPM_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_tpm.tsv_corrected_ID.csv"),sep=",",header = T)
+Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap.csv"),sep=",",header = T)
+Annotation_b2$Drug=factor(Annotation_b2$Drug)
+Annotation_b2$Timepoint=factor(Annotation_b2$Timepoint,levels=c("0h","8h","24h"))
+TPM_b2_2=TPM_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
+
+PCA_Plot_3_shape(t(TPM_b2_2), Annotation_b2, "specimenID", "Drug", "Timepoint")+scale_color_manual(values=drug_colors)+facet_grid(~Date)
+
+```
+```{r}
+# upload pdf to synapse syn64612888
+```
+
+
+```{r}
+knitr::knit_exit()
+```
+
+
