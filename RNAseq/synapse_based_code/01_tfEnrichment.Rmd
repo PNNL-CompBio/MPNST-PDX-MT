@@ -15,7 +15,7 @@ library(dplyr)
 synLogin()
 
 counts<-readr::read_csv(synapser::synGet('syn64398051')$path)
-diffex<-readr::read_csv(synapser::synGet('syn64397743')$path)
+diffex<-read.csv(synapser::synGet('syn64397743')$path) # vector memory error if use readr
 counts_ens<-readr::read_csv(synapser::synGet('syn64398049')$path)
 
 ```
@@ -32,13 +32,14 @@ library(ggplot2)
 library(pheatmap)
 library(ggrepel)
 
-
-library(biomaRt)
-ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-
-
-map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(counts_ens$ensembl_gene_id), mart = ensembl)
-
+if (file.exists('map.csv')) {
+  map <- read.csv('map.csv')
+} else {
+  library(biomaRt)
+  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+  map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(counts_ens$ensembl_gene_id), mart = ensembl)
+  write.csv(map, 'map.csv', row.names = FALSE) 
+}
 
 cmat<- counts_ens|>
   dplyr::select(ensembl_gene_id,id,NumReads)|>
@@ -46,13 +47,13 @@ cmat<- counts_ens|>
   tibble::column_to_rownames(var='ensembl_gene_id')
 
 design<-counts_ens|>
-  dplyr::select(id,Drug,Timepoint)|>
+  dplyr::select(id,Drug,Timepoint,individualID)|>
   distinct()
-
 
 
 net <- decoupleR::get_collectri(organism = 'human', 
                                 split_complexes = FALSE)
+# [OmnipathR] Failed to download `https://omabrowser.org/All/oma-species.txt` (attempt 1/3); error: vector memory exhausted (limit reached?)
 readr::write_csv(net,file='collecTRI_complexes_network.csv')
 
 
