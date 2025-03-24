@@ -194,7 +194,8 @@ Open questions:
 
 ```{r plots and normaliztion}
 library(ggplot2)
-
+rnaseqdata <- read.csv(synapser::synGet("syn64398049")$path)
+rnaseqgenes <- read.csv(synapser::synGet("syn64398051")$path)
 zeroes<-rnaseqdata|>
   subset(TPM==0)|>
   group_by(Name)|>
@@ -264,7 +265,7 @@ counts<-reduced.data|>
 diffexCalls<-do.call(rbind,lapply(unique(sampmeta$Date),function(dval){
   cat("Running diffexp for", dval,"\n")
   datemeta<-subset(sampmeta,Date==dval)
-  mpnst <- unique(datemeta$individualID)
+  mpnst <- unique(datemeta$individualID) # no need to filter for MPNST because only 1 MPNST per date
   if (!("DMSO" %in% datemeta$Drug)) {
     warning("skipped ",dval," due to lack of DMSO control\n")
   } else {
@@ -280,14 +281,14 @@ diffexCalls<-do.call(rbind,lapply(unique(sampmeta$Date),function(dval){
           subset(Timepoint==tval)|>
           subset(Drug%in%c(d_name,"DMSO"))|>
           subset(id%in%colnames(counts))
-        samps$Drug <- factor(samps$Drug, levels=c(d_name,"DMSO")) # make sure contrast is drug vs. dmso
+        samps$Drug <- factor(samps$Drug, levels=c("DMSO",d_name)) # make sure contrast is drug vs. dmso per DESeq2 vignette
         cts<-counts[,intersect(samps$id,colnames(counts))]
         dds <- DESeqDataSetFromMatrix(countData = round(cts),
                                       colData = samps,
                                       design = ~ Drug)
         
         dres<-DESeq(dds)|>
-          results()|>
+          results(contrast=c("Drug",d_name,"DMSO"))|> # double check contrast is drug vs. dmso per DESeq2 vignette
           as.data.frame()|>
           tibble::rownames_to_column('Gene')|>
           dplyr::mutate(Drug=d_name,Timepoint=tval,Date=dval, individualID=mpnst)
@@ -340,7 +341,7 @@ if(!require(ggalluvial)){
 }
 
 for (i in mpnst) {
- ggplot(data=all.sumstats[[i]],aes(axis1=Timepoint,axis2=Drug,y=numgenes))+geom_alluvium(aes(fill=direction))+
+ ggplot(data=sumstats[sumstats$individualID==i,],aes(axis1=Timepoint,axis2=Drug,y=numgenes))+geom_alluvium(aes(fill=direction))+
    geom_stratum()+
    scale_x_discrete(limits = c("Timepoint", "Drug"),expand = c(.2, .05)) +
   geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
@@ -375,6 +376,14 @@ drugscounts<-subset(diffex,signif)|>group_by(Gene,Timepoint,direction)|>summariz
 dgenes<-diffex|>
   tidyr::separate(Gene,sep="\\.",into=c('ensembl_gene_id','Version'))
 
+# if (file.exists('map.csv')) {
+#   map <- read.csv('map.csv')
+# } else {
+#   library(biomaRt)
+#   ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+#   map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
+#   write.csv(map, 'map.csv', row.names = FALSE) 
+# }
 diffex_gene<-dgenes|>left_join(map)
 ##let's save this back to synapse for future reference
 readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
