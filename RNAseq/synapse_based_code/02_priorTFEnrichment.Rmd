@@ -39,7 +39,7 @@ mn<-function(x){
 }
 
 dmat <- diffex|>
-  tidyr::unite(Drug,Timepoint,sep='_',col='sample')|>
+  tidyr::unite(individualID, Drug,Timepoint,sep='_',col='sample')|>
   subset(!is.na(hgnc_symbol))|>
   dplyr::select(features='hgnc_symbol',log2FoldChange,sample)|>
   distinct()|>
@@ -50,7 +50,7 @@ readr::write_tsv(dmat,file='diffexMat.txt')
 
 
 mdata <-counts|>
-  dplyr::select(id,Date,Timepoint,Drug)|>distinct()
+  dplyr::select(id,Date,Timepoint,Drug,individualID)|>distinct()
 
 ```
 
@@ -139,27 +139,28 @@ scoremat<-scores|>
   t()
 
 ##can we run limma just once for all the conditions? 
-limmaFromMatrix<-function(mat,samps,d,ti){
+limmaFromMatrix<-function(mat,samps,d,ti,ind){
   print(d)
   nsamps<-subset(samps,Drug==d)|>
-    subset(Timepoint==ti)
+    subset(Timepoint==ti)|>
+    subset(individualID == ind)
   
   nsamps<-subset(samps,Date==nsamps$Date[1])|>
     subset(Drug=='DMSO')|>
     subset(Timepoint==ti)|>
+    subset(individualID == ind)|>
     rbind(nsamps)
   
-  nsamps$Drug=as.factor(nsamps$Drug)
- # nsamps$Timepoint=as.factor(nsamps$Timepoint)
-  
-  design <- model.matrix(~0+Drug, data=nsamps)
+  nsamps$Drug <- factor(nsamps$Drug, levels=c(d, "DMSO")) # make sure contrast is drug vs. DMSO
+  design <- model.matrix(~Drug + 0, data=nsamps)
   res <- lmFit(2^(mat[,nsamps$id]),design)
   res <- eBayes(res)
 
   fulltab<- topTable(res,coef=paste0('Drug',d),number=nrow(mat))|>
       tibble::rownames_to_column('TF')|>
       mutate(Drug=d)|>
-      mutate(Timepoint=ti)
+      mutate(Timepoint=ti)|>
+    mutate(individualID=ind)
 #  rtab<-topTable(res,number=nrow(mat))
   return(fulltab)
                
@@ -167,7 +168,7 @@ limmaFromMatrix<-function(mat,samps,d,ti){
 
 res<-do.call(rbind,lapply(setdiff(mdata$Drug,'DMSO'), 
                             function(d) do.call(rbind,lapply(setdiff(mdata$Timepoint,"0h"),
-                                          function(t) limmaFromMatrix(scoremat,mdata,d,t))
+                                          function(t) limmaFromMatrix(scoremat,mdata,d,t,ind))
                                       )))
 
 res|>subset(adj.P.Val<0.0001)|>ggplot(aes(x=Drug))+geom_bar()+coord_flip()
@@ -197,7 +198,7 @@ pcs<-de_scores|>tibble::column_to_rownames('id')|>as.matrix()|>t()|>prcomp()
 pcsdim<-pcs$rotation|>
   as.data.frame()|>
   tibble::rownames_to_column('id')|>
-  tidyr::separate(id,into=c('Drug','Timepoint'),sep='_')
+  tidyr::separate(id,into=c('individualID','Drug','Timepoint'),sep='_')
   
 library(ggplot2)
 
