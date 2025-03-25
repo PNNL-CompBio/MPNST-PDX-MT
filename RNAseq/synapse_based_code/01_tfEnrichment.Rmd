@@ -51,15 +51,16 @@ design<-counts_ens|>
   distinct()
 
 
-net <- decoupleR::get_collectri(organism = 'human', 
-                                split_complexes = FALSE)
+# net <- decoupleR::get_collectri(organism = 'human', 
+#                                 split_complexes = FALSE)
 # [OmnipathR] Failed to download `https://omabrowser.org/All/oma-species.txt` (attempt 1/3); error: vector memory exhausted (limit reached?)
-readr::write_csv(net,file='collecTRI_complexes_network.csv')
+# readr::write_csv(net,file='collecTRI_complexes_network.csv')
+net <- read.csv(synapser::synGet("syn64713369")$path)
 
-
-net <- decoupleR::get_collectri(organism = 'human', 
-                                split_complexes = TRUE)
-readr::write_csv(net,file='collecTRI_genes_network.csv')
+# net <- decoupleR::get_collectri(organism = 'human', 
+#                                 split_complexes = TRUE)
+# readr::write_csv(net,file='collecTRI_genes_network.csv')
+net <- read.csv(synapser::synGet("syn64713370")$path)
 
 enet<-net|>dplyr::rename(hgnc_symbol='target')|>
   left_join(map)|>
@@ -67,11 +68,11 @@ enet<-net|>dplyr::rename(hgnc_symbol='target')|>
   dplyr::select(source,target='ensembl_gene_id',mor)
 
 ##write net to file and store at syn64693461
-sf<-synapser::File('collecTRI_complexes_network.csv',parentId='syn64693461')
-synapser::synStore(sf)
+# sf<-synapser::File('collecTRI_complexes_network.csv',parentId='syn64693461')
+# synapser::synStore(sf)
 
-sf<-synapser::File('collecTRI_genes_network.csv',parentId='syn64693461')
-synapser::synStore(sf)
+# sf<-synapser::File('collecTRI_genes_network.csv',parentId='syn64693461')
+# synapser::synStore(sf)
 
 sample_acts <- decoupleR::run_ulm(mat = cmat, 
                                   net = enet, 
@@ -130,27 +131,35 @@ Here we use t statistics as input to decoupler, so that we cna identify the TFs 
 ```{r tfs by Drug,warning=FALSE, message=FALSE}
 
 
-allcontrast<-do.call(rbind,lapply(unique(diffex$Drug),function(d){
+allcontrast<-do.call(rbind,lapply(unique(diffex$individualID),function(ind){
+  do.call(rbind,lapply(unique(diffex$Drug),function(d){
     do.call(rbind,lapply(unique(diffex$Timepoint),function(ti){
       dtab<-subset(diffex,Timepoint==ti)|>
         subset(!is.na(stat))|>
         subset(Drug==d)|>
-        dplyr::select(ensembl_gene_id,Drug,Timepoint,stat)|>
-        group_by(ensembl_gene_id,Drug,Timepoint)|>
+        subset(individualID==ind)|>
+        dplyr::select(ensembl_gene_id,Drug,Timepoint,individualID,stat)|>
+        group_by(ensembl_gene_id,Drug,Timepoint,individualID)|>
         summarize(stat=mean(stat,na.rm=TRUE))|>
         tibble::column_to_rownames('ensembl_gene_id')
-      
-      contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'stat', drop = FALSE], 
+      dtab <- na.omit(dtab)
+      if (nrow(dtab)>0) {
+       contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'stat', drop = FALSE], 
                                     net = enet, 
                                     .source = 'source', 
                                     .target = 'target',
                                     .mor='mor', 
                                     minsize = 5)|>
         ungroup()|>
-        mutate(Drug=d,Timepoint=ti)
+        mutate(Drug=d,Timepoint=ti,individualID=ind) 
+      } else {
+        contrast_acts <- data.frame()
+      }
       return(contrast_acts)
         }))
     }))
+}))
+# 0 rows in allcontrast
 
 allcontrast$padj<-p.adjust(allcontrast$p_value)
 allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
@@ -158,7 +167,7 @@ subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=Drug,
 
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
-synapser::synStore(sf)
+#synapser::synStore(sf)
 
 md <- allcontrast|>
   dplyr::select(Drug,Timepoint)|>
@@ -171,7 +180,9 @@ mat<-allcontrast|>
   tidyr::unite(Drug,Timepoint,col='DrugTimepoint')|>
   pivot_wider(names_from=DrugTimepoint,values_from=score,values_fill = 0.0)
 
-subset(allcontrast,source%in%c('ZEB1','STAT1','EGR1','RELA'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()
+subset(allcontrast,source%in%c('ZEB1','STAT1','EGR1','RELA'))|>
+  ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+
+  geom_point()+facet_grid(individualID~source)+coord_flip()
 ```
 
 We can evaluate how the transcription factor values correlate with one another
