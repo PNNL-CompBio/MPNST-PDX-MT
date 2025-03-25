@@ -216,7 +216,18 @@ write.csv(dmea.sens.df,"DMEA_results.csv", row.names = FALSE)
 write.csv(drug.corr.sens.df,"DMEA_correlations.csv", row.names = FALSE)
 synapser::synStore(synapser::File("DMEA_results.csv", parent=synapse_id))
 synapser::synStore(synapser::File("DMEA_correlations.csv", parent=synapse_id))
+```
 
+### plot number of correlated drugs, enriched MOAs
+```{r plot # of results, echo = FALSE}
+## drug mechanisms
+# prep data
+library(plyr);library(dplyr);library(ggplot2);library(patchwork)
+base.path <- getwd()
+dmea.path <- file.path(base.path, "DMEA")
+setwd(dmea.path)
+dmea.sens.df <- read.csv("DMEA_results.csv")
+drug.corr.sens.df <- read.csv("DMEA_correlations.csv")
 drug.corr.sens.df$DrugTreatment <- factor(drug.corr.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 dmea.sens.df$DrugTreatment <- factor(dmea.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=timepoints)
@@ -225,16 +236,7 @@ all.drugs <- levels(dmea.sens.df$DrugTreatment)
 all.moas <- sort(names(drug.info))
 drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
 names(drugCol) <- all.drugs
-```
 
-### plot number of correlated drugs, enriched MOAs
-```{r plot # of results, echo = FALSE}
-## drug mechanisms
-# prep data
-library(plyr);library(dplyr);library(ggplot2);library(patchwork)
-setwd(dmea.path)
-#dmea.sens.df <- read.csv("DMEA_results.csv")
-#drug.corr.sens.df <- read.csv("DMEA_correlations.csv")
 sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 & 
                            dmea.sens.df$p_value <= 0.05,]
 nMOAs <- plyr::ddply(sig.dmea, .(MPNST, DrugTreatment, Time), dplyr::summarize,
