@@ -345,6 +345,7 @@ here we can look at the HDACs that are affected by vorinostat
 ```{r hdac}
 hds<-unique(longProt$gene[grep('HDAC',longProt$gene)])
 hdacs<-lapply(hds,
+
   function(x) unique(longProt$gene[grep(x,longProt$gene)]))|>
   unlist()
 vtargs<-subset(longProt,gene%in%hdacs)

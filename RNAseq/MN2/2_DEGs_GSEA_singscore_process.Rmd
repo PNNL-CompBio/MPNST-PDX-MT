@@ -1,0 +1,311 @@
+---
+title: "2_DEGs_GSEA_Singscore"
+author: "`r config::get(file = 'config.yml')$document$author`"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    keep_tex: true
+    latex_engine: pdflatex
+    fig_caption: yes
+    highlight: haddock
+    number_sections: yes
+
+knit: (
+  function(inputFile, encoding) {
+    config=config::get(file = 'config.yml') 
+    
+    pSubTitle <- paste0(config$PT_ID, "2_DEGs_GSEA_Singscore.pdf")
+    
+    base_output_dir <- paste0(config$Path,"/","Report")
+    
+    DIR=file.path(base_output_dir)
+    
+    rmarkdown::render( 
+      input       = inputFile, 
+      encoding    = encoding, 
+      output_file = pSubTitle,
+      output_dir =DIR )}
+    )
+---
+
+
+
+```{r,include=F}
+rm(list=ls())
+```
+
+```{r,include=F}
+library(dplyr)
+library(ggplot2)
+library(synapser)
+library(dplyr)
+library(readr)
+library(tidyr)
+
+```
+
+
+# Define your own config
+```{r,setup, include=FALSE}
+getwd()
+config <- config::get(file = 'config.yml')
+# 
+Working_path=config$Path
+base_output_dir <- paste0(Working_path,"/","Report")
+email=config$Email
+Authtoken=config$Token_file
+knitr::opts_chunk$set(echo = F,warnings =F, message=F,include=F)
+options(knitr.table.format = 'markdown',encoding = 'UTF-8',warnings =F, message=F ) 
+# Check and create output directory if it doesn't exist
+output_dir <- file.path(Working_path, "Data_preparation")
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+Reference_path=config$Reference_path
+
+dir(Reference_path)
+# load function
+source(file.path(getwd(),"Rfunction.R" ))
+```
+
+
+```{r}
+if (! file.exists( file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))){
+   syID="syn63828384"
+    synapser::synGet(syID,downloadLocation = Reference_path,ifcollision="keep.local")
+
+}
+
+```
+
+# Download raw coutns, TPM and annoation data from synapse
+```{r}
+# Batch1 data dowloading from synapse
+Rawdata_path=file.path(Working_path,"Rawdata_update")
+Processed_path=file.path(Working_path,"Processed_data")
+dir.create(Processed_path)
+Rawdata_path_b1=file.path(Rawdata_path,"b1")
+# login synapse
+Token=read.table(Authtoken)%>%as.character()
+synapser::synLogin(email=email,authToken=Token)
+# download files from synapse
+Rawcounts_syID_b1="syn64608365"
+RawTPM_syID_b1="syn64608366"
+Annotation_syID_b1="syn64608368"
+
+for (i in c(Rawcounts_syID_b1,RawTPM_syID_b1,Annotation_syID_b1)){
+   synapser::synGet(i,downloadLocation = Rawdata_path_b1,ifcollision="keep.local")
+
+  
+}
+
+
+# Download Batch2 data from synapse
+
+Rawdata_path=file.path(Working_path,"Rawdata_update")
+Rawdata_path_b2=file.path(Rawdata_path,"b2")
+# login synapse
+Token=read.table(Authtoken)%>%as.character()
+synapser::synLogin(email=email,authToken=Token)
+# download files from synapse
+Rawcounts_syID_b2="syn64608369"
+RawTPM_syID_b2="syn64608370"
+Annotation_syID_b2="syn64608372"
+
+for (i in c(Rawcounts_syID_b2,RawTPM_syID_b2,Annotation_syID_b2)){
+   synapser::synGet(i,downloadLocation = Rawdata_path_b2,ifcollision="keep.local")
+
+  
+}
+
+Drug_table_syID="syn64608501"
+
+synapser::synGet(Drug_table_syID,downloadLocation = Rawdata_path,ifcollision="keep.local")
+
+# human GMT files download
+GMT_folder_id="	syn63828408"
+GSEA_path=file.path(Reference_path,"Human_GSEA")
+download_synapse_folder(folder_id=GMT_folder_id, destination_path=GSEA_path)
+
+```
+
+
+```{r}
+load(file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))
+Drug_anno=readxl::read_excel(file.path(Rawdata_path,"Drug_annotation.xlsx"))%>%arrange(Drug_class)
+Drug_name = Drug_anno$Drug %>% unique()%>%na.omit()
+Drug_name=factor(Drug_name,levels = c("DMSO" ,"PAL",  "RIB" , "DEC" , "VOR" , "TRA"  ,"MIR"  ,"SEL"  ,"OLA",  "TNO",  "RMC" , "CAP"  ,"TRAB", "DOX"  ,"IFO"  ,"IRI"))
+
+length(Drug_name)
+# Ensure you have 14 unique Drug names (1 for black, 13 other colors)
+if (length(Drug_name) != 16) {
+  stop("The number of unique drugs should be 16, including the one colored black.")
+}
+
+# Use RColorBrewer to get 13 colors from the Paired palette
+paired_colors =RColorBrewer:: brewer.pal(n = 12, name = "Paired")
+extra_color =RColorBrewer:: brewer.pal(n = 8, name = "Set3")[1:3]  # Take one color from another palette (e.g., Set3)
+
+
+# Combine black and the 13 colors
+drug_colors = c("black", paired_colors, extra_color)
+
+# Ensure the color vector matches the order of Drug_name
+names(drug_colors) = sort(Drug_name)
+
+
+```
+
+## batch1 data loading
+```{r,include=T,fig.width=6,fig.height=4}
+set.seed(12345)
+
+dir(Rawdata_path_b1)
+Raw_counts_b1=read.table(file.path(Rawdata_path_b1,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T,row.names = 1)
+TPM_counts_b1=read.table(file.path(Rawdata_path_b1,"salmon.merged.gene_tpm_corrected_id.csv"),sep=",",header = T,row.names = 1)
+Annotation_b1=read.table(file.path(Rawdata_path_b1,"01172025_Batch1_Samplemap.csv"),sep=",",header = T)
+Annotation_b1$Drug=factor(Annotation_b1$Drug,levels = c("DMSO","MIR"))
+Annotation_b1$Timepoint=factor(Annotation_b1$Timepoint,levels=c("0h","8h","24h"))
+TPM_b1_2=TPM_counts_b1%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
+Counts_b1_2=Raw_counts_b1%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()%>%mutate_all(.,as.integer)
+
+Raw_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T)
+TPM_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_tpm.tsv_corrected_ID.csv"),sep=",",header = T)
+Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap.csv"),sep=",",header = T)
+Annotation_b2$Drug=factor(Annotation_b2$Drug)
+Annotation_b2$Timepoint=factor(Annotation_b2$Timepoint,levels=c("0h","8h","24h"))
+TPM_b2_2=TPM_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
+Counts_b2_2=Raw_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()%>%mutate_all(.,as.integer)
+
+```
+
+```{r}
+
+GMT_files=list.files(file.path(Reference_path,"Human_GSEA"),pattern="all.v7.5.1.symbols.gmt.txt",full.names = T)%>%.[grepl("c2|c5|h",.)]
+
+```
+
+
+
+```{r}
+# upload pdf to synapse syn64612888
+```
+
+```{r,include=F}
+if (! file.exists(file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))){
+
+Annotation_file=rbind(Annotation_b1,Annotation_b2[,colnames(Annotation_b1)])
+Drug_list=unique(Annotation_file$Drug)%>%unique%>%.[!grepl("DMSO",.)] 
+Rawcounts=cbind(Counts_b1_2,Counts_b2_2)
+Result_list=list()
+for (i in Drug_list) {
+   drug_pickup=Annotation_file%>%dplyr::filter(Drug==i)
+   Paired_DMSO=Annotation_file%>%dplyr::filter(Drug=="DMSO"&Date==unique(drug_pickup$Date))
+   new_anno=rbind(drug_pickup,Paired_DMSO)%>%mutate(Sample_name=specimenID)%>%dplyr::filter(Timepoint!="0h")%>%mutate(Group=paste0(Drug,"_",Timepoint))
+   rownames(new_anno)=new_anno$specimenID 
+   new_anno$Group=factor(new_anno$Group,levels=unique(new_anno$Group))
+   new_counts=Rawcounts[,rownames(new_anno)]
+   if (isTRUE(unique(colnames(new_counts)==rownames(new_anno)))) {
+     print ("correct")
+   }
+   keep.exprs <- selectGenes_BY_group(new_counts, min.count=10, N=0.90,new_anno)
+   keep.exprs_2=keep.exprs%>%mutate(Sum=apply(.,1,sum))%>%dplyr::filter(Sum>2)
+   myFilt <- new_counts[rownames(keep.exprs_2),]
+   deseq2Data=DESeq2:: DESeqDataSetFromMatrix(countData =myFilt,colData = new_anno,design = ~Group)
+   dds <- DESeq2::DESeq(deseq2Data)
+   res_list=list()
+   FGSEA_list=list()
+   FGSEA_q005_list=list()
+   Timepoint=c("8h","24h")
+   for (t in Timepoint) {
+    drug_0h=paste0(i,"_","0h")
+    DMSO_t=paste0("DMSO","_",t)
+    group1=paste0(i,"_",t)
+    # res_list[[t]]=list(drug_vs_0h=DESeq2::results(dds, contrast = c("Group", group1, drug_0h)),
+    #                   drug_vs_DMSO=DESeq2::results(dds, contrast = c("Group", group1, DMSO_t)))
+    #names(res_list[[t]])=c(paste0(i,"_",t,"_vs_",i ,"_0h"), paste0(i,"_",t,"_vs_","DMSO_",t))
+    Res_out=DESeq2::results(dds, contrast = c("Group", group1, DMSO_t))
+    DEGs=Res_out%>%as.data.frame()%>%dplyr::filter(padj<0.05&abs(log2FoldChange)>0.27) # fc>1.2
+    res_list[[t]]=list(Res_all=Res_out,DEGs=DEGs)
+    name2=paste0(i,"_",t,"_vs_","DMSO_",t)
+    name_deg=paste0(i,"_",t,"_vs_","DMSO_",t,"_","DEGs")
+    names(res_list[[t]])=c(name2,name_deg)
+    ############3
+    
+    data=Res_out%>%as.data.frame()
+    res_q005=data%>%dplyr::filter(padj<0.05)
+    res_q005_rank=res_q005%>%arrange(log2FoldChange) %>%.[c("log2FoldChange")]%>%as.data.frame() %>%tibble::rownames_to_column()
+    ranks <- tibble::deframe(res_q005_rank)
+    out_list=list()
+    for (x in 1:length(GMT_files)){
+       data=fgsea::gmtPathways(GMT_files[x])
+       set.seed(12345)
+       out_list[[x]] <- fgsea::fgseaMultilevel(data, ranks,
+                           minSize=10,
+                           maxSize=500,nPermSimple = 10000)
+    }
+   FGSEA_out= do.call("rbind",out_list)                
+   FGSEA_list[[t]]=list(drug_vs_DMSO=FGSEA_out)
+   names(FGSEA_list[[t]])=name2
+   
+   #FGSEA_q005_list[[name2]]=do.call("rbind",out_list)%>%as.data.frame()%>%dplyr::filter(padj<0.05)
+   
+   
+  }
+   Result_list[[i]][["Res"]]=res_list
+   Result_list[[i]][["FGSEA"]]=FGSEA_list
+}
+
+save(Result_list,file=file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))
+} else {
+  
+  load(file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))
+}
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Function to extract DEG counts from Result_list
+
+
+# Extract DEG counts
+DEG_summary <- get_DEG_counts(Result_list)
+
+# Reshape data for plotting
+DEG_summary_long <- DEG_summary %>%
+  pivot_longer(cols = c("Upregulated", "Downregulated"), names_to = "Direction", values_to = "Count")
+
+DEG_summary_long$Timepoint=factor(DEG_summary_long$Timepoint,levels=c("8h","24h"))
+# Plot the number of upregulated and downregulated genes
+P1=ggplot(DEG_summary_long, aes(x = Timepoint, y = Count, fill = Direction)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Drug, scales = "free_y") +
+  theme_minimal() +ylim(c(0,4000))+
+  labs(
+    title = "Number of Upregulated and Downregulated Genes",
+    x = "Timepoint",
+    y = paste0("padj<0.05","_",""),
+    fill = "Regulation Direction"
+  ) +
+  theme(
+     axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(size = 10, face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+```
+
+```{r,fig.width=12,fig.height=16,include=T}
+P1
+```
+
+
+```{r}
+knitr::knit_exit()
+```
+
+

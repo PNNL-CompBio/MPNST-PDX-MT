@@ -55,3 +55,9 @@ rsconnect/
 *.pptx
 *.html
 *.csv
+*.gz
+*.gmt
+*.yaml
+*.gct
+*.gctx
+*.txt
