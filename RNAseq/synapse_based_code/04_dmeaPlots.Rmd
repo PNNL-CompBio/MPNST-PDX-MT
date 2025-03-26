@@ -1,0 +1,76 @@
+---
+title: "DMEA Plotting experiments"
+author: "Sara gosline"
+date: "2025-03-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+ideas of how to plot DMEA results across drugs
+
+## Get data
+Belinda put all the analysis on synapse
+
+```{r data, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(synapser)
+
+n <- 15
+library(RColorBrewer)
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(n-8,'Set2'))
+ 
+pie(rep(1,n), col=sample(cols, n))
+
+drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
+                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',TNO='TNO155',VOR='Vorinostat',
+                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
+
+names(cols)<-unlist(drugnames)
+
+synapser::synLogin()
+
+tab<-readr::read_csv(synGet('syn64688118')$path)|>mutate(effect=ifelse(Spearman.est<0,'Sensitive','Resistant'))
+
+classtab<-readr::read_csv(synGet('syn64688117')$path)
+
+```
+
+
+## Summary plots here
+We can visualize the total number of drugs predicted
+
+```{r summary, message=FALSE}
+
+stats=tab|>subset(Spearman.q<0.05)|>
+  group_by(Time,DrugTreatment,effect)|>
+  summarize(numDrugs=n())
+
+class_stats<-classtab|>subset(FDR_q_value<0.05)|>
+  mutate(effect=ifelse(NES<0,'Sensitive','Resistant'))|>
+  group_by(DrugTreatment,Time,effect)|>
+  mutate(Time=as.factor(Time))|>
+  summarize(numClasses=n())|>
+  arrange(numClasses)
+    
+
+
+ggplot(class_stats,aes(x=Time,y=numClasses,fill=DrugTreatment))+geom_bar(position='dodge',stat='identity')+facet_grid(~effect)+scale_fill_manual(values=cols)
+
+ggsave('enrichedDrugClasses.pdf')
+
+meks<-class_stats<-classtab|>subset(FDR_q_value<0.05)|>
+  mutate(effect=ifelse(NES<0,'Sensitive','Resistant'))|>
+  subset(Drug_set=='MEK inhibitor')|>
+    mutate(Time=as.factor(Time))
+
+ggplot(meks,aes(x=Time,y=NES,fill=DrugTreatment))+geom_bar(stat='identity',position='dodge')+scale_fill_manual(values=cols)+ggtitle("Senstivity to MEK Inhibitors")
+
+ggsave('sensitivityToMEK.pdf')
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

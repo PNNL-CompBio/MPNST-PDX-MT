@@ -343,7 +343,8 @@ Some downregulation of a phosphosite on SPRY2 in one sample
 ### Evaluate known vorinostat targets
 here we can look at the HDACs that are affected by vorinostat
 ```{r hdac}
-hdacs<-lapply(c('HDAC1','HDAC2','HDAC3','HDAC6'),
+hds<-unique(longProt$gene[grep('HDAC',longProt$gene)])
+hdacs<-lapply(hds,
   function(x) unique(longProt$gene[grep(x,longProt$gene)]))|>
   unlist()
 vtargs<-subset(longProt,gene%in%hdacs)

@@ -251,13 +251,13 @@ assay(vsd) <- mat
 
 
 plotPCA(vsd,intgroup='Timepoint')
-ggsave('bcorrected_pca_time.png')
+ggsave('bcorrected_pca_time.pdf')
 
 plotPCA(vsd,intgroup='Date')
-ggsave('bcorrected_pca_date.png')
+ggsave('bcorrected_pca_date.pdf')
 
 plotPCA(vsd,intgroup='Drug')+scale_color_manual(values=cols)
-ggsave('bcorrected_pca_drug.png')
+ggsave('bcorrected_pca_drug.pdf')
 
 
 ##cortab
@@ -358,7 +358,7 @@ sumstats$Drug=factor(sumstats$Drug,levels=levs$Drug)
    mutate(genedir=ifelse(direction=='down',-1*numgenes,numgenes))|>
  ggplot(aes(x=direction,y=numgenes,fill=Drug))+geom_bar(stat='identity',position='dodge')+scale_fill_manual(values=cols)+coord_flip()+facet_grid(~Timepoint)
  
- ggsave('diffExresults.png')
+ ggsave('diffExresults.pdf')
  
  ##which drugs have more changes at 8 hrs? which at 24?
  tp<-sumstats|>tidyr::pivot_wider(names_from='Timepoint',values_from='numgenes')|>
@@ -382,7 +382,7 @@ sumstats$Drug=factor(sumstats$Drug,levels=levs$Drug)
    tibble::column_to_rownames('sample')
  meta$Date=as.factor(meta$Date)
  
- pheatmap::pheatmap(cmat,annotation_row=meta,annotation_col=meta,annotation_colors = list(Drug=cols,Timepoint=tcolors))
+ pheatmap::pheatmap(cmat,annotation_row=meta,annotation_col=meta,annotation_colors = list(Drug=cols,Timepoint=tcolors),file='rnaseqCorHeatmap.pdf')
 
    
 ```

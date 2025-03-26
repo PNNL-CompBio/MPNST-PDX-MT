@@ -179,7 +179,7 @@ tcounts|>
   mutate(Drug=factor(Drug,levels=unique(tcounts$Drug)))|>
   ggplot(aes(x=Timepoint,y=numTfs,fill=Drug))+geom_bar(position='dodge',stat='identity')+scale_fill_manual(values=cols)
 
-ggsave('tfsActive.png')
+ggsave('tfsActive.pdf')
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
 synapser::synStore(sf)
@@ -200,6 +200,8 @@ subset(allcontrast,source%in%c('BRD4','STAT3','EGR1','E2F1','FOXM1'))|>ggplot(ae
 
 
 subset(allcontrast,source%in%c('FOXC1','HOXB8','MSX2','FOXD1','HOXD13','SNAI2'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()+scale_color_manual(values=cols)
+
+pdf('prc2Tfs.pdf')
 
 ```
 
