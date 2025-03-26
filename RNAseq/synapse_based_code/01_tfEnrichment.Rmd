@@ -18,6 +18,17 @@ counts<-readr::read_csv(synapser::synGet('syn64398051')$path)
 diffex<-readr::read_csv(synapser::synGet('syn64397743')$path)
 counts_ens<-readr::read_csv(synapser::synGet('syn64398049')$path)
 
+n <- 15
+library(RColorBrewer)
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(n-8,'Set2'))
+ 
+pie(rep(1,n), col=sample(cols, n))
+
+drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
+                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',TNO='TNO155',VOR='Vorinostat',
+                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
+
+names(cols)<-unlist(drugnames)
 ```
 
 ## Decoupler analysis 
@@ -46,7 +57,8 @@ cmat<- counts_ens|>
   tibble::column_to_rownames(var='ensembl_gene_id')
 
 design<-counts_ens|>
-  dplyr::select(id,Drug,Timepoint)|>
+  dplyr::select(id,Drug,Timepoint,Date)|>
+  mutate(Date=as.factor(Date))|>
   distinct()
 
 
@@ -102,9 +114,11 @@ tf_mat<-sample_acts|>
 
 ddesign<-design|>
   tibble::column_to_rownames('id')|>
-  mutate(Timepoint=as.factor(Timepoint))
+  mutate(Timepoint=as.character(Timepoint))
 
-pheatmap(tf_mat,annotation_row = ddesign,labels_row=c())
+tcolors=c("white",'lightgrey','darkgrey')
+names(tcolors)<-c('0h','8h','24h')
+pheatmap(tf_mat,annotation_row = ddesign,labels_row=c(),annotation_colors=list(Timepoint=tcolors,Drug=cols))
 
 
 sample_acts|>
@@ -112,7 +126,7 @@ sample_acts|>
   mutate(log10p=(-log10(p_value)))|>
   left_join(design)|>
   subset(source%in%vars$source[1:15])|>
-  ggplot(aes(x=Drug,y=score,col=source,shape=as.factor(Timepoint),size=log10p))+geom_point()
+  ggplot(aes(x=source,y=score,col=Drug,size=log10p))+geom_point()+facet_grid(~Timepoint)+scale_color_manual(values=cols)+coord_flip()
 
 readr::write_csv(sample_acts,'allTFestimatesBySample.csv')
 sf<-synapser::File('allTFestimatesBySample.csv',parentId='syn64693461')
@@ -134,10 +148,11 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$Drug),function(d){
       dtab<-subset(diffex,Timepoint==ti)|>
         subset(!is.na(stat))|>
         subset(Drug==d)|>
-        dplyr::select(ensembl_gene_id,Drug,Timepoint,stat)|>
-        group_by(ensembl_gene_id,Drug,Timepoint)|>
+        dplyr::select(ensembl_gene_id,Drug,Timepoint,stat,Date)|>
+        group_by(ensembl_gene_id,Drug,Timepoint,Date)|>
         summarize(stat=mean(stat,na.rm=TRUE))|>
         tibble::column_to_rownames('ensembl_gene_id')
+      
       
       contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'stat', drop = FALSE], 
                                     net = enet, 
@@ -146,44 +161,71 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$Drug),function(d){
                                     .mor='mor', 
                                     minsize = 5)|>
         ungroup()|>
-        mutate(Drug=d,Timepoint=ti)
+        mutate(Drug=d,Timepoint=ti,Date=dtab$Date[1])
       return(contrast_acts)
         }))
     }))
 
 allcontrast$padj<-p.adjust(allcontrast$p_value)
-allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
-subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+geom_point()+coord_flip()+facet_grid(~Timepoint)
 
+allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
+subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+geom_point()+coord_flip()+facet_grid(~Timepoint)+scale_color_manual(values=cols)
+
+tcounts=allcontrast|>subset(signif)|>
+  group_by(Timepoint,Date,Drug)|>
+  summarise(numTfs=n())|>
+  arrange(desc(numTfs))
+tcounts|>
+  mutate(Drug=factor(Drug,levels=unique(tcounts$Drug)))|>
+  ggplot(aes(x=Timepoint,y=numTfs,fill=Drug))+geom_bar(position='dodge',stat='identity')+scale_fill_manual(values=cols)
+
+ggsave('tfsActive.pdf')
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
 synapser::synStore(sf)
 
 md <- allcontrast|>
-  dplyr::select(Drug,Timepoint)|>
+  dplyr::select(Drug,Timepoint,Date)|>
   distinct()|>
-  tidyr::unite(Drug,Timepoint,col='DrugTimepoint',remove=FALSE)|>
-  tibble::column_to_rownames('DrugTimepoint')
+  tidyr::unite(Drug,Timepoint,Date,col='DrugTimepointDate',remove=FALSE)|>
+  tibble::column_to_rownames('DrugTimepointDate')
 
 mat<-allcontrast|>
-  dplyr::select(source,Drug,Timepoint,score)|>
-  tidyr::unite(Drug,Timepoint,col='DrugTimepoint')|>
-  pivot_wider(names_from=DrugTimepoint,values_from=score,values_fill = 0.0)
+  dplyr::select(source,Drug,Timepoint,Date,score)|>
+  tidyr::unite(Drug,Timepoint,Date,col='DrugTimepointDate')|>
+  pivot_wider(names_from=DrugTimepointDate,values_from=score,values_fill = 0.0)
 
-subset(allcontrast,source%in%c('ZEB1','STAT1','EGR1','RELA'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()
+subset(allcontrast,source%in%c('BRD4','STAT3','EGR1','E2F1','FOXM1'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()+scale_color_manual(values=cols)
+
+
+
+subset(allcontrast,source%in%c('FOXC1','HOXB8','MSX2','FOXD1','HOXD13','SNAI2'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()+scale_color_manual(values=cols)
+
+pdf('prc2Tfs.pdf')
+
 ```
 
 We can evaluate how the transcription factor values correlate with one another
 ```{r tfcors}
 
 corval<-mat|>tibble::column_to_rownames('source')|>cor(use='pairwise.complete.obs')
-pheatmap(corval,annotation_row = md,annotation_col=md)
+
+
+cortab<-corval|>
+  as.data.frame()|>
+ tibble::rownames_to_column('drug_exp1')|>tidyr::pivot_longer(contains('h'),names_to='drug_exp2',values_to='cor')|>
+  arrange(cor)
+
+print(cortab)
+
+md$Date=as.factor(md$Date)
+pheatmap(corval,annotation_row = md,annotation_col=md,annotation_colors=list(Drug=cols,Timepoint=tcolors))
 
 pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
 
 comps<-cbind(pcs$rotation[rownames(md),],md)|>unique()
 comps|>
-  ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))
+  ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))+scale_color_manual(values=cols)
 ```
 
 

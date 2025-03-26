@@ -25,6 +25,22 @@ knitr::opts_chunk$set(echo = TRUE)
 library(synapser)
 library(dplyr)
 synLogin()
+
+
+library(RColorBrewer)
+n <- 15
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(n-8,'Set2'))
+ 
+pie(rep(1,n), col=sample(cols, n))
+
+drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
+                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',TNO='TNO155',VOR='Vorinostat',
+                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
+
+names(cols)<-unlist(drugnames)
+   
+tcolors=c(`8h`='white',`24h`='darkgrey')
+  
 ```
 
 ### RNASeq data from synapse.
@@ -67,12 +83,11 @@ rnaSeqTab<-getRNASeq<-function(){
       dplyr::mutate(id=x)
   }))|>left_join(allmeta)
  
-  drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
-                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',TNO='TNO155',VOR='Vorinostat',
-                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
-   
+
    mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(drugnames[[x]])))
    
+   
+  
  return(mtab)
 
 }
@@ -144,19 +159,6 @@ ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
 
 map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
 
-rnaseqgenes<-rnaseqdata|>left_join(map)|>
-  subset(hgnc_symbol!="")|>
-  dplyr::group_by(hgnc_symbol,Date,id,Drug,Timepoint)|>
-  summarize(TPM=sum(TPM),NumReads=sum(NumReads))
-
-readr::write_csv(rnaseqdata,file='rnaseqcounts.csv')
-readr::write_csv(rnaseqgenes,file='rnaseqcounts_hgnc.csv')
-
-synFile <- synapser::File('rnaseqcounts.csv', parent = 'syn64004220')
-synapser::synStore(synFile)
-synFile <- synapser::File('rnaseqcounts_hgnc.csv', parent = 'syn64004220')
-synapser::synStore(synFile)
-
 ```
 
 
@@ -170,7 +172,7 @@ Open questions:
 library(ggplot2)
 
 zeroes<-rnaseqdata|>
-  subset(TPM==0)|>
+  subset(NumReads<3)|>
   group_by(Name)|>
   summarize(zvals=n())
 
@@ -187,6 +189,12 @@ tpm<-reduced.data|>
   tibble::column_to_rownames('Name')|>
   as.matrix()
 
+numReads<-reduced.data|>
+  dplyr::select(Name,id,NumReads)|>
+  tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
+  tibble::column_to_rownames('Name')|>
+  as.matrix()
+
 sampmeta<-rnaseqdata|>
   dplyr::select(id,specimenID,Timepoint,Drug,Date)|>
   distinct()
@@ -199,7 +207,7 @@ pcvals<-pcs$rotation|>
   tibble::rownames_to_column('id')|>
   left_join(sampmeta)
 
- ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,shape=Timepoint))+geom_point(aes(size=4))+facet_grid(~Date)+scale_color_discrete()
+ ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,shape=Timepoint))+geom_point(aes(size=4))+facet_grid(~Date)+scale_color_manual(values=cols)
 
  ggsave('batched_pca.png',width=12,height=6)
  
@@ -211,10 +219,75 @@ Clearly there is a batch effect so it will be good to correct for this to enable
 
 TODO: put the SVA code here and upload a corrected file to synapse
 
-```{r batch correct, echo=FALSE, warning=FALSE, message=FALSE}
+```{r batch correct, echo=TRUE, warning=FALSE, message=FALSE}
 #library(sva)
 ##now to remove the batches for date while still correcting for drug and time
+library("DESeq2")
+library('limma')
 
+counts<-reduced.data|>
+  dplyr::select(Name,id,NumReads)|>
+  tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
+  tibble::column_to_rownames('Name')|>
+  as.matrix()
+
+
+sampmeta$Date=as.factor(sampmeta$Date)
+dds<-DESeqDataSetFromMatrix(countData = round(counts),
+                              colData = sampmeta,
+                              design = ~ Drug+Date+Timepoint )
+
+
+
+dds<-DESeq(dds)
+
+#lets look at both rlog and vsd as transformations
+vsd <- vst(dds, blind=FALSE)
+
+mat <- assay(vsd)
+mm <- model.matrix(~Timepoint+Drug, colData(vsd))
+mat <- limma::removeBatchEffect(mat, batch=vsd$Date, design=mm)
+assay(vsd) <- mat
+
+
+plotPCA(vsd,intgroup='Timepoint')
+ggsave('bcorrected_pca_time.pdf')
+
+plotPCA(vsd,intgroup='Date')
+ggsave('bcorrected_pca_date.pdf')
+
+plotPCA(vsd,intgroup='Drug')+scale_color_manual(values=cols)
+ggsave('bcorrected_pca_drug.pdf')
+
+
+##cortab
+md=colData(vsd)[,c('Drug','Timepoint','Date')]
+corvsd=cor(assay(vsd),use='pairwise.complete.obs')
+pheatmap::pheatmap(corvsd,annotation_row=md,annotation_col=md)
+
+##now add the VSD counts to the table
+vtab<-assay(vsd)|>as.data.frame()|>
+  tibble::rownames_to_column('Name')|>
+  tidyr:::pivot_longer(starts_with('syn'),names_to='id',values_to='VSD_batchCorrected')
+
+rnaseqdata2<-rnaseqdata|>
+  left_join(vtab)
+
+
+rnaseqgenes<-rnaseqdata2|>left_join(map)|>
+  subset(hgnc_symbol!="")|>
+  dplyr::group_by(hgnc_symbol,Date,id,Drug,Timepoint)|>
+  summarize(TPM=sum(TPM),NumReads=sum(NumReads),VSD_batchCorrected=sum(VSD_batchCorrected))
+
+
+###now we add in the corrected VSD values as well
+readr::write_csv(rnaseqdata2,file='rnaseqcounts.csv')
+readr::write_csv(rnaseqgenes,file='rnaseqcounts_hgnc.csv')
+
+synFile <- synapser::File('rnaseqcounts.csv', parent = 'syn64004220')
+synapser::synStore(synFile)
+synFile <- synapser::File('rnaseqcounts_hgnc.csv', parent = 'syn64004220')
+synapser::synStore(synFile)
 
 ```
 ### Differential expression
@@ -225,14 +298,8 @@ Let's compute the differential expression of each drug/time point compared with 
 - Which time points are causing the greatest changes?
 - TBD: how do these changes vary across samples?
 
-```{r diffex, echo=FALSE,warning=FALSE,message=FALSE}
-library("DESeq2")
+```{r diffex, echo=TRUE,warning=FALSE,message=FALSE}
 
-counts<-reduced.data|>
-  dplyr::select(Name,id,NumReads)|>
-  tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
-  tibble::column_to_rownames('Name')|>
-  as.matrix()
 
 diffexCalls<-do.call(rbind,lapply(unique(sampmeta$Date),function(dval){
   datemeta<-subset(sampmeta,Date==dval)|>
@@ -246,9 +313,10 @@ diffexCalls<-do.call(rbind,lapply(unique(sampmeta$Date),function(dval){
        subset(Drug%in%c(d_name,"DMSO"))|>
        subset(id%in%colnames(counts))
       cts<-counts[,intersect(samps$id,colnames(counts))]
+      #print(samps)
      dds <- DESeqDataSetFromMatrix(countData = round(cts),
                               colData = samps,
-                              design = ~ Drug)
+                              design = ~ Drug )
      dres<-DESeq(dds)|>
        results()|>
        as.data.frame()|>
@@ -263,17 +331,34 @@ diffex<-diffexCalls|>
   mutate(signif=padj<0.05)|>
   mutate(direction=ifelse(log2FoldChange>0,'up','down'))
 
+
+dgenes<-diffex|>
+  tidyr::separate(Gene,sep="\\.",into=c('ensembl_gene_id','Version'))
+
+diffex_gene<-dgenes|>left_join(map)
+##let's save this back to synapse for future reference
+readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
+synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn64004220')
+synapser::synStore(synFile)
+
+
 sumstats<-diffex|>subset(signif)|>
+  subset(abs(log2FoldChange)>1)|>
   group_by(Drug,Timepoint,Date,direction)|>
   summarize(numgenes=n())
 
 print('now have differential expression calls')
- ggplot(sumstats,aes(x=Drug,y=numgenes,fill=direction))+facet_grid(~Timepoint)+geom_bar(stat='identity',position='dodge')+coord_flip()+scale_fill_viridis_d()
+print(sumstats)
+# ggplot(sumstats,aes(x=direction,y=numgenes,fill=Drug))+facet_grid(~Timepoint)+geom_bar(stat='identity',position='dodge')+coord_flip()+scale_fill_manual(values=cols)
  
- ggplot(sumstats,aes(x=Drug,y=Timepoint,size=numgenes,col=Drug))+geom_point()+facet_grid(~direction)+
-   scale_size(range=c(1,15))+scale_color_discrete()+coord_flip()
+sumstats<- sumstats|>arrange(desc(numgenes))
+levs=sumstats[which(sumstats$direction=='up'&sumstats$Timepoint=='8h'),'Drug']
+sumstats$Drug=factor(sumstats$Drug,levels=levs$Drug)
+ sumstats|>
+   mutate(genedir=ifelse(direction=='down',-1*numgenes,numgenes))|>
+ ggplot(aes(x=direction,y=numgenes,fill=Drug))+geom_bar(stat='identity',position='dodge')+scale_fill_manual(values=cols)+coord_flip()+facet_grid(~Timepoint)
  
- ggsave('diffExresults.png',height=6)
+ ggsave('diffExresults.pdf')
  
  ##which drugs have more changes at 8 hrs? which at 24?
  tp<-sumstats|>tidyr::pivot_wider(names_from='Timepoint',values_from='numgenes')|>
@@ -282,6 +367,24 @@ print('now have differential expression calls')
  tp|>ungroup()|>dplyr::select(Drug,direction,maxEffect)|>
    tidyr::pivot_wider(names_from='direction',values_from='maxEffect')|>
    arrange(Drug)
+ 
+ 
+ ###lets look at correlation across drug patterns and samples
+ dmat<-diffex|>dplyr::select(Gene,log2FoldChange,Drug,Timepoint,Date)|>
+   tidyr::unite(Drug,Timepoint,Date,col='sample',sep='_')|>
+   tidyr::pivot_wider(names_from=sample,values_from=log2FoldChange)|>
+   tibble::column_to_rownames('Gene')
+ 
+ cmat<-cor(dmat,use='pairwise.complete.obs',method='spearman')
+ meta<-diffex|>dplyr::select(Drug,Timepoint,Date)|>
+   distinct()|>
+   tidyr::unite(Drug,Timepoint,Date,col='sample',sep='_',remove=FALSE)|>
+   tibble::column_to_rownames('sample')
+ meta$Date=as.factor(meta$Date)
+ 
+ pheatmap::pheatmap(cmat,annotation_row=meta,annotation_col=meta,annotation_colors = list(Drug=cols,Timepoint=tcolors),file='rnaseqCorHeatmap.pdf')
+
+   
 ```
 
 We can continue to tweak batches/outliers as we move on, but the general barplot should show differential expression.
@@ -332,14 +435,6 @@ We can simply measure the pathways up- and down-regulated in each condition desc
 
 drugscounts<-subset(diffex,signif)|>group_by(Gene,Timepoint,direction)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))
 
-dgenes<-diffex|>
-  tidyr::separate(Gene,sep="\\.",into=c('ensembl_gene_id','Version'))
-
-diffex_gene<-dgenes|>left_join(map)
-##let's save this back to synapse for future reference
-readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
-synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn64004220')
-synapser::synStore(synFile)
 
 drugscounts<-subset(dgenes,signif)|>group_by(ensembl_gene_id,Timepoint,direction)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))|>
   left_join(map)|>
@@ -358,7 +453,7 @@ topgenes<-subset(drugscounts,ndrugs>9)
 subset(dgenes,ensembl_gene_id%in%topgenes$ensembl_gene_id)|>
    subset(signif)|>
      left_join(map)|>
-     ggplot(aes(col=Drug,y=log2FoldChange,shape=signif,x=hgnc_symbol,size=1))+geom_point()+
+     ggplot(aes(col=Drug,y=log2FoldChange,shape=signif,x=hgnc_symbol,size=1))+geom_point()+scale_color_manual(values=cols)+
   facet_grid(~Timepoint)+coord_flip()+ggtitle("Genes that are differentially expressed across more than 9 drugs")
 
 ```

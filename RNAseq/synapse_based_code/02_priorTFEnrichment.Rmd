@@ -24,6 +24,19 @@ library(readr)
 synLogin()
 
 
+
+n <- 15
+library(RColorBrewer)
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(n-8,'Set2'))
+ 
+pie(rep(1,n), col=sample(cols, n))
+
+drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
+                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',TNO='TNO155',VOR='Vorinostat',
+                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
+
+names(cols)<-unlist(drugnames)
+
 diffex<-readr::read_csv(synapser::synGet('syn64397743')$path)
 fname=synapser::synGet('syn64398051')$path
 counts<-readr::read_csv(fname)
@@ -86,7 +99,7 @@ library(ggplot2)
 
 ggplot(pcsdim,aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=5))+
   geom_point()+
-  facet_grid(~Date)
+  facet_grid(~Date)+scale_color_manual(values=cols)
 
 tfspc<-scores|>tibble::column_to_rownames('id')|>as.matrix()|>prcomp()
 tfpcdim<-tfspc$rotation|>
@@ -201,7 +214,7 @@ pcsdim<-pcs$rotation|>
   
 library(ggplot2)
 
-ggplot(pcsdim,aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=5))+geom_point()
+ggplot(pcsdim,aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=5))+geom_point()+scale_color_manual(values=cols)+ggrepel::geom_label_repel(aes(label=Drug))
 
 
 ```
@@ -262,14 +275,14 @@ write_csv(mscores,file='priori_TF_DrugChangeScores.csv')
 synapser::synStore(sf)
 
 
-subset(mscores,TF=='SRF')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle("SRF")
+subset(mscores,TF=='SRF')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle("SRF")+scale_color_manual(values=cols)
 
 
-subset(mscores,TF=='MAPK3')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('MAPK3')
+subset(mscores,TF=='MAPK3')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('MAPK3')+scale_color_manual(values=cols)
 
-subset(mscores,TF=='E2F3')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('E2F3')
+subset(mscores,TF=='E2F3')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('E2F3')+scale_color_manual(values=cols)
 
-subset(mscores,TF=='VEGFA')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('VEGFA')
+subset(mscores,TF=='VEGFA')|>ggplot(aes(x=Drug,y=tfChange,shape=as.factor(Timepoint),color=Drug))+geom_point()+ggtitle('VEGFA')+scale_color_manual(values=cols)
 
 mat<-mscores|>
   tidyr::unite(Timepoint,Drug,col='condition',sep='_')|>
@@ -285,7 +298,7 @@ comps<-pcs$rotation|>
   tidyr::separate(condition,into=c('Timepoint','Drug'),sep='_')
 
 comps|>
-  ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))
+  ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))+scale_color_manual(values=cols)
 
 ```
 
