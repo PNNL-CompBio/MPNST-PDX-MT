@@ -206,8 +206,12 @@ for (i in unique(unlist(drug.info2))) {
     venn.times <- list()
     venn.sim <- list()
     venn.sens <- list()
-    strict.venn.times <- list()
+    #strict.venn.times <- list()
     syn.moa.times <- list()
+    venn.plot.times <- NULL
+    strict.venn.plot.times <- NULL
+    dmea.df <- data.frame()
+    strict.dmea.df <- data.frame()
     for (t in timepoints) {
       # determine expected sensitivity
       given.sens <- na.omit(temp.sens[temp.sens$Drug_set == i & temp.sens$MPNST == m & temp.sens$Timepoint==t,])
@@ -262,11 +266,7 @@ for (i in unique(unlist(drug.info2))) {
       }
       
       if (nrow(strict.sens.dot.df) > 0 & nrow(strict.sim.dot.df) > 0) {
-        dmea.df <- rbind(sens.dot.df[,keepCols], sim.dot.df[,keepCols])
-        mean.dmea.df <- plyr::ddply(dmea.df, .(Drug_set), summarize,
-                                    absNES = mean(abs(NES), na.rm=TRUE))
-        sigOrder <- mean.dmea.df[order(mean.dmea.df$absNES),]$Drug_set
-        sharedMOAs <- sens.dot.df$Drug_set[sens.dot.df$Drug_set %in% sim.dot.df$Drug_set]
+        dmea.df <- rbind(dmea.df, sens.dot.df[,keepCols], sim.dot.df[,keepCols])
         
         if (any(strict.sens.dot.df$minusLogFDR == "Inf")) {
           strict.sens.dot.df[strict.sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4 
@@ -277,13 +277,9 @@ for (i in unique(unlist(drug.info2))) {
         strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- 
           -log10(strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
         strict.sim.dot.df$Ranking <- "Similarity" 
-
-        keepCols <- c("MPNST", "Timepoint", "DrugTreatment", 
-                      "Drug_set", "NES", "minusLogFDR", "sig", "Ranking")
-        strict.dmea.df <- rbind(strict.sens.dot.df[,keepCols], strict.sim.dot.df[,keepCols])
-        mean.dmea.df <- plyr::ddply(strict.dmea.df, .(Drug_set), summarize,
-                                    absNES = mean(abs(NES), na.rm=TRUE))
-        sigOrderStrict <- mean.dmea.df[order(mean.dmea.df$absNES),]$Drug_set
+        
+        strict.dmea.df <- rbind(strict.dmea.df, strict.sens.dot.df[,keepCols], strict.sim.dot.df[,keepCols])
+        
         
         # pull results for each drug
         for (j in temp.drugs) {
@@ -319,24 +315,26 @@ for (i in unique(unlist(drug.info2))) {
         }
         
         # venn diagrams
-        venn.plot.times <- NULL
-        strict.venn.plot.times <- NULL
         if (length(temp.drugs) < 3) {
           venn.list <- venn.list[sort(names(venn.list))]
           strict.venn.list <- strict.venn.list[sort(names(strict.venn.list))]
           venn.colors <- unlist(venn.colors[names(strict.venn.list)])
           names(venn.colors) <- NULL
           
-          venn.plot <- ggvenn::ggvenn(venn.list, show_percentage = FALSE, 
-                                      set_name_size = 1, text_size = 4)
+          venn.plot <- wrap_elements(ggvenn::ggvenn(venn.list, show_percentage = FALSE, 
+                                      set_name_size = 1, text_size = 4) + 
+            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
           
-          strict.venn.plot <- ggvenn::ggvenn(strict.venn.list, 
+          strict.venn.plot <- wrap_elements(ggvenn::ggvenn(strict.venn.list, 
                                              show_percentage = FALSE, 
                                              set_name_size = 1, text_size = 4, 
-                                             fill_color = venn.colors)
+                                             fill_color = venn.colors) + 
+            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
         } else {
           sim.venn <- venn.list[grepl("Similarity",names(venn.list))]
+          names(sim.venn) <- sub("Similarity:\n","",names(sim.venn))
           sens.venn <- venn.list[grepl("Sensitivity",names(venn.list))]
+          names(sens.venn) <- sub("Sensitivity:\n","",names(sens.venn))
           
           strict.sim.venn <- strict.venn.list[grepl("Similarity",names(strict.venn.list))]
           strict.sens.venn <- strict.venn.list[grepl("Sensitivity",names(strict.venn.list))]
@@ -346,6 +344,9 @@ for (i in unique(unlist(drug.info2))) {
           sens.venn.colors <- unlist(venn.colors[names(strict.sens.venn)])
           names(sens.venn.colors) <- NULL
           
+          names(strict.sim.venn) <- sub("Similarity:\n","",names(strict.sim.venn))
+          names(strict.sens.venn) <- sub("Sensitivity:\n","",names(strict.sens.venn))
+          
           sens.venn.plot <- ggvenn::ggvenn(sens.venn, show_percentage = FALSE, 
                                            set_name_size = 1, text_size = 4) +
             ggtitle("Sensitivity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
@@ -354,7 +355,8 @@ for (i in unique(unlist(drug.info2))) {
                                           set_name_size = 1, text_size = 4) +
             ggtitle("Similarity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
           
-          venn.plot <- sens.venn.plot + sim.venn.plot
+          venn.plot <- wrap_elements(sens.venn.plot + sim.venn.plot + 
+            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
           
           strict.sens.venn.plot <- ggvenn::ggvenn(strict.sens.venn, show_percentage = FALSE, 
                                                   set_name_size = 1, text_size = 4, fill_color = sens.venn.colors) +
@@ -364,37 +366,34 @@ for (i in unique(unlist(drug.info2))) {
                                                  set_name_size = 1, text_size = 4, fill_color = sens.venn.colors) +
             ggtitle("Similarity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
           
-          strict.venn.plot <- strict.sens.venn.plot + strict.sim.venn.plot
+          strict.venn.plot <- wrap_elements(strict.sens.venn.plot + strict.sim.venn.plot + 
+            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
         }
         venn.sim[[t]] <- venn.list[grepl("Similarity",names(venn.list))]
         venn.sens[[t]] <- venn.list[grepl("Sensitivity",names(venn.list))]
         venn.times[[t]] <- venn.list
-        strict.venn.times[[t]] <- strict.venn.list
+        #strict.venn.times[[t]] <- strict.venn.list
         simMOAs <- unique(unlist(strict.venn.list[grepl("Similarity",names(strict.venn.list))]))
         sensMOAs <- unique(unlist(strict.venn.list[grepl("Sensitivity",names(strict.venn.list))]))
         syn.moa.times[[t]] <- simMOAs[simMOAs %in% sensMOAs]
         
         if (is.null(venn.plot.times)) {
-          venn.plot.times <- venn.plot + 
-            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold")))
+          venn.plot.times <- venn.plot
         } else {
-          venn.plot.times <- venn.plot.times + 
-            (venn.plot + plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+          venn.plot.times <- venn.plot.times / venn.plot
         }
         
         if (is.null(strict.venn.plot.times)) {
-          strict.venn.plot.times <- strict.venn.plot + 
-            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold")))
+          strict.venn.plot.times <- strict.venn.plot
         } else {
-          strict.venn.plot.times <- strict.venn.plot.times / 
-            (strict.venn.plot + plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+          strict.venn.plot.times <- strict.venn.plot.times / strict.venn.plot
         }
       }
     } 
     if (length(na.omit(unlist(venn.list))) > 0) {
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_vennDiagram.pdf"), venn.plot.times, width=6, height=5)
+      ggplot2::ggsave(paste0(m,"_",i,"_MOA_vennDiagram.pdf"), venn.plot.times, width=3, height=5)
       if (length(na.omit(unlist(strict.venn.list))) > 0) {
-        ggplot2::ggsave(paste0(m,"_",i,"_synMOA_vennDiagram.pdf"), strict.venn.plot.times, width=6, height=5)
+        ggplot2::ggsave(paste0(m,"_",i,"_synMOA_vennDiagram.pdf"), strict.venn.plot.times, width=3, height=5)
       }
     }
     
@@ -402,6 +401,10 @@ for (i in unique(unlist(drug.info2))) {
     simMOAs <- unique(unlist(venn.sim))
     sensMOAs <- unique(unlist(venn.sens))
     if (length(simMOAs) > 0 & length(sensMOAs) > 0) {
+      mean.dmea.df <- plyr::ddply(dmea.df, .(Drug_set), summarize,
+                                  absNES = mean(abs(NES), na.rm=TRUE))
+      sigOrder <- mean.dmea.df[order(mean.dmea.df$absNES),]$Drug_set
+      sharedMOAs <- sens.dot.df$Drug_set[sens.dot.df$Drug_set %in% sim.dot.df$Drug_set]
       sigMOAs <- unique(c(simMOAs, sensMOAs))
       sigSharedMOAs <- sigMOAs[sigMOAs %in% sharedMOAs]
       if (length(sigSharedMOAs) > 0) {
@@ -418,7 +421,7 @@ for (i in unique(unlist(drug.info2))) {
           )
         ) + facet_grid(Timepoint ~ Ranking) +
           ggplot2::geom_point() +
-          ggplot2::scale_y_discrete(limits = sigOrder) +
+          ggplot2::scale_y_discrete(limits = sigOrder1) +
           scale_color_gradient2(low="blue",high="red", mid="grey", 
                                 limits=c(-maxAbsNES, maxAbsNES)) +
           theme_classic(base_size=12) + 
@@ -431,9 +434,10 @@ for (i in unique(unlist(drug.info2))) {
         
         if (all(grepl(" inhibitor", sigOrder))) {
           dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
-          sigOrder2 <- sub(" inhibitor", "", sigOrder)
-          longNames <- c("Aurora kinase", "Bromodomain", "Sterol demethylase")
-          names(longNames) <- c("AURK", "BET", "CYP51")
+          sigOrder2 <- sub(" inhibitor", "", sigOrder1)
+          longNames <- c("Aurora kinase", "Bromodomain", "Sterol demethylase", 
+                         "Topoisomerase", "Tyrosine kinase", "Tubulin")
+          names(longNames) <- c("AURK", "BET", "CYP51", "TOP", "TK", "TUB")
           if (any(dot.df$Inhibitor %in% longNames)) {
             for (tempName in names(longNames)) {
               if (any(dot.df$Inhibitor == longNames[[tempName]])) {
@@ -471,6 +475,10 @@ for (i in unique(unlist(drug.info2))) {
       # dot plots of potentially synergistic MOAs
       synMOAs <- unique(unlist(syn.moa.times))
       if (length(synMOAs) > 0) {
+        mean.strict.dmea.df <- plyr::ddply(strict.dmea.df, .(Drug_set), summarize,
+                                           absNES = mean(abs(NES), na.rm=TRUE))
+        sigOrderStrict <- mean.strict.dmea.df[order(mean.strict.dmea.df$absNES),]$Drug_set
+        
         sigOrder3 <- sigOrderStrict[sigOrderStrict %in% synMOAs]
         dot.df <- na.omit(dmea.df[dmea.df$Drug_set %in% synMOAs,])
         maxAbsNES <- max(abs(dot.df$NES))
@@ -482,7 +490,7 @@ for (i in unique(unlist(drug.info2))) {
           )
         ) + facet_grid(Timepoint ~ Ranking) +
           ggplot2::geom_point() +
-          ggplot2::scale_y_discrete(limits = sigOrder) +
+          ggplot2::scale_y_discrete(limits = sigOrder3) +
           scale_color_gradient2(low="blue",high="red", mid="grey", 
                                 limits=c(-maxAbsNES, maxAbsNES)) +
           theme_classic(base_size=12) + 
@@ -493,16 +501,17 @@ for (i in unique(unlist(drug.info2))) {
         dot.plot
         ggplot2::ggsave(paste0(m, "_",i,"_synDMEA_dotPlot.pdf"), width=4.2, height=4)
         
-        if (all(grepl(" inhibitor", sigOrder))) {
+        if (all(grepl(" inhibitor", sigOrder3))) {
           dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
-          sigOrder2 <- sub(" inhibitor", "", sigOrder)
-          longNames <- c("Aurora kinase", "Bromodomain", "Sterol demethylase")
-          names(longNames) <- c("AURK", "BET", "CYP51")
+          sigOrder3i <- sub(" inhibitor", "", sigOrder3)
+          longNames <- c("Aurora kinase", "Bromodomain", "Sterol demethylase", 
+                         "Topoisomerase", "Tyrosine kinase", "Tubulin")
+          names(longNames) <- c("AURK", "BET", "CYP51", "TOP", "TK", "TUB")
           if (any(dot.df$Inhibitor %in% longNames)) {
             for (tempName in names(longNames)) {
               if (any(dot.df$Inhibitor == longNames[[tempName]])) {
                 dot.df[dot.df$Inhibitor == longNames[[tempName]],]$Inhibitor <- tempName
-                sigOrder2 <- sub(longNames[[tempName]], tempName, sigOrder2)
+                sigOrder3i <- sub(longNames[[tempName]], tempName, sigOrder3i)
               }
             }
           }
@@ -514,7 +523,7 @@ for (i in unique(unlist(drug.info2))) {
             )
           ) + facet_grid(Timepoint ~ Ranking) +
             ggplot2::geom_point() +
-            ggplot2::scale_y_discrete(limits = sigOrder2) +
+            ggplot2::scale_y_discrete(limits = sigOrder3i) +
             scale_color_gradient2(low="blue",high="red", mid="grey", 
                                   limits=c(-maxAbsNES, maxAbsNES)) +
             theme_classic(base_size=12) + 
