@@ -7,8 +7,16 @@ output: html_document
 
 ```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
-library(synapser)
+library(tidyverse); library(synapser); library(pheatmap)
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+drug.info <- data.frame(Drug=names(drug.info), MOA = unlist(drug.info))
 ```
 
 Here we want to compare the various RNAseq analyses. We want to ask:
@@ -32,71 +40,129 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r load data}
-synLogin()
-all_exp<-readr::read_csv(synGet('syn64398051')$path)
-diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
-diffex_tfs<-readr::read_csv(synGet('syn64420968')$path)
-diff_tf_scores<-readr::read_csv(synGet('syn64695280')$path)
-
-library(pheatmap)
+#synLogin()
+#all_exp<-readr::read_csv(synGet('syn64398051')$path)
+#diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
+#diffex_tfs<-readr::read_csv(synGet('syn64420968')$path)
+#diff_tf_scores<-readr::read_csv(synGet('syn64695280')$path)
 
 ##now we have three different ways of comparing the drugs
 genemat<-diffex_genes|>
-  dplyr::select(ensembl_gene_id,log2FoldChange,Drug,Timepoint)|>
+  dplyr::select(ensembl_gene_id,log2FoldChange,individualID,Drug,Timepoint)|>
   subset(!is.na(log2FoldChange))|>
-  tidyr::unite(Timepoint,Drug,col='condition')|>
+  tidyr::unite(individualID,Timepoint,Drug,col='condition')|>
   tidyr::pivot_wider(names_from=condition,values_from=log2FoldChange,values_fn=mean,values_fill=0.0)|>
   tibble::column_to_rownames('ensembl_gene_id')|>
   as.matrix()
 
+genecor<-cor(genemat,use='pairwise.complete.obs')
+write.csv(genecor, "geneCorr.csv")
+
+annot <- as.data.frame(rownames(genecor)) |> 
+  tidyr::separate('rownames(genecor)',into=c('MPNST','Timepoint','Drug'),sep='_')
+if (any(annot$Drug == "Ribociblib")) {
+ annot[annot$Drug == "Ribociblib",]$Drug <- "Ribociclib" 
+}
+annot <- merge(annot, drug.info, by="Drug", all.x=TRUE)
+rownames(annot) <- paste0(annot$MPNST, "_", annot$Timepoint, "_", annot$Drug)
+annot <- annot[rownames(genecor),c('MPNST','Timepoint','Drug','MOA')]
+annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
+
+graphics.off()
+pdf("geneCorr.pdf",width=6,height=4.5)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot,
+         show_colnames=FALSE, show_rownames=FALSE)
+dev.off()
+
+genemat<-diffex_genes[diffex_genes$padj < 0.05,]|>
+  dplyr::select(ensembl_gene_id,log2FoldChange,individualID,Drug,Timepoint)|>
+  subset(!is.na(log2FoldChange))|> #subset(!is.na(padj))|> #subset(padj<0.05)|>
+  tidyr::unite(individualID,Timepoint,Drug,col='condition')|>
+  tidyr::pivot_wider(names_from=condition,values_from=log2FoldChange,values_fn=mean,values_fill=0.0)|>
+  tibble::column_to_rownames('ensembl_gene_id')|>
+  as.matrix()
 
 genecor<-cor(genemat,use='pairwise.complete.obs')
-#pheatmap(genecor,main='Gene based correlation')
+write.csv(genecor,"degCorr.csv")
+annot <- as.data.frame(rownames(genecor)) |> 
+  tidyr::separate('rownames(genecor)',into=c('MPNST','Timepoint','Drug'),sep='_')
+if (any(annot$Drug == "Ribociblib")) {
+ annot[annot$Drug == "Ribociblib",]$Drug <- "Ribociclib" 
+}
+annot <- merge(annot, drug.info, by="Drug", all.x=TRUE)
+rownames(annot) <- paste0(annot$MPNST, "_", annot$Timepoint, "_", annot$Drug)
+annot <- annot[rownames(genecor),c('MPNST','Timepoint','Drug','MOA')]
+annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
 
-subset(diffex_genes,padj<0.01)|>group_by(Drug,Timepoint,direction,Date)|>
+graphics.off()
+pdf("degCorr.pdf",width=6,height=4.5)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot,
+         show_colnames=FALSE, show_rownames=FALSE)
+dev.off()
+
+subset(diffex_genes,padj<0.05)|>group_by(individualID,Drug,Timepoint,direction)|>
   summarize(ngenes=n_distinct(hgnc_symbol))|>
-  mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
-  ggplot(aes(x=Drug,fill=Timepoint,y=dgenes))+geom_bar(stat='identity',position='dodge')+
-  ggtitle('Differentially expressed genes at each time point for each drug')+coord_flip()
+  mutate(dgenes=ifelse(direction=='down',-log10(ngenes),log10(ngenes)))|>
+  ggplot(aes(x=Drug,fill=direction,#fill=Timepoint,
+             y=dgenes))+geom_bar(stat='identity',position='dodge',alpha=0.75)+
+  scale_y_continuous(breaks=c(-4,-2,0,2,4), labels=c(-10^4, -10^2, 0, 10^2, 10^4)) + #scale_y_continuous(transform=scales::transform_exp(base=10)) + #theme_classic(base_size=12) +
+  facet_grid(Timepoint ~ individualID) + scale_fill_manual(values=c("blue","red")) +
+  labs(y='# of Differentially Expressed Genes (q < 0.05)', fill="Direction")+coord_flip()
+ggsave("Ndegs_log10Scale.pdf", width=5.5, height=5)
 
-tfmat<-diffex_tfs|>
-  dplyr::select(source,Drug,Timepoint,score)|>
-  tidyr::unite(Timepoint,Drug,col='condition')|>
-    tidyr::pivot_wider(names_from=condition,values_from=score,values_fill=0.0)|>
-  tibble::column_to_rownames('source')|>
-  as.matrix()
-
-subset(diffex_tfs,padj<0.01)|>
-  mutate(direction=ifelse(score<0,'down','up'))|>
-  group_by(Drug,Timepoint,direction)|>
-  summarize(ngenes=n_distinct(source))|>
-  mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
-  ggplot(aes(x=Drug,fill=Timepoint,y=dgenes))+geom_bar(stat='identity',position='dodge')+
-  ggtitle('Differentially expressed TFs at each time point for each drug')+coord_flip()
+subset(diffex_genes,padj<0.05)|>group_by(individualID,Drug,Timepoint,direction)|>
+  summarize(ngenes=n_distinct(hgnc_symbol))|>
+  mutate(dgenes=ifelse(direction=='down',-ngenes,ngenes))|>
+  ggplot(aes(x=Drug,fill=direction,#fill=Timepoint,
+             y=dgenes))+geom_bar(stat='identity',position='dodge',alpha=0.75)+
+  facet_grid(Timepoint ~ individualID) + scale_fill_manual(values=c("blue","red")) +
+  labs(y='# of Differentially Expressed Genes (q < 0.05)', fill="Direction")+coord_flip()
+ggsave("Ndegs.pdf", width=5.5, height=5)
 
 
-tfcor<-cor(tfmat,use='pairwise.complete.obs')
-#pheatmap(tfcor,main='TF score based correlation')
-
-tfpmat<-diff_tf_scores|>
-  dplyr::select(TF,Drug,tfChange,Timepoint)|>
-  tidyr::unite(Timepoint,Drug,col='condition')|>
-  tidyr::pivot_wider(names_from='condition',values_from=tfChange,values_fill=0.0)|>
-  tibble::column_to_rownames('TF')|>
-  as.matrix()
-
-diff_tf_scores|>
-  mutate(ep=rank(tfChange)/length(tfChange))|>
-  subset(ep<0.05|ep>0.95)|>
-  mutate(direction=ifelse(tfChange<0,'down','up'))|>
-  group_by(Timepoint,Drug,direction)|>
-  summarize(ngenes=n_distinct(TF))|>
-  mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
-  ggplot(aes(x=Drug,fill=Timepoint,y=dgenes))+geom_bar(stat='identity',position='dodge')+
-  ggtitle('Differentially expressed Priori TFs at each time point for each drug')+coord_flip()
-
-tfpcor<-cor(tfpmat,use='pairwise.complete.obs')
-#pheatmap(tfpcor,main='Priori tf score correlation')
+# need to redo TF analysis with individualID
+# tfmat<-diffex_tfs|>
+#   dplyr::select(source,individualID, Drug,Timepoint,score)|>
+#   tidyr::unite(individualID,Timepoint,Drug,col='condition')|>
+#     tidyr::pivot_wider(names_from=condition,values_from=score,values_fill=0.0)|>
+#   tibble::column_to_rownames('source')|>
+#   as.matrix()
+# 
+# subset(diffex_tfs,padj<0.01)|>
+#   mutate(direction=ifelse(score<0,'down','up'))|>
+#   group_by(individualID,Drug,Timepoint,direction)|>
+#   summarize(ngenes=n_distinct(source))|>
+#   mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
+#   ggplot(aes(x=Drug,#fill=Timepoint,
+#              y=dgenes))+
+#   geom_bar(stat='identity',position='dodge')+facet_grid(Timepoint~individualID)+
+#   ggtitle('Differentially expressed TFs at each time point for each drug')+coord_flip()
+# 
+# 
+# tfcor<-cor(tfmat,use='pairwise.complete.obs')
+# #pheatmap(tfcor,main='TF score based correlation')
+# 
+# tfpmat<-diff_tf_scores|>
+#   dplyr::select(TF,individualID,Drug,tfChange,Timepoint)|>
+#   tidyr::unite(individualID,Timepoint,Drug,col='condition')|>
+#   tidyr::pivot_wider(names_from='condition',values_from=tfChange,values_fill=0.0)|>
+#   tibble::column_to_rownames('TF')|>
+#   as.matrix()
+# 
+# diff_tf_scores|>
+#   mutate(ep=rank(tfChange)/length(tfChange))|>
+#   subset(ep<0.05|ep>0.95)|>
+#   mutate(direction=ifelse(tfChange<0,'down','up'))|>
+#   group_by(individualID,Timepoint,Drug,direction)|>
+#   summarize(ngenes=n_distinct(TF))|>
+#   mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
+#   ggplot(aes(x=Drug,#fill=Timepoint,
+#              y=dgenes))+geom_bar(stat='identity',position='dodge')+
+#   facet_grid(Timepoint ~ individualID) +
+#   ggtitle('Differentially expressed Priori TFs at each time point for each drug')+coord_flip()
+# 
+# tfpcor<-cor(tfpmat,use='pairwise.complete.obs')
+# #pheatmap(tfpcor,main='Priori tf score correlation')
 
 ```
 
@@ -114,8 +180,9 @@ plotU<-function(umapres){
   layout<-umapres$layout
   colnames(layout)<-c('dim1','dim2')
   layout<-as.data.frame(layout)|>tibble::rownames_to_column('condition')|>
-    tidyr::separate(condition,into=c('Timepoint','Drug'),sep='_')|>
-    ggplot(aes(x=dim1,y=dim2,col=Drug,shape=Timepoint))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))
+    tidyr::separate(condition,into=c('individualID','Timepoint','Drug'),sep='_')|>
+    ggplot(aes(x=dim1,y=dim2,col=Drug,shape=Timepoint))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))+
+    facet_wrap(~individualID)
 }
 
 geneu<-umap(t(genemat))
@@ -168,7 +235,7 @@ plotTfNet<-function(tf,net,data){
 #  okabe <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
   fig<-dd|>subset(signif)|>ggplot(aes(x=Drug,y=log2FoldChange,fill=TFsig))+
-    facet_grid(Timepoint~.)+geom_boxplot(outliers=FALSE)+
+    facet_grid(Timepoint~individualID)+geom_boxplot(outliers=FALSE)+
     geom_jitter(aes(shape=direction,col=TFsig))+
     ggtitle(paste("Fold change changing genes downstream of",tf))#+scale_fill_discrete(okabe)
   
