@@ -1,4 +1,5 @@
 # compile DMEA for potential synergy
+rm(list=ls())
 library(plyr);library(dplyr);library(synapser);library(data.table);library(ggplot2);library(patchwork)
 synapser::synLogin()
 setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code")
@@ -15,6 +16,7 @@ sens$sig <- FALSE
 sens[sens$p_value <= 0.05 & sens$FDR_q_value <= 0.25,]$sig <- TRUE
 colnames(sens)[1] <- "Timepoint" # change 'Time' to 'Timepoint'
 sens$Timepoint <- factor(sens$Timepoint, levels=c("8h","24h"))
+
 sim <- read.csv(synapser::synGet("syn65674473")$path)
 sim$sig <- FALSE
 sim[sim$p_value <= 0.05 & sim$FDR_q_value <= 0.25,]$sig <- TRUE
@@ -197,156 +199,214 @@ for (i in unique(unlist(drug.info2))) {
   temp.sim <- sim[sim$DrugTreatment %in% temp.drugs,]
   
   mpnst <- na.omit(unique(c(temp.sens$MPNST, temp.sim$MPNST)))
+  timepoints <- levels(temp.sens$Timepoint)
+  keepCols <- c("MPNST", "Timepoint", "DrugTreatment", 
+                "Drug_set", "NES", "minusLogFDR", "sig", "Ranking")
   for (m in mpnst) {
-    # determine expected sensitivity
-    given.sens <- na.omit(temp.sens[temp.sens$Drug_set == i & temp.sens$MPNST == m,])
-    sens.dot.df <- na.omit(temp.sens[temp.sens$Drug_set %in% unique(na.omit(temp.sens[temp.sens$sig,]$Drug_set)) &
-                               temp.sens$MPNST == m,])
-    if (nrow(given.sens) > 0) {
-      dir.given.sens <- mean(given.sens[given.sens$sig,]$NES, na.rm=TRUE)
-      if (is.na(dir.given.sens)) {
-        dir.given.sens <-  mean(given.sens$NES, na.rm=TRUE)
-      } 
-      # pick MOAs with opposite toxicity to that of putative MOA
-      strict.sens.dot.df <- sens.dot.df[sens.dot.df$NES/dir.given.sens < 0,]
-    } else if (nrow(na.omit(max.effect[max.effect$Drug %in% temp.drugs,])) > 0) {
-      # else use mean of target diffexp; target upregulation suggests resistance is emerging
-      dir.given.sens <- mean(max.effect[max.effect$Drug %in% temp.drugs,]$Log2FC, na.rm=TRUE)
-    } else {
-      dir.given.sens <- NULL
-      # else pick potentially toxic MOAs if putative MOA not evaluated
-      strict.sens.dot.df <- sens.dot.df[sens.dot.df$NES < 0,]
-    }
-    
-    # determine expected similarity
-    given.sim <- na.omit(temp.sim[temp.sim$Drug_set == i & temp.sim$MPNST == m,])
-    sim.dot.df <- na.omit(temp.sim[temp.sim$Drug_set %in% unique(na.omit(temp.sim[temp.sim$sig,]$Drug_set)) & 
-                             temp.sim$MPNST == m,])
-    if (nrow(given.sim) > 0) {
-      dir.given.sim <- mean(given.sim[given.sim$sig,]$NES, na.rm=TRUE)
-      if (is.na(dir.given.sim)) {
-        dir.given.sim <-  mean(given.sim$NES, na.rm=TRUE)
-      }
-      # pick MOAs with similar behavior to putative MOA
-      strict.sim.dot.df <- sim.dot.df[sim.dot.df$NES/dir.given.sim > 0,]
-    } else {
-      dir.given.sim <- NULL
-      # else pick similar MOAs if putative MOA not evaluated
-      strict.sim.dot.df <- sim.dot.df[sim.dot.df$NES > 0,]
-    }
-    
-    # pull results for each drug
-    for (j in temp.drugs) {
-      drug.sens <- na.omit(sens.dot.df[sens.dot.df$DrugTreatment == j,])
-      drug.sim <- na.omit(sim.dot.df[sim.dot.df$DrugTreatment == j,])
-      
-      venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig,]$Drug_set))
-      venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig,]$Drug_set))
-      
-      if (is.null(dir.given.sens)) {
-        # default to pick potentially toxic MOAs if putative MOA not evaluated
-        strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig & 
-                                                                                     drug.sens$NES < 0,]$Drug_set))
-        venn.colors[[paste0("Sensitivity:\n",j)]] <- "blue"
+    venn.times <- list()
+    venn.sim <- list()
+    venn.sens <- list()
+    strict.venn.times <- list()
+    syn.moa.times <- list()
+    for (t in timepoints) {
+      # determine expected sensitivity
+      given.sens <- na.omit(temp.sens[temp.sens$Drug_set == i & temp.sens$MPNST == m & temp.sens$Timepoint==t,])
+      sens.dot.df <- na.omit(temp.sens[temp.sens$Drug_set %in% unique(na.omit(temp.sens[temp.sens$sig,]$Drug_set)) &
+                                         temp.sens$MPNST == m & temp.sens$Timepoint==t,])
+      if (nrow(sens.dot.df) > 0) {
+        if (any(sens.dot.df$minusLogFDR == "Inf")) {
+          sens.dot.df[sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4
+        }
+        sens.dot.df$Ranking <- "Sensitivity"
+        if (nrow(given.sens) > 0) {
+          dir.given.sens <- mean(given.sens[given.sens$sig,]$NES, na.rm=TRUE)
+          if (is.na(dir.given.sens)) {
+            dir.given.sens <-  mean(given.sens$NES, na.rm=TRUE)
+          } 
+          # pick MOAs with opposite toxicity to that of putative MOA
+          strict.sens.dot.df <- sens.dot.df[sens.dot.df$NES/dir.given.sens < 0,]
+        } else if (nrow(na.omit(max.effect[max.effect$Drug %in% temp.drugs,])) > 0) {
+          # else use mean of target diffexp; target upregulation suggests resistance is emerging
+          dir.given.sens <- mean(max.effect[max.effect$Drug %in% temp.drugs,]$Log2FC, na.rm=TRUE)
+        } else {
+          dir.given.sens <- NULL
+          # else pick potentially toxic MOAs if putative MOA not evaluated
+          strict.sens.dot.df <- sens.dot.df[sens.dot.df$NES < 0,]
+        } 
       } else {
-        # else pick MOAs with opposite toxicity to that of putative MOA
-        strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig & 
-                                                                                     drug.sens$NES/dir.given.sens < 0,]$Drug_set))
-        venn.colors[[paste0("Sensitivity:\n",j)]] <- ifelse(dir.given.sens > 0, "blue", "red")
+        strict.sens.dot.df <- data.frame()
       }
       
-      if (is.null(dir.given.sim)) {
-        # default to pick similar MOAs if putative MOA not evaluated
-        strict.venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig & 
-                                                                                   drug.sim$NES > 0,]$Drug_set))
-        venn.colors[[paste0("Similarity:\n",j)]] <- "red"
+      # determine expected similarity
+      given.sim <- na.omit(temp.sim[temp.sim$Drug_set == i & temp.sim$MPNST == m & temp.sim$Timepoint==t,])
+      sim.dot.df <- na.omit(temp.sim[temp.sim$Drug_set %in% unique(na.omit(temp.sim[temp.sim$sig,]$Drug_set)) & 
+                                       temp.sim$MPNST == m & temp.sim$Timepoint==t,])
+      if (nrow(sim.dot.df) > 0) {
+        sim.dot.df$minusLogFDR <- 4
+        sim.dot.df[sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- -log10(sim.dot.df[sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
+        sim.dot.df$Ranking <- "Similarity"
+        if (nrow(given.sim) > 0) {
+          dir.given.sim <- mean(given.sim[given.sim$sig,]$NES, na.rm=TRUE)
+          if (is.na(dir.given.sim)) {
+            dir.given.sim <-  mean(given.sim$NES, na.rm=TRUE)
+          }
+          # pick MOAs with similar behavior to putative MOA
+          strict.sim.dot.df <- sim.dot.df[sim.dot.df$NES/dir.given.sim > 0,]
+        } else {
+          dir.given.sim <- NULL
+          # else pick similar MOAs if putative MOA not evaluated
+          strict.sim.dot.df <- sim.dot.df[sim.dot.df$NES > 0,]
+        } 
       } else {
-        # else pick MOAs with similar behavior to putative MOA
-        strict.venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig & 
-                                                                                   drug.sim$NES/dir.given.sim > 0,]$Drug_set)) 
-        venn.colors[[paste0("Similarity:\n",j)]] <- ifelse(dir.given.sim > 0, "red", "blue")
+        strict.sim.dot.df <- data.frame()
       }
-    }
-    
-    # venn diagrams
-    if (length(temp.drugs) < 3) {
-      venn.list <- venn.list[sort(names(venn.list))]
-      strict.venn.list <- strict.venn.list[sort(names(strict.venn.list))]
-      venn.colors <- unlist(venn.colors[names(strict.venn.list)])
-      names(venn.colors) <- NULL
       
-      ggvenn::ggvenn(venn.list, show_percentage = FALSE, set_name_size = 1, text_size = 4, show_elements=FALSE)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_sensitivityANDsimilarity_vennDiagram.pdf"), width=3, height=5)
-      ggvenn::ggvenn(venn.list, show_percentage = FALSE, set_name_size = 2.5, text_size = 2.5, show_elements=TRUE)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_sensitivityANDsimilarity_vennDiagram_wElements.pdf"), width=5, height=5)
-      
-      ggvenn::ggvenn(strict.venn.list, show_percentage = FALSE, set_name_size = 1, text_size = 4, show_elements=FALSE,
-                     fill_color = venn.colors)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_sensitivityANDsimilarity_vennDiagram_oppSensNES_sameSimNES.pdf"), width=3, height=5)
-      ggvenn::ggvenn(strict.venn.list, show_percentage = FALSE, set_name_size = 2.5, text_size = 2.5, show_elements=TRUE,
-                     fill_color=venn.colors)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_sensitivityANDsimilarity_vennDiagram_oppSensNES_sameSimNES_wElements.pdf"), width=5, height=5) 
-    } else {
-      sim.venn <- venn.list[grepl("Similarity",names(venn.list))]
-      sens.venn <- venn.list[grepl("Sensitivity",names(venn.list))]
-      
-      strict.sim.venn <- strict.venn.list[grepl("Similarity",names(strict.venn.list))]
-      strict.sens.venn <- strict.venn.list[grepl("Sensitivity",names(strict.venn.list))]
-      
-      sim.venn.colors <- unlist(venn.colors[names(strict.sim.venn)])
-      names(sim.venn.colors) <- NULL
-      sens.venn.colors <- unlist(venn.colors[names(strict.sens.venn)])
-      names(sens.venn.colors) <- NULL
-      
-      ggvenn::ggvenn(sens.venn, show_percentage = FALSE, set_name_size = 1, text_size = 4, show_elements=FALSE)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_sensitivity_vennDiagram.pdf"), width=3, height=5)
-      ggvenn::ggvenn(sens.venn, show_percentage = FALSE, set_name_size = 2.5, text_size = 2.5, show_elements=TRUE)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_sensitivity_vennDiagram_wElements.pdf"), width=5, height=5)
-      
-      ggvenn::ggvenn(sim.venn, show_percentage = FALSE, set_name_size = 1, text_size = 4, show_elements=FALSE)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_similarity_vennDiagram.pdf"), width=3, height=5)
-      ggvenn::ggvenn(sim.venn, show_percentage = FALSE, set_name_size = 2.5, text_size = 2.5, show_elements=TRUE)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_similarity_vennDiagram_wElements.pdf"), width=5, height=5)
-      
-      ggvenn::ggvenn(strict.sens.venn, show_percentage = FALSE, set_name_size = 1, text_size = 4, show_elements=FALSE,
-                     fill_color = sens.venn.colors)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_sensitivity_vennDiagram_oppSensNES.pdf"), width=3, height=5)
-      ggvenn::ggvenn(strict.sens.venn, show_percentage = FALSE, set_name_size = 2.5, text_size = 2.5, show_elements=TRUE,
-                     fill_color = sens.venn.colors)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_sensitivity_vennDiagram_oppSensNES_wElements.pdf"), width=5, height=5)
-      
-      ggvenn::ggvenn(strict.sim.venn, show_percentage = FALSE, set_name_size = 1, text_size = 4, show_elements=FALSE,
-                     fill_color = sim.venn.colors)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_similarity_vennDiagram_sameSimNES.pdf"), width=3, height=5)
-      ggvenn::ggvenn(strict.sim.venn, show_percentage = FALSE, set_name_size = 2.5, text_size = 2.5, show_elements=TRUE,
-                     fill_color = sim.venn.colors)
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_similarity_vennDiagram_sameSimNES_wElements.pdf"), width=5, height=5)
-    }
-    
-    # dot plots
-    simMOAs <- unique(unlist(venn.list[grepl("Similarity",names(venn.list))]))
-    sensMOAs <- unique(unlist(venn.list[grepl("Sensitivity",names(venn.list))]))
-    if (length(simMOAs) > 0 & length(sensMOAs) > 0) {
-      if (any(sens.dot.df$minusLogFDR == "Inf")) {
-        sens.dot.df[sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4
-      }
-      sens.dot.df$Ranking <- "Sensitivity"
-      sim.dot.df$minusLogFDR <- 4
-      sim.dot.df[sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- -log10(sim.dot.df[sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
-      sim.dot.df$Ranking <- "Similarity"
-      keepCols <- c("MPNST", "Timepoint", "DrugTreatment", 
-                    "Drug_set", "NES", "minusLogFDR", "sig", "Ranking")
-      dmea.df <- rbind(sens.dot.df[,keepCols], sim.dot.df[,keepCols])
-      sigMOAs <- unique(c(simMOAs, sensMOAs))
-      #sigMOAs <- unique(c(sens.dot.df[sens.dot.df$sig,]$Drug_set, sim.dot.df[sim.dot.df$sig,]$Drug_set)) # 46
-      sharedMOAs <- sens.dot.df$Drug_set[sens.dot.df$Drug_set %in% sim.dot.df$Drug_set] # 52
-      sigSharedMOAs <- sigMOAs[sigMOAs %in% sharedMOAs]
-      if (length(sigSharedMOAs) > 0) {
+      if (nrow(strict.sens.dot.df) > 0 & nrow(strict.sim.dot.df) > 0) {
+        dmea.df <- rbind(sens.dot.df[,keepCols], sim.dot.df[,keepCols])
         mean.dmea.df <- plyr::ddply(dmea.df, .(Drug_set), summarize,
                                     absNES = mean(abs(NES), na.rm=TRUE))
         sigOrder <- mean.dmea.df[order(mean.dmea.df$absNES),]$Drug_set
-        sigOrder <- sigOrder[sigOrder %in% sigSharedMOAs]
-        dot.df <- dmea.df[dmea.df$Drug_set %in% sigSharedMOAs,]
+        sharedMOAs <- sens.dot.df$Drug_set[sens.dot.df$Drug_set %in% sim.dot.df$Drug_set]
+        
+        if (any(strict.sens.dot.df$minusLogFDR == "Inf")) {
+          strict.sens.dot.df[strict.sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4 
+        }
+        strict.sens.dot.df$Ranking <- "Sensitivity" 
+        
+        strict.sim.dot.df$minusLogFDR <- 4
+        strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- 
+          -log10(strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
+        strict.sim.dot.df$Ranking <- "Similarity" 
+
+        keepCols <- c("MPNST", "Timepoint", "DrugTreatment", 
+                      "Drug_set", "NES", "minusLogFDR", "sig", "Ranking")
+        strict.dmea.df <- rbind(strict.sens.dot.df[,keepCols], strict.sim.dot.df[,keepCols])
+        mean.dmea.df <- plyr::ddply(strict.dmea.df, .(Drug_set), summarize,
+                                    absNES = mean(abs(NES), na.rm=TRUE))
+        sigOrderStrict <- mean.dmea.df[order(mean.dmea.df$absNES),]$Drug_set
+        
+        # pull results for each drug
+        for (j in temp.drugs) {
+          drug.sens <- na.omit(sens.dot.df[sens.dot.df$DrugTreatment == j,])
+          drug.sim <- na.omit(sim.dot.df[sim.dot.df$DrugTreatment == j,])
+          
+          venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig,]$Drug_set))
+          venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig,]$Drug_set))
+          
+          if (is.null(dir.given.sens)) {
+            # default to pick potentially toxic MOAs if putative MOA not evaluated
+            strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig & 
+                                                                                         drug.sens$NES < 0,]$Drug_set))
+            venn.colors[[paste0("Sensitivity:\n",j)]] <- "blue"
+          } else {
+            # else pick MOAs with opposite toxicity to that of putative MOA
+            strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig & 
+                                                                                         drug.sens$NES/dir.given.sens < 0,]$Drug_set))
+            venn.colors[[paste0("Sensitivity:\n",j)]] <- ifelse(dir.given.sens > 0, "blue", "red")
+          }
+          
+          if (is.null(dir.given.sim)) {
+            # default to pick similar MOAs if putative MOA not evaluated
+            strict.venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig & 
+                                                                                       drug.sim$NES > 0,]$Drug_set))
+            venn.colors[[paste0("Similarity:\n",j)]] <- "red"
+          } else {
+            # else pick MOAs with similar behavior to putative MOA
+            strict.venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig & 
+                                                                                       drug.sim$NES/dir.given.sim > 0,]$Drug_set)) 
+            venn.colors[[paste0("Similarity:\n",j)]] <- ifelse(dir.given.sim > 0, "red", "blue")
+          }
+        }
+        
+        # venn diagrams
+        venn.plot.times <- NULL
+        strict.venn.plot.times <- NULL
+        if (length(temp.drugs) < 3) {
+          venn.list <- venn.list[sort(names(venn.list))]
+          strict.venn.list <- strict.venn.list[sort(names(strict.venn.list))]
+          venn.colors <- unlist(venn.colors[names(strict.venn.list)])
+          names(venn.colors) <- NULL
+          
+          venn.plot <- ggvenn::ggvenn(venn.list, show_percentage = FALSE, 
+                                      set_name_size = 1, text_size = 4)
+          
+          strict.venn.plot <- ggvenn::ggvenn(strict.venn.list, 
+                                             show_percentage = FALSE, 
+                                             set_name_size = 1, text_size = 4, 
+                                             fill_color = venn.colors)
+        } else {
+          sim.venn <- venn.list[grepl("Similarity",names(venn.list))]
+          sens.venn <- venn.list[grepl("Sensitivity",names(venn.list))]
+          
+          strict.sim.venn <- strict.venn.list[grepl("Similarity",names(strict.venn.list))]
+          strict.sens.venn <- strict.venn.list[grepl("Sensitivity",names(strict.venn.list))]
+          
+          sim.venn.colors <- unlist(venn.colors[names(strict.sim.venn)])
+          names(sim.venn.colors) <- NULL
+          sens.venn.colors <- unlist(venn.colors[names(strict.sens.venn)])
+          names(sens.venn.colors) <- NULL
+          
+          sens.venn.plot <- ggvenn::ggvenn(sens.venn, show_percentage = FALSE, 
+                                           set_name_size = 1, text_size = 4) +
+            ggtitle("Sensitivity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+          
+          sim.venn.plot <- ggvenn::ggvenn(sim.venn, show_percentage = FALSE, 
+                                          set_name_size = 1, text_size = 4) +
+            ggtitle("Similarity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+          
+          venn.plot <- sens.venn.plot + sim.venn.plot
+          
+          strict.sens.venn.plot <- ggvenn::ggvenn(strict.sens.venn, show_percentage = FALSE, 
+                                                  set_name_size = 1, text_size = 4, fill_color = sens.venn.colors) +
+            ggtitle("Sensitivity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+          
+          strict.sim.venn.plot <- ggvenn::ggvenn(strict.sim.venn, show_percentage = FALSE, 
+                                                 set_name_size = 1, text_size = 4, fill_color = sens.venn.colors) +
+            ggtitle("Similarity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+          
+          strict.venn.plot <- strict.sens.venn.plot + strict.sim.venn.plot
+        }
+        venn.sim[[t]] <- venn.list[grepl("Similarity",names(venn.list))]
+        venn.sens[[t]] <- venn.list[grepl("Sensitivity",names(venn.list))]
+        venn.times[[t]] <- venn.list
+        strict.venn.times[[t]] <- strict.venn.list
+        simMOAs <- unique(unlist(strict.venn.list[grepl("Similarity",names(strict.venn.list))]))
+        sensMOAs <- unique(unlist(strict.venn.list[grepl("Sensitivity",names(strict.venn.list))]))
+        syn.moa.times[[t]] <- simMOAs[simMOAs %in% sensMOAs]
+        
+        if (is.null(venn.plot.times)) {
+          venn.plot.times <- venn.plot + 
+            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold")))
+        } else {
+          venn.plot.times <- venn.plot.times + 
+            (venn.plot + plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+        }
+        
+        if (is.null(strict.venn.plot.times)) {
+          strict.venn.plot.times <- strict.venn.plot + 
+            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold")))
+        } else {
+          strict.venn.plot.times <- strict.venn.plot.times / 
+            (strict.venn.plot + plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+        }
+      }
+    } 
+    if (length(na.omit(unlist(venn.list))) > 0) {
+      ggplot2::ggsave(paste0(m,"_",i,"_MOA_vennDiagram.pdf"), venn.plot.times, width=6, height=5)
+      if (length(na.omit(unlist(strict.venn.list))) > 0) {
+        ggplot2::ggsave(paste0(m,"_",i,"_synMOA_vennDiagram.pdf"), strict.venn.plot.times, width=6, height=5)
+      }
+    }
+    
+    # dot plots
+    simMOAs <- unique(unlist(venn.sim))
+    sensMOAs <- unique(unlist(venn.sens))
+    if (length(simMOAs) > 0 & length(sensMOAs) > 0) {
+      sigMOAs <- unique(c(simMOAs, sensMOAs))
+      sigSharedMOAs <- sigMOAs[sigMOAs %in% sharedMOAs]
+      if (length(sigSharedMOAs) > 0) {
+        sigOrder1 <- sigOrder[sigOrder %in% sigSharedMOAs]
+        dot.df <- na.omit(dmea.df[dmea.df$Drug_set %in% sigSharedMOAs,])
         library(ggplot2)
         maxAbsNES <- max(abs(dot.df$NES))
         dot.array <- NULL
@@ -367,7 +427,7 @@ for (i in unique(unlist(drug.info2))) {
                 axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
           geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
         dot.plot
-        ggplot2::ggsave(paste0(m,"_",i,"_Compiled_DMEA_dotPlot_sensitivityANDsimilarity.pdf"), width=4.2, height=4)
+        ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot.pdf"), width=4.2, height=4)
         
         if (all(grepl(" inhibitor", sigOrder))) {
           dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
@@ -399,35 +459,20 @@ for (i in unique(unlist(drug.info2))) {
                   axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
             geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
           dot.plot
-          ggplot2::ggsave(paste0(m,"_",i,"_Compiled_DMEA_dotPlot_sensitivityANDsimilarity_inhibitors.pdf"), width=3.4, height=4)
+          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_inhibitors.pdf"), width=3.4, height=4)
+          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_inhibitors_wider.pdf"), width=5, height=4)
+          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_inhibitors_evenWider.pdf"), width=6, height=4)
         } else {
-          ggplot2::ggsave(paste0(m,"_",i,"_Compiled_DMEA_dotPlot_sensitivityANDsimilarity_wider.pdf"), width=5, height=4)
-          ggplot2::ggsave(paste0(m,"_",i,"_Compiled_DMEA_dotPlot_sensitivityANDsimilarity_widerTaller.pdf"), width=5, height=5)
+          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_wider.pdf"), width=5, height=4)
+          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_widerTaller.pdf"), width=5, height=5)
         }
       }
       
       # dot plots of potentially synergistic MOAs
-      if (any(strict.sens.dot.df$minusLogFDR == "Inf")) {
-        strict.sens.dot.df[strict.sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4 
-      }
-      strict.sens.dot.df$Ranking <- "Sensitivity"
-      strict.sim.dot.df$minusLogFDR <- 4
-      strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- 
-        -log10(strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
-      strict.sim.dot.df$Ranking <- "Similarity"
-      keepCols <- c("MPNST", "Timepoint", "DrugTreatment", 
-                    "Drug_set", "NES", "minusLogFDR", "sig", "Ranking")
-      strict.dmea.df <- rbind(strict.sens.dot.df[,keepCols], strict.sim.dot.df[,keepCols])
-      simMOAs <- unique(unlist(strict.venn.list[grepl("Similarity",names(strict.venn.list))]))
-      sensMOAs <- unique(unlist(strict.venn.list[grepl("Sensitivity",names(strict.venn.list))]))
-      synMOAs <- simMOAs[simMOAs %in% sensMOAs]
+      synMOAs <- unique(unlist(syn.moa.times))
       if (length(synMOAs) > 0) {
-        mean.dmea.df <- plyr::ddply(strict.dmea.df, .(Drug_set), summarize,
-                                    absNES = mean(abs(NES), na.rm=TRUE))
-        sigOrder <- mean.dmea.df[order(mean.dmea.df$absNES),]$Drug_set
-        sigOrder <- sigOrder[sigOrder %in% synMOAs]
-        dot.df <- dmea.df[dmea.df$Drug_set %in% synMOAs,]
-        library(ggplot2)
+        sigOrder3 <- sigOrderStrict[sigOrderStrict %in% synMOAs]
+        dot.df <- na.omit(dmea.df[dmea.df$Drug_set %in% synMOAs,])
         maxAbsNES <- max(abs(dot.df$NES))
         dot.plot <- ggplot2::ggplot(
           dot.df,
@@ -446,7 +491,7 @@ for (i in unique(unlist(drug.info2))) {
                 axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
           geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
         dot.plot
-        ggplot2::ggsave(paste0(m, "_",i,"_Compiled_DMEA_dotPlot_sensitivityANDsimilarity_potentialSynergy.pdf"), width=4.2, height=4)
+        ggplot2::ggsave(paste0(m, "_",i,"_synDMEA_dotPlot.pdf"), width=4.2, height=4)
         
         if (all(grepl(" inhibitor", sigOrder))) {
           dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
@@ -478,12 +523,14 @@ for (i in unique(unlist(drug.info2))) {
                   axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
             geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
           dot.plot
-          ggplot2::ggsave(paste0(m,"_",i,"_Compiled_DMEA_dotPlot_sensitivityANDsimilarity_potentialSynergy_inhibitors.pdf"), width=3.4, height=4)
+          ggplot2::ggsave(paste0(m,"_",i,"_synDMEA_dotPlot_inhibitors.pdf"), width=3.4, height=4)
+          ggplot2::ggsave(paste0(m,"_",i,"_synDMEA_dotPlot_inhibitors_wider.pdf"), width=5, height=4)
+          ggplot2::ggsave(paste0(m,"_",i,"_synDMEA_dotPlot_inhibitors_evenWider.pdf"), width=6, height=4)
         } else {
-          ggplot2::ggsave(paste0(m,"_",i,"_Compiled_DMEA_dotPlot_sensitivityANDsimilarity_potentialSynergy_wider.pdf"), width=5, height=4)
-          ggplot2::ggsave(paste0(m,"_",i,"_Compiled_DMEA_dotPlot_sensitivityANDsimilarity_potentialSynergy_widerTaller.pdf"), width=5, height=5)
+          ggplot2::ggsave(paste0(m,"_",i,"_synDMEA_dotPlot_wider.pdf"), width=5, height=4)
+          ggplot2::ggsave(paste0(m,"_",i,"_synDMEA_dotPlot_widerTaller.pdf"), width=5, height=5)
         }
-      }
-    } 
+      } 
+    }
   }
 }
