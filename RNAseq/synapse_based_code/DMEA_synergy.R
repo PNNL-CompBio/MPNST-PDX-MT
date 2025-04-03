@@ -135,6 +135,8 @@ for (i in names(drug.info)){
 target.diffexp <- data.table::rbindlist(measured.targets, use.names=FALSE)
 write.csv(target.diffexp, "target_diffexp.csv", row.names = FALSE)
 write.csv(max.effect, "maximumEffect.csv", row.names=FALSE)
+target.diffexp <- read.csv("target_diffexp.csv")
+max.effect <- read.csv("maximumEffect.csv")
 
 maxAbsNES <- ceiling(max(abs(na.omit(diffexp[diffexp$hgnc_symbol %in% target.diffexp$hgnc_symbol &
                                                diffexp$Drug %in% target.diffexp$Drug,]$log2FoldChange)))) # 7
@@ -189,17 +191,11 @@ for (i in unique(unlist(drug.info2))) {
   
   # likewise, if drug is similar to given MOA, filter for similarity
   # else filter for opposite behavior
-  
-  venn.list <- list()
-  strict.venn.list <- list()
-  venn.colors <- list()
   temp.drugs <- names(drug.info2[drug.info2 == i])
   temp.max.effect <- max.effect[max.effect$Drug %in% temp.drugs,]
-  temp.sens <- sens[sens$DrugTreatment %in% temp.drugs,]
-  temp.sim <- sim[sim$DrugTreatment %in% temp.drugs,]
   
-  mpnst <- na.omit(unique(c(temp.sens$MPNST, temp.sim$MPNST)))
-  timepoints <- levels(temp.sens$Timepoint)
+  mpnst <- na.omit(unique(c(sens$MPNST)))
+  timepoints <- levels(sens$Timepoint)
   keepCols <- c("MPNST", "Timepoint", "DrugTreatment", 
                 "Drug_set", "NES", "minusLogFDR", "sig", "Ranking")
   for (m in mpnst) {
@@ -213,107 +209,116 @@ for (i in unique(unlist(drug.info2))) {
     dmea.df <- data.frame()
     strict.dmea.df <- data.frame()
     for (t in timepoints) {
-      # determine expected sensitivity
-      given.sens <- na.omit(temp.sens[temp.sens$Drug_set == i & temp.sens$MPNST == m & temp.sens$Timepoint==t,])
-      sens.dot.df <- na.omit(temp.sens[temp.sens$Drug_set %in% unique(na.omit(temp.sens[temp.sens$sig,]$Drug_set)) &
-                                         temp.sens$MPNST == m & temp.sens$Timepoint==t,])
-      if (nrow(sens.dot.df) > 0) {
-        if (any(sens.dot.df$minusLogFDR == "Inf")) {
-          sens.dot.df[sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4
-        }
-        sens.dot.df$Ranking <- "Sensitivity"
-        if (nrow(given.sens) > 0) {
-          dir.given.sens <- mean(given.sens[given.sens$sig,]$NES, na.rm=TRUE)
-          if (is.na(dir.given.sens)) {
-            dir.given.sens <-  mean(given.sens$NES, na.rm=TRUE)
-          } 
-          # pick MOAs with opposite toxicity to that of putative MOA
-          strict.sens.dot.df <- sens.dot.df[sens.dot.df$NES/dir.given.sens < 0,]
-        } else if (nrow(na.omit(max.effect[max.effect$Drug %in% temp.drugs,])) > 0) {
-          # else use mean of target diffexp; target upregulation suggests resistance is emerging
-          dir.given.sens <- mean(max.effect[max.effect$Drug %in% temp.drugs,]$Log2FC, na.rm=TRUE)
-        } else {
-          dir.given.sens <- NULL
-          # else pick potentially toxic MOAs if putative MOA not evaluated
-          strict.sens.dot.df <- sens.dot.df[sens.dot.df$NES < 0,]
-        } 
-      } else {
-        strict.sens.dot.df <- data.frame()
-      }
-      
-      # determine expected similarity
-      given.sim <- na.omit(temp.sim[temp.sim$Drug_set == i & temp.sim$MPNST == m & temp.sim$Timepoint==t,])
-      sim.dot.df <- na.omit(temp.sim[temp.sim$Drug_set %in% unique(na.omit(temp.sim[temp.sim$sig,]$Drug_set)) & 
-                                       temp.sim$MPNST == m & temp.sim$Timepoint==t,])
-      if (nrow(sim.dot.df) > 0) {
-        sim.dot.df$minusLogFDR <- 4
-        sim.dot.df[sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- -log10(sim.dot.df[sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
-        sim.dot.df$Ranking <- "Similarity"
-        if (nrow(given.sim) > 0) {
-          dir.given.sim <- mean(given.sim[given.sim$sig,]$NES, na.rm=TRUE)
-          if (is.na(dir.given.sim)) {
-            dir.given.sim <-  mean(given.sim$NES, na.rm=TRUE)
+      venn.list <- list()
+      strict.venn.list <- list()
+      venn.colors <- list()
+      synMOAs <- list()
+      for (j in temp.drugs) {
+        # determine expected sensitivity
+        temp.sens <- na.omit(sens[sens$MPNST == m & sens$Timepoint==t &
+                                    sens$DrugTreatment == j,])
+        given.sens <- na.omit(temp.sens[temp.sens$Drug_set == i,])
+        sens.dot.df <- na.omit(temp.sens[temp.sens$Drug_set %in% 
+                                           unique(na.omit(temp.sens[temp.sens$sig,]$Drug_set)),])
+        if (nrow(sens.dot.df) > 0) {
+          if (any(sens.dot.df$minusLogFDR == "Inf")) {
+            sens.dot.df[sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4
           }
-          # pick MOAs with similar behavior to putative MOA
-          strict.sim.dot.df <- sim.dot.df[sim.dot.df$NES/dir.given.sim > 0,]
+          sens.dot.df$Ranking <- "Sensitivity"
+          if (nrow(given.sens) > 0) {
+            dir.given.sens <- mean(given.sens[given.sens$sig,]$NES, na.rm=TRUE)
+            if (is.na(dir.given.sens)) {
+              dir.given.sens <-  mean(given.sens$NES, na.rm=TRUE)
+            } 
+            # pick MOAs with opposite toxicity to that of putative MOA
+            strict.sens.dot.df <- sens.dot.df[sens.dot.df$NES/dir.given.sens < 0,]
+          } else if (nrow(na.omit(max.effect[max.effect$Drug %in% temp.drugs,])) > 0) {
+            # else use mean of target diffexp; target upregulation suggests resistance is emerging
+            dir.given.sens <- mean(max.effect[max.effect$Drug %in% temp.drugs,]$Log2FC, na.rm=TRUE)
+          } else {
+            dir.given.sens <- NULL
+            # else pick potentially toxic MOAs if putative MOA not evaluated
+            strict.sens.dot.df <- sens.dot.df[sens.dot.df$NES < 0,]
+          } 
         } else {
-          dir.given.sim <- NULL
-          # else pick similar MOAs if putative MOA not evaluated
-          strict.sim.dot.df <- sim.dot.df[sim.dot.df$NES > 0,]
-        } 
-      } else {
-        strict.sim.dot.df <- data.frame()
-      }
-      
-      if (nrow(strict.sens.dot.df) > 0 & nrow(strict.sim.dot.df) > 0) {
-        dmea.df <- rbind(dmea.df, sens.dot.df[,keepCols], sim.dot.df[,keepCols])
-        
-        if (any(strict.sens.dot.df$minusLogFDR == "Inf")) {
-          strict.sens.dot.df[strict.sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4 
+          strict.sens.dot.df <- data.frame()
         }
-        strict.sens.dot.df$Ranking <- "Sensitivity" 
         
-        strict.sim.dot.df$minusLogFDR <- 4
-        strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- 
-          -log10(strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
-        strict.sim.dot.df$Ranking <- "Similarity" 
+        # determine expected similarity
+        temp.sim <- na.omit(sim[sim$MPNST == m & sim$Timepoint==t &
+                                    sim$DrugTreatment == j,])
+        given.sim <- na.omit(temp.sim[temp.sim$Drug_set == i,])
+        sim.dot.df <- na.omit(temp.sim[temp.sim$Drug_set %in% 
+                                                unique(na.omit(temp.sim[temp.sim$sig,]$Drug_set)),])
+        if (nrow(sim.dot.df) > 0) {
+          sim.dot.df$minusLogFDR <- 4
+          sim.dot.df[sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- -log10(sim.dot.df[sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
+          sim.dot.df$Ranking <- "Similarity"
+          if (nrow(given.sim) > 0) {
+            dir.given.sim <- mean(given.sim[given.sim$sig,]$NES, na.rm=TRUE)
+            if (is.na(dir.given.sim)) {
+              dir.given.sim <-  mean(given.sim$NES, na.rm=TRUE)
+            }
+            # pick MOAs with similar behavior to putative MOA
+            strict.sim.dot.df <- sim.dot.df[sim.dot.df$NES/dir.given.sim > 0,]
+          } else {
+            dir.given.sim <- NULL
+            # else pick similar MOAs if putative MOA not evaluated
+            strict.sim.dot.df <- sim.dot.df[sim.dot.df$NES > 0,]
+          } 
+        } else {
+          strict.sim.dot.df <- data.frame()
+        }
         
-        strict.dmea.df <- rbind(strict.dmea.df, strict.sens.dot.df[,keepCols], strict.sim.dot.df[,keepCols])
-        
-        
-        # pull results for each drug
-        for (j in temp.drugs) {
-          drug.sens <- na.omit(sens.dot.df[sens.dot.df$DrugTreatment == j,])
-          drug.sim <- na.omit(sim.dot.df[sim.dot.df$DrugTreatment == j,])
+        if (nrow(strict.sens.dot.df) > 0 & nrow(strict.sim.dot.df) > 0) {
+          dmea.df <- rbind(dmea.df, sens.dot.df[,keepCols], sim.dot.df[,keepCols])
           
-          venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig,]$Drug_set))
-          venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig,]$Drug_set))
+          if (any(strict.sens.dot.df$minusLogFDR == "Inf")) {
+            strict.sens.dot.df[strict.sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4 
+          }
+          strict.sens.dot.df$Ranking <- "Sensitivity" 
+          
+          strict.sim.dot.df$minusLogFDR <- 4
+          strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$minusLogFDR <- 
+            -log10(strict.sim.dot.df[strict.sim.dot.df$FDR_q_value !=0,]$FDR_q_value)
+          strict.sim.dot.df$Ranking <- "Similarity" 
+          
+          strict.dmea.df <- rbind(strict.dmea.df, strict.sens.dot.df[,keepCols], strict.sim.dot.df[,keepCols])
+          
+          venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(sens.dot.df[sens.dot.df$sig,]$Drug_set))
+          venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(sim.dot.df[sim.dot.df$sig,]$Drug_set))
           
           if (is.null(dir.given.sens)) {
             # default to pick potentially toxic MOAs if putative MOA not evaluated
-            strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig & 
-                                                                                         drug.sens$NES < 0,]$Drug_set))
+            strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(sens.dot.df[sens.dot.df$sig & 
+                                                                                         sens.dot.df$NES < 0,]$Drug_set))
             venn.colors[[paste0("Sensitivity:\n",j)]] <- "blue"
           } else {
             # else pick MOAs with opposite toxicity to that of putative MOA
-            strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(drug.sens[drug.sens$sig & 
-                                                                                         drug.sens$NES/dir.given.sens < 0,]$Drug_set))
+            strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(sens.dot.df[sens.dot.df$sig & 
+                                                                                         sens.dot.df$NES/dir.given.sens < 0,]$Drug_set))
             venn.colors[[paste0("Sensitivity:\n",j)]] <- ifelse(dir.given.sens > 0, "blue", "red")
           }
           
           if (is.null(dir.given.sim)) {
             # default to pick similar MOAs if putative MOA not evaluated
-            strict.venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig & 
-                                                                                       drug.sim$NES > 0,]$Drug_set))
+            strict.venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(sim.dot.df[sim.dot.df$sig & 
+                                                                                       sim.dot.df$NES > 0,]$Drug_set))
             venn.colors[[paste0("Similarity:\n",j)]] <- "red"
           } else {
             # else pick MOAs with similar behavior to putative MOA
-            strict.venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(drug.sim[drug.sim$sig & 
-                                                                                       drug.sim$NES/dir.given.sim > 0,]$Drug_set)) 
+            strict.venn.list[[paste0("Similarity:\n",j)]] <- unique(na.omit(sim.dot.df[sim.dot.df$sig & 
+                                                                                       sim.dot.df$NES/dir.given.sim > 0,]$Drug_set)) 
             venn.colors[[paste0("Similarity:\n",j)]] <- ifelse(dir.given.sim > 0, "red", "blue")
           }
+          
+          synMOAs[[j]] <- strict.venn.list[[paste0("Similarity:\n",j)]][
+            strict.venn.list[[paste0("Similarity:\n",j)]] %in% 
+              strict.venn.list[[paste0("Sensitivity:\n",j)]]]
         }
+      }
         
+      if (length(unlist(synMOAs)) > 0) {
         # venn diagrams
         if (length(temp.drugs) < 3) {
           venn.list <- venn.list[sort(names(venn.list))]
@@ -322,14 +327,14 @@ for (i in unique(unlist(drug.info2))) {
           names(venn.colors) <- NULL
           
           venn.plot <- wrap_elements(ggvenn::ggvenn(venn.list, show_percentage = FALSE, 
-                                      set_name_size = 1, text_size = 4) + 
-            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+                                                    set_name_size = 1, text_size = 4) + 
+                                       plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
           
           strict.venn.plot <- wrap_elements(ggvenn::ggvenn(strict.venn.list, 
-                                             show_percentage = FALSE, 
-                                             set_name_size = 1, text_size = 4, 
-                                             fill_color = venn.colors) + 
-            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+                                                           show_percentage = FALSE, 
+                                                           set_name_size = 1, text_size = 4, 
+                                                           fill_color = venn.colors) + 
+                                              plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
         } else {
           sim.venn <- venn.list[grepl("Similarity",names(venn.list))]
           names(sim.venn) <- sub("Similarity:\n","",names(sim.venn))
@@ -356,7 +361,7 @@ for (i in unique(unlist(drug.info2))) {
             ggtitle("Similarity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
           
           venn.plot <- wrap_elements(sens.venn.plot + sim.venn.plot + 
-            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+                                       plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
           
           strict.sens.venn.plot <- ggvenn::ggvenn(strict.sens.venn, show_percentage = FALSE, 
                                                   set_name_size = 1, text_size = 4, fill_color = sens.venn.colors) +
@@ -367,7 +372,7 @@ for (i in unique(unlist(drug.info2))) {
             ggtitle("Similarity") + theme(plot.title=element_text(hjust=0.5, face="bold"))
           
           strict.venn.plot <- wrap_elements(strict.sens.venn.plot + strict.sim.venn.plot + 
-            plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+                                              plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
         }
         venn.sim[[t]] <- venn.list[grepl("Similarity",names(venn.list))]
         venn.sens[[t]] <- venn.list[grepl("Sensitivity",names(venn.list))]
@@ -375,7 +380,7 @@ for (i in unique(unlist(drug.info2))) {
         #strict.venn.times[[t]] <- strict.venn.list
         simMOAs <- unique(unlist(strict.venn.list[grepl("Similarity",names(strict.venn.list))]))
         sensMOAs <- unique(unlist(strict.venn.list[grepl("Sensitivity",names(strict.venn.list))]))
-        syn.moa.times[[t]] <- simMOAs[simMOAs %in% sensMOAs]
+        syn.moa.times[[t]] <- unique(unlist(synMOAs))
         
         if (is.null(venn.plot.times)) {
           venn.plot.times <- venn.plot
@@ -436,8 +441,9 @@ for (i in unique(unlist(drug.info2))) {
           dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
           sigOrder2 <- sub(" inhibitor", "", sigOrder1)
           longNames <- c("Aurora kinase", "Bromodomain", "Sterol demethylase", 
-                         "Topoisomerase", "Tyrosine kinase", "Tubulin")
-          names(longNames) <- c("AURK", "BET", "CYP51", "TOP", "TK", "TUB")
+                         "Topoisomerase", "Tyrosine kinase", "Tubulin",
+                         "Ribonucleotide reductase")
+          names(longNames) <- c("AURK", "BET", "CYP51", "TOP", "TK", "TUB", "RNR")
           if (any(dot.df$Inhibitor %in% longNames)) {
             for (tempName in names(longNames)) {
               if (any(dot.df$Inhibitor == longNames[[tempName]])) {
@@ -505,8 +511,9 @@ for (i in unique(unlist(drug.info2))) {
           dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
           sigOrder3i <- sub(" inhibitor", "", sigOrder3)
           longNames <- c("Aurora kinase", "Bromodomain", "Sterol demethylase", 
-                         "Topoisomerase", "Tyrosine kinase", "Tubulin")
-          names(longNames) <- c("AURK", "BET", "CYP51", "TOP", "TK", "TUB")
+                         "Topoisomerase", "Tyrosine kinase", "Tubulin",
+                         "Ribonucleotide reductase")
+          names(longNames) <- c("AURK", "BET", "CYP51", "TOP", "TK", "TUB", "RNR")
           if (any(dot.df$Inhibitor %in% longNames)) {
             for (tempName in names(longNames)) {
               if (any(dot.df$Inhibitor == longNames[[tempName]])) {
