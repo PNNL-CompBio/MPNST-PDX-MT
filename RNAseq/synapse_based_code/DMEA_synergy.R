@@ -318,7 +318,7 @@ for (i in unique(unlist(drug.info2))) {
         }
       }
         
-      if (length(unlist(synMOAs)) > 0) {
+      if (!all(identical(unlist(synMOAs), character(0)))) {
         # venn diagrams
         if (length(temp.drugs) < 3) {
           venn.list <- venn.list[sort(names(venn.list))]
@@ -395,12 +395,9 @@ for (i in unique(unlist(drug.info2))) {
         }
       }
     } 
-    if (length(na.omit(unlist(venn.list))) > 0) {
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_vennDiagram.pdf"), venn.plot.times, width=3, height=5)
-      if (length(na.omit(unlist(strict.venn.list))) > 0) {
-        ggplot2::ggsave(paste0(m,"_",i,"_synMOA_vennDiagram.pdf"), strict.venn.plot.times, width=3, height=5)
-      }
-    }
+    ggplot2::ggsave(paste0(m,"_",i,"_MOA_vennDiagram.pdf"), venn.plot.times, width=3, height=5)
+    ggplot2::ggsave(paste0(m,"_",i,"_synMOA_vennDiagram.pdf"), strict.venn.plot.times, width=3, height=5)
+
     
     # dot plots
     simMOAs <- unique(unlist(venn.sim))
