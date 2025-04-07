@@ -1,0 +1,365 @@
+---
+title: "GSEA"
+author: "Belinda B. Garana"
+date: "2025-01-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load packages
+if (!require(panSEA)) {
+  if (!require("devtools", quietly = TRUE))
+  install.packages("devtools")
+  
+  devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
+}
+
+library(plyr);library(dplyr);library(ggplot2); library(patchwork)
+library(synapser);library(panSEA); library(data.table); 
+library(RColorBrewer); library(ComplexHeatmap)
+
+```
+
+## load inputs
+```{r load inputs, echo = FALSE}
+synapser::synLogin()
+# RNA-seq data with HGNC symbols
+diffexp <- read.csv(synapser::synGet('syn64397743')$path)
+diffexp <- na.omit(diffexp[diffexp$hgnc_symbol!="",
+                           c("hgnc_symbol", "log2FoldChange", "Drug", 
+                             "Timepoint", "individualID")])
+diffexp$log2FoldChange <- as.numeric(diffexp$log2FoldChange)
+
+# get gene sets
+gmt.kegg <- as.data.frame(msigdbr::msigdbr(collection = "C2", subcollection = "CP:KEGG_LEGACY"))
+gmt.kegg <- DMEA::as_gmt(gmt.kegg, element.names="gene_symbol", set.names="gs_name")
+#gmt.hallmark <- as.data.frame(msigdbr::msigdbr(collection = "H"))
+#gmt.hallmark <- DMEA::as_gmt(gmt.hallmark, element.names="gene_symbol", set.names="gs_name")
+```
+
+## run GSEA
+```{r GSEA, echo = FALSE}
+# GSEA NES > 0: pathways up-regulated in treated vs. untreated samples
+synapse_id <- "syn65916546"
+timepoints <- na.omit(unique(diffexp$Timepoint))
+mpnst <- na.omit(unique(diffexp$individualID))
+base.path <- getwd()
+gsea.path <- file.path(base.path, "GSEA")
+dir.create("GSEA")
+
+gsea <- list()
+for (i in timepoints) {
+  # filter for time
+  time.deg <- diffexp[diffexp$Timepoint == i,]
+  temp.gsea <- list()
+  for (m in mpnst) {
+    # filter for mpnst
+    mpnst.deg <- time.deg[time.deg$individualID == m,]
+    
+    # prep inputs for each drug
+    drug.diffexp <- list()
+    kegg.gmts <- list()
+    hall.gmts <- list()
+    all.drugs <- na.omit(unique(mpnst.deg$Drug))
+    for (j in all.drugs) {
+      temp.deg <- na.omit(dplyr::distinct(
+        mpnst.deg[mpnst.deg$Drug == j,c("hgnc_symbol","log2FoldChange")]))
+      colnames(temp.deg) <- c("Gene", "Log2FC")
+      if (any(duplicated(temp.deg$Gene))) {
+        temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
+                                Log2FC = mean(Log2FC))
+      }
+      drug.diffexp[[j]] <- temp.deg
+      kegg.gmts[[j]] <- gmt.kegg
+    }
+    
+    # also run analysis for each drug
+    keggResults <- panSEA::mGSEA(drug.diffexp, gmt=kegg.gmts,
+                                 types = names(drug.diffexp))
+    temp.gsea.kegg <- keggResults$compiled.results$result
+    temp.gsea.kegg$Collection <- "KEGG"
+    temp.gsea.kegg$Gene_set <- sub("KEGG_", "", temp.gsea.kegg$Feature_set)
+    temp.gsea[[m]] <- temp.gsea.kegg
+  }  
+  temp.gsea.df <- data.table::rbindlist(temp.gsea, use.names=TRUE, idcol="MPNST")
+  colnames(temp.gsea.df)[2] <- "DrugTreatment"
+  temp.gsea.df[temp.gsea.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
+  gsea[[as.character(i)]] <- temp.gsea.df
+}
+setwd(gsea.path)
+gsea.df <- data.table::rbindlist(gsea, use.names=TRUE, idcol="Time")
+write.csv(gsea.df,"GSEA_results.csv", row.names = FALSE)
+synapser::synStore(synapser::File("GSEA_results.csv", parent=synapse_id))
+```
+
+### plot number of enriched pathways
+```{r plot # of results, echo = FALSE}
+# prep data
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+base.path <- getwd()
+gsea.path <- file.path(base.path, "GSEA")
+setwd(gsea.path)
+#gsea.df <- read.csv("GSEA_results.csv")
+gsea.df$DrugTreatment <- factor(gsea.df$DrugTreatment, levels=names(drug.info))
+gsea.df$Time <- factor(gsea.df$Time, levels=timepoints)
+all.drugs <- levels(gsea.df$DrugTreatment)
+all.pathways <- sort(unique(unlist(drug.info)))
+drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
+names(drugCol) <- all.drugs
+
+sig.gsea <- gsea.df[gsea.df$FDR_q_value <= 0.25 & 
+                           gsea.df$p_value <= 0.05,]
+npathways <- plyr::ddply(sig.gsea, .(MPNST, DrugTreatment, Time), dplyr::summarize,
+                    N = length(na.omit(unique(Gene_set))))
+npathways.overall <- plyr::ddply(sig.gsea, .(DrugTreatment, Time), dplyr::summarize,
+                    N = length(na.omit(unique(Gene_set))))
+
+# are there more/less enriched pathways at 8h vs. 24h? No: p-value = 0.7363
+for (m in mpnst) {
+ cat(m, "# of pathways enriched at 8h vs. 24h\n")
+  t.test(npathways[npathways$MPNST==m & npathways$Time=="8h",]$N, 
+         npathways[npathways$MPNST==m & npathways$Time=="24h",]$N) 
+}
+cat("Overall", "# of pathways enriched at 8h vs. 24h\n")
+t.test(npathways.overall[npathways.overall$Time=="8h",]$N, 
+       npathways.overall[npathways.overall$Time=="24h",]$N)
+
+npathways$pathway <- NA
+npathways.overall$pathway <- NA
+for (i in all.pathways) {
+  temp.drugs <- names(drug.info[drug.info %in% i])
+  if (any(npathways$DrugTreatment %in% temp.drugs)) {
+   npathways[npathways$DrugTreatment %in% temp.drugs,]$pathway <- i 
+   npathways.overall[npathways.overall$DrugTreatment %in% temp.drugs,]$pathway <- i
+  }
+}
+
+# generate plot
+npathways$pathway <- factor(npathways$pathway, levels=sort(na.omit(unique(npathways$pathway))))
+npathway.plot <- ggplot2::ggplot(npathways, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=DrugTreatment, shape=pathway)) +
+  geom_boxplot(width=0.2, alpha = 0) + 
+  scale_color_manual(limits=all.drugs, values=drugCol) +
+  labs(x="Time (Hours)", y="# of Enriched Pathways",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(all.pathways), breaks=all.pathways) + 
+  theme_classic(base_size=12) +
+  theme(legend.box="horizontal") + facet_wrap(~MPNST)
+ggplot2::ggsave("N_enrichedDrugMechanisms.pdf", npathway.plot, width=5.5, height=4)
+
+npathways.overall$pathway <- factor(npathways.overall$pathway, levels=sort(na.omit(unique(npathways.overall$pathway))))
+npathway.plot.overall <- ggplot2::ggplot(npathways.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=DrugTreatment, shape=pathway)) +
+  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+  labs(x="Time (Hours)", y="# of Enriched Pathways",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(all.pathways), breaks=all.pathways) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("N_enrichedDrugMechanisms_overall.pdf", npathway.plot.overall, width=5.5, height=4)
+```
+
+### plot all enriched pathways
+```{r plot all results, echo = FALSE}
+gsea.path <- file.path(getwd(),"GSEA")
+setwd(gsea.path)
+topSets <- unique(gsea.df[gsea.df$sig,]$Gene_set)
+mean.results <- plyr::ddply(gsea.df, .(Gene_set), summarize,
+                            NES = mean(NES, na.rm=TRUE))
+setOrder <- mean.results[order(mean.results$NES),]$Gene_set
+
+dot.df <- gsea.df#[gsea.df$Gene_set %in% topSets,]
+dot.df$Time <- factor(dot.df$Time, levels=timepoints)
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = DrugTreatment, y = Gene_set, color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = setOrder) +
+  ggplot2::scale_x_discrete(limits=all.drugs) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  #viridis::scale_color_viridis() +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+  theme(axis.title=element_blank(), 
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(Time ~ MPNST)
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("enrichedPathways_dotPlot.pdf", dot.plot, width=12, height=49) 
+```
+
+### plot top enriched pathways
+```{r plot top results, echo = FALSE}
+library(plyr);library(dplyr);library(ggplot2)
+gsea.path <- file.path(getwd(),"GSEA")
+setwd(gsea.path)
+
+pathway.info2 <- dplyr::distinct(npathways[,c("DrugTreatment","pathway")])
+# create tile plot for drug pathway annotations
+  pathway.plot <- ggplot2::ggplot(pathway.info2, aes(x=DrugTreatment,y=1, fill=pathway)) + 
+  geom_tile() + scale_x_discrete(limits=all.drugs) + theme_classic(base_size=12) +
+  theme(axis.ticks=element_blank(), axis.text = element_blank(), axis.title=element_blank(),
+        axis.line=element_blank()) + labs(fill="Drug Mechanism")
+ggplot2::ggsave("MOA_annotations.pdf", pathway.plot, width=6,height=3)
+
+n.top.list <- c(1, 2, 3, 5)
+for (n.top in n.top.list) {
+  ### pathway
+  topSigpathway <- data.frame()
+  for (i in tested.drugs) {
+    tempSig <- gsea.df[gsea.df$DrugTreatment == i &
+                              gsea.df$sig,] %>% slice_max(abs(NES), n=n.top)
+    topSigpathway <- rbind(topSigpathway, tempSig)
+  }
+  length(unique(topSigpathway$Gene_set)) # 20
+  dot.df <- gsea.df[gsea.df$Gene_set %in% unique(topSigpathway$Gene_set),]
+  
+  mean.results <- plyr::ddply(dot.df, .(Gene_set), summarize,
+                              NES = mean(NES, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$NES),]$Gene_set
+  drugOrder <- unlist(drug.info)
+  
+  dot.df$Time <- factor(dot.df$Time, levels=timepoints)
+  if (any(dot.df$FDR_q_value == 0)) {
+    dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+  }
+  dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+  dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+  maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+  dot.plot <- ggplot2::ggplot(
+    na.omit(dot.df),
+    ggplot2::aes(
+      x = DrugTreatment, y = Gene_set, color = NES,
+      size = minusLogFDR
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    ggplot2::scale_x_discrete(limits=all.drugs) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsNES, maxAbsNES)) +
+    #viridis::scale_color_viridis() +
+    theme_minimal(base_size=12) +
+    ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+          axis.title = element_blank()) +
+    geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
+    facet_grid(Time~MPNST)
+  dot.plot
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedpathways_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top<2,4,2*n.top))
+}
+
+```
+
+### plot top enriched pathways for each drug MOA
+```{r plot top results per MOA, echo = FALSE}
+library(plyr);library(dplyr);library(ggplot2)
+gsea.path <- file.path(getwd(),"GSEA")
+setwd(gsea.path)
+
+n.top.list <- c(1, 2, 3, 5)
+for (moa in all.pathways) {
+  temp.drugs <- names(drug.info[drug.info == moa])
+  for (n.top in n.top.list) {
+    ### pathway
+    topSigpathway <- data.frame()
+    for (i in temp.drugs) {
+      tempSig <- gsea.df[gsea.df$DrugTreatment == i &
+                           gsea.df$sig,] %>% slice_max(abs(NES), n=n.top)
+      topSigpathway <- rbind(topSigpathway, tempSig)
+    }
+    length(unique(topSigpathway$Gene_set)) # 20
+    dot.df <- gsea.df[gsea.df$Gene_set %in% unique(topSigpathway$Gene_set) &
+                        gsea.df$DrugTreatment %in% temp.drugs,]
+    if (nrow(dot.df) > 0) {
+      mean.results <- plyr::ddply(dot.df, .(Gene_set), summarize,
+                                  NES = mean(NES, na.rm=TRUE))
+      setOrder <- mean.results[order(mean.results$NES),]$Gene_set
+      drugOrder <- unlist(drug.info)
+      
+      dot.df$Time <- factor(dot.df$Time, levels=timepoints)
+      if (any(dot.df$FDR_q_value == 0)) {
+        dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+      }
+      dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+      dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+      maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+      dot.plot <- ggplot2::ggplot(
+        na.omit(dot.df),
+        ggplot2::aes(
+          x = DrugTreatment, y = Gene_set, color = NES,
+          size = minusLogFDR
+        )
+      ) +
+        ggplot2::geom_point() +
+        ggplot2::scale_y_discrete(limits = setOrder) +
+        ggplot2::scale_x_discrete(limits=temp.drugs) +
+        scale_color_gradient2(low="blue",high="red", mid="grey", 
+                              limits=c(-maxAbsNES, maxAbsNES)) +
+        #viridis::scale_color_viridis() +
+        theme_minimal(base_size=12) +
+        ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+        theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+              axis.title = element_blank()) +
+        geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
+      if (length(unique(dot.df$Time)) > 0 & length(unique(dot.df$MPNST)) > 0) {
+        dot.plot <- dot.plot + facet_grid(Time~MPNST)
+      } else if (length(unique(dot.df$Time)) > 0) {
+        dot.plot <- dot.plot + facet_grid(Time~.)
+      }else if (length(unique(dot.df$MPNST)) > 0) {
+        dot.plot <- dot.plot + facet_grid(.~MPNST)
+      }
+      dot.plot
+      customWidth <- ifelse(length(temp.drugs) < 3, 5, length(temp.drugs)+2)
+      ggplot2::ggsave(paste0(moa, "_",n.top,"_topEnrichedpathways_dotPlot.pdf"), 
+                      dot.plot, width=customWidth, height=ifelse(n.top<2,4,2*n.top)) 
+      ggplot2::ggsave(paste0(moa, "_",n.top,"_topEnrichedpathways_dotPlot_wider.pdf"), 
+                      dot.plot, width=customWidth+2, height=ifelse(n.top<2,4,2*n.top))
+    }
+  } 
+}
+```
+
+### upset plots to see overlap across drug treatments
+```{r plot overlap of results, echo = FALSE}
+for (m in mpnst) {
+  # generate list of significant results
+  sigList <- list()
+  for (i in all.drugs) {
+    if (nrow(gsea.df[gsea.df$DrugTreatment == i & 
+                          gsea.df$MPNST == m & gsea.df$sig,]) > 0) {
+      sigList[[i]] <- na.omit(unique(gsea.df[gsea.df$DrugTreatment == i & 
+                                                    gsea.df$MPNST == m & gsea.df$sig,]$Gene_set)) 
+    }
+  }
+  
+  if (length(sigList) > 1) {
+    # convert to matrix
+    myPlot = ComplexHeatmap::make_comb_mat(sigList)
+    pdf(file.path(gsea.path,paste0(m,"_enrichedpathway_upsetPlot.pdf")))
+    up <- ComplexHeatmap::UpSet(myPlot)
+    draw(up)
+    dev.off()
+  }
+}
+```
