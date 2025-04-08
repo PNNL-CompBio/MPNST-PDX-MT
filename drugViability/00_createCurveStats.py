@@ -19,7 +19,7 @@ multidose = []
 for index,row in filelist.iterrows():
   #print(row['id'])
   dfile = pd.read_csv(syn.get(row['entityId']).path)
-  if any(dfile['dataSubtype']) == 'processed':
+  if any(dfile['dataSubtype'] == 'processed'):
       dfile['improve_sample_id'] = row['specimenID']
       dfile = dfile.reset_index()
       
