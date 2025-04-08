@@ -11,7 +11,7 @@ Here we take the differential expression and use it to infer transcrition factor
 knitr::opts_chunk$set(echo = TRUE)
 #reticulate::use_virtualenv('r-reticulate')
 library(synapser)
-library(dplyr)
+library(plyr);library(dplyr)
 synLogin()
 
 counts<-readr::read_csv(synapser::synGet('syn64398051')$path)
@@ -172,6 +172,7 @@ subset(allcontrast,padj<0.01)|>
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
 synapser::synStore(sf)
+#allcontrast <- read.csv(synapser::synGet("syn64420968")$path)
 
 md <- allcontrast|>
   dplyr::select(Drug,Timepoint,individualID)|>
@@ -205,3 +206,260 @@ comps|>
 ```
 
 
+### plot number of significant TFs
+```{r plot # of results, echo = FALSE}
+# prep data
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+base.path <- getwd()
+dir.create("TF")
+tf.path <- file.path(base.path, "TF")
+setwd(tf.path)
+#allcontrast <- read.csv(synapser::synGet("syn64420968")$path)
+allcontrast$Drug <- factor(allcontrast$Drug, levels=names(drug.info))
+timepoints <- c("8h", "24h")
+allcontrast$Timepoint <- factor(allcontrast$Timepoint, levels=timepoints)
+individualID <- unique(allcontrast$individualID)
+all.drugs <- levels(allcontrast$Drug)
+all.moas <- sort(unique(unlist(drug.info)))
+drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
+names(drugCol) <- all.drugs
+
+sig.tf <- allcontrast[allcontrast$padj <= 0.05,]
+ntfs <- plyr::ddply(sig.tf, .(individualID, Drug, Timepoint), dplyr::summarize,
+                    N = length(na.omit(unique(source))))
+ntfs.overall <- plyr::ddply(sig.tf, .(Drug, Timepoint), dplyr::summarize,
+                    N = length(na.omit(unique(source))))
+
+# are there more/less enriched tfs at 8h vs. 24h? Yes, more at 8h (p=0.004508)
+for (m in individualID) {
+ cat(m, "# of tfs enriched at 8h vs. 24h\n")
+  t.test(ntfs[ntfs$individualID==m & ntfs$Timepoint=="8h",]$N, 
+         ntfs[ntfs$individualID==m & ntfs$Timepoint=="24h",]$N) 
+}
+cat("Overall", "# of tfs enriched at 8h vs. 24h\n")
+t.test(ntfs.overall[ntfs.overall$Timepoint=="8h",]$N, 
+       ntfs.overall[ntfs.overall$Timepoint=="24h",]$N)
+
+ntfs$moa <- NA
+ntfs.overall$moa <- NA
+for (i in all.moas) {
+  temp.drugs <- names(drug.info[drug.info %in% i])
+  if (any(ntfs$Drug %in% temp.drugs)) {
+   ntfs[ntfs$Drug %in% temp.drugs,]$moa <- i 
+   ntfs.overall[ntfs.overall$Drug %in% temp.drugs,]$moa <- i
+  }
+}
+
+# generate plot
+ntfs$moa <- factor(ntfs$moa, levels=all.moas)
+ntf.plot <- ggplot2::ggplot(ntfs, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=Drug, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + 
+  scale_color_manual(limits=all.drugs, values=drugCol) +
+  labs(x="Time (Hours)", y="# of Enriched Transcription Factors",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+  theme_classic(base_size=12) +
+  theme(legend.box="horizontal") + facet_wrap(~individualID)
+ggplot2::ggsave("N_enrichedTFs.pdf", ntf.plot, width=5.5, height=4)
+
+ntfs.overall$moa <- factor(ntfs.overall$moa, levels=all.moas)
+ntf.plot.overall <- ggplot2::ggplot(ntfs.overall, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=Drug, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+  labs(x="Time (Hours)", y="# of Enriched Transcription Factors",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("N_enrichedTFs_overall.pdf", ntf.plot.overall, width=5.5, height=4)
+```
+
+### plot all enriched TFs
+```{r plot all results, echo = FALSE}
+tf.path <- file.path(getwd(),"TF")
+setwd(tf.path)
+topSets <- unique(allcontrast[allcontrast$signif,]$source)
+dot.df <- allcontrast[allcontrast$source %in% topSets,]
+mean.results <- plyr::ddply(dot.df, .(source), summarize,
+                            score = mean(score, na.rm=TRUE))
+setOrder <- mean.results[order(mean.results$score),]$source
+
+dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+dot.df$minusLogFDR <- -log(dot.df[,"padj"], base = 10)
+maxAbsscore <- ceiling(max(abs(dot.df$score)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = Drug, y = source, color = score,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = setOrder) +
+  ggplot2::scale_x_discrete(limits=all.drugs) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsscore, maxAbsscore)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "Score", size = "-log(FDR)") + 
+  theme(axis.title=element_blank(), 
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+  geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(Timepoint ~ individualID)
+dot.plot
+ggplot2::ggsave("enrichedTFs_dotPlot.pdf", dot.plot, width=12, height=49) 
+```
+
+
+### plot top enriched pathways
+```{r plot top results, echo = FALSE}
+library(plyr);library(dplyr);library(ggplot2)
+tf.path <- file.path(getwd(),"TF")
+setwd(tf.path)
+
+moa.info2 <- dplyr::distinct(ntfs[,c("Drug","moa")])
+# create tile plot for drug pathway annotations
+  moa.plot <- ggplot2::ggplot(moa.info2, aes(x=Drug,y=1, fill=moa)) + 
+  geom_tile() + scale_x_discrete(limits=all.drugs) + theme_classic(base_size=12) +
+  theme(axis.ticks=element_blank(), axis.text = element_blank(), axis.title=element_blank(),
+        axis.line=element_blank()) + labs(fill="Drug Mechanism")
+ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
+
+n.top.list <- c(1, 2, 3, 5)
+for (n.top in n.top.list) {
+  ### pathway
+  topSigpathway <- data.frame()
+  for (i in all.drugs) {
+    tempSig <- allcontrast[allcontrast$Drug == i &
+                              allcontrast$sig,] %>% slice_max(abs(score), n=n.top)
+    topSigpathway <- rbind(topSigpathway, tempSig)
+  }
+  length(unique(topSigpathway$source)) # 20
+  dot.df <- allcontrast[allcontrast$source %in% unique(topSigpathway$source),]
+  
+  mean.results <- plyr::ddply(dot.df, .(source), summarize,
+                              score = mean(score, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$score),]$source
+  drugOrder <- unlist(drug.info)
+  
+  dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+  dot.df$minusLogFDR <- -log(dot.df[,"padj"], base = 10)
+  maxAbsscore <- ceiling(max(abs(dot.df$score)))
+  dot.plot <- ggplot2::ggplot(
+    na.omit(dot.df),
+    ggplot2::aes(
+      x = Drug, y = source, color = score,
+      size = minusLogFDR
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    ggplot2::scale_x_discrete(limits=all.drugs) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsscore, maxAbsscore)) +
+    #viridis::scale_color_viridis() +
+    theme_minimal(base_size=12) +
+    ggplot2::labs(color = "Score", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+          axis.title = element_blank()) +
+    geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+    facet_grid(Timepoint~individualID)
+  dot.plot
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedTFs_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top<2,4,2*n.top))
+}
+
+```
+
+
+### plot top enriched pathways for each drug MOA
+```{r plot top results per MOA, echo = FALSE}
+library(plyr);library(dplyr);library(ggplot2)
+tf.path <- file.path(getwd(),"TF")
+setwd(tf.path)
+
+n.top.list <- c(1, 2, 3, 5)
+for (moa in all.moas) {
+  temp.drugs <- names(drug.info[drug.info == moa])
+  for (n.top in n.top.list) {
+    ### pathway
+    topSigpathway <- data.frame()
+    for (i in temp.drugs) {
+      tempSig <- allcontrast[allcontrast$Drug == i &
+                           allcontrast$signif,] %>% slice_max(abs(score), n=n.top)
+      topSigpathway <- rbind(topSigpathway, tempSig)
+    }
+    dot.df <- allcontrast[allcontrast$source %in% unique(topSigpathway$source) &
+                        allcontrast$Drug %in% temp.drugs,]
+    if (nrow(dot.df) > 0) {
+      mean.results <- plyr::ddply(dot.df, .(source), summarize,
+                                  score = mean(score, na.rm=TRUE))
+      setOrder <- mean.results[order(mean.results$score),]$source
+      drugOrder <- unlist(drug.info)
+      
+      dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+      dot.df$minusLogFDR <- -log(dot.df[,"padj"], base = 10)
+      maxAbsscore <- ceiling(max(abs(dot.df$score)))
+      dot.plot <- ggplot2::ggplot(
+        na.omit(dot.df),
+        ggplot2::aes(
+          x = Drug, y = source, color = score,
+          size = minusLogFDR
+        )
+      ) +
+        ggplot2::geom_point() +
+        ggplot2::scale_y_discrete(limits = setOrder) +
+        ggplot2::scale_x_discrete(limits=temp.drugs) +
+        scale_color_gradient2(low="blue",high="red", mid="grey", 
+                              limits=c(-maxAbsscore, maxAbsscore)) +
+        #viridis::scale_color_viridis() +
+        theme_minimal(base_size=12) +
+        ggplot2::labs(color = "Score", size = "-log(FDR)") + 
+        theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+              axis.title = element_blank()) +
+        geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21)
+      if (length(unique(dot.df$Timepoint)) > 0 & length(unique(dot.df$individualID)) > 0) {
+        dot.plot <- dot.plot + facet_grid(Timepoint~individualID)
+      } else if (length(unique(dot.df$Timepoint)) > 0) {
+        dot.plot <- dot.plot + facet_grid(Timepoint~.)
+      }else if (length(unique(dot.df$individualID)) > 0) {
+        dot.plot <- dot.plot + facet_grid(.~individualID)
+      }
+      dot.plot
+      customWidth <- ifelse(length(temp.drugs) < 3, 5, length(temp.drugs)+2)
+      ggplot2::ggsave(paste0(moa, "_",n.top,"_topEnrichedTFs_dotPlot.pdf"), 
+                      dot.plot, width=customWidth, height=ifelse(n.top<3,3,n.top)) 
+    }
+  } 
+}
+```
+
+
+### upset plots to see overlap across drug treatments
+```{r plot overlap of results, echo = FALSE}
+for (m in individualID) {
+  # generate list of significant results
+  sigList <- list()
+  for (i in all.drugs) {
+    if (nrow(allcontrast[allcontrast$Drug == i & 
+                          allcontrast$individualID == m & allcontrast$signif,]) > 0) {
+      sigList[[i]] <- na.omit(unique(allcontrast[allcontrast$Drug == i & 
+                                                    allcontrast$individualID == m & allcontrast$signif,]$source)) 
+    }
+  }
+  
+  if (length(sigList) > 1) {
+    # convert to matrix
+    myPlot = ComplexHeatmap::make_comb_mat(sigList)
+    pdf(file.path(tf.path,paste0(m,"_enrichedTF_upsetPlot.pdf")))
+    up <- ComplexHeatmap::UpSet(myPlot)
+    ComplexHeatmap::draw(up)
+    dev.off()
+  }
+}
+```
