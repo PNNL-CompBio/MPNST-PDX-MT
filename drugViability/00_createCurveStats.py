@@ -19,26 +19,37 @@ multidose = []
 for index,row in filelist.iterrows():
   #print(row['id'])
   dfile = pd.read_csv(syn.get(row['entityId']).path)
-  if any(dfile['dataSubtype'] == 'processed'):
+  if all(dfile['dataSubtype'] == 'processed'):
       dfile['improve_sample_id'] = row['specimenID']
       dfile = dfile.reset_index()
       
       ##get counts of drugs to only keep drugs with >1 dose for curve fitting
       dcounts = dfile.groupby("drugName").count().reset_index()
-      if any(dcounts.concentration>1):
-          more = dcounts[dcounts.concentration>1]['drugName']
-          multidose.append(dfile[dfile.drugName.isin(set(more))])
+      #print(dcounts)
+      if any(dcounts['concentration']>1):
+          #print("multi")
+          more = dcounts[dcounts['concentration']>1]['drugName']
+          #print(list(set(more)))
+          tempMulti = dfile[dfile['drugName'].isin(list(set(more)))]
+          #print(tempMulti)
+          multidose.append(tempMulti)
+          #print(len(multidose))
       
       ## also get single data points
-      if any(dcounts.concentration==1):
-          sings = dcounts[dcounts.concentration==1]['drugName']
-          singledose.append(dfile[dfile.drugName.isin(set(sings))])
+      if any(dcounts['concentration']==1):
+          #print("single")
+          sings = dcounts[dcounts['concentration']==1]['drugName']
+          #print(list(set(sings)))
+          tempSingle = dfile[dfile['drugName'].isin(list(set(sings)))]
+          #print(tempSingle)
+          singledose.append(tempSingle)
+          #print(len(singledose))
 
 
 ####first fit multidose curves...
-if not multidose:
+if len(multidose) > 0:
+    print("compiling multi: ", len(multidose))
     fulltab = pd.concat(multidose)
-    #print(fulltab)
     #fulltab['DOSE']=fulltab.concentration#+0.0001 # check if should add 0.0001? perhaps cNF data had 0 values
     fulltab = fulltab.rename(columns={"concentration": "DOSE", "percentViability": "GROWTH",
                             "timePoint": "time", "timePointUnit": "time_unit",
@@ -48,6 +59,11 @@ if not multidose:
     ##mutate the values create new columns
     ncols=['DOSE','GROWTH','study','source','improve_sample_id','Drug','time','time_unit']
     fulltab = fulltab[ncols]
+    # there was a percentViability == "147.128*" - seems like it might be 147.1288 but double check
+    if any(fulltab['GROWTH'].str.contains("\*")):
+        print("replacing asterisk")
+        fulltab["GROWTH"] = fulltab["GROWTH"].str.replace("*","8")
+    fulltab['GROWTH'] = pd.to_numeric(fulltab['GROWTH'])
     ##change file headers to DOSE/RESPONSE values needed by other script
     fulltab.to_csv('mpnst_drug_response.tsv',sep='\t')
     
@@ -60,12 +76,14 @@ else:
     otab = pd.DataFrame()
 
 #####now we can take single drug points and format those
-if not singledose:
+if len(singledose) > 0:
+    print("compiling single: ", len(singledose))
     stab = pd.concat(singledose)
     stab = stab.rename(columns={"drugName": "improve_drug_id", 
                             "timePoint": "time", "timePointUnit": "time_unit"})
     stab['study']='mpnstPDXMT'
     stab['source']='synapse'
+    stab['percentViability'] = pd.to_numeric(stab['percentViability'])
     stab['dose_response_value'] = stab.percentViability/100.00
     stab['dose_response_metric'] = 'uM_viability' # not sure, but concentrationUnit='uM' and assay='cell viability assay', platform='3D CellTiter-Glo'
 
