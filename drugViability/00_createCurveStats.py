@@ -40,7 +40,7 @@ if len(multidose) > 0:
     fulltab = pd.concat(multidose)
     #print(fulltab)
     #fulltab['DOSE']=fulltab.concentration#+0.0001 # check if should add 0.0001? perhaps cNF data had 0 values
-    fulltab.rename(columns={"concentration": "DOSE", "percentViability": "GROWTH",
+    fulltab = fulltab.rename(columns={"concentration": "DOSE", "percentViability": "GROWTH",
                             "timePoint": "time", "timePointUnit": "time_unit",
                             "drugName": "Drug"})
     fulltab['study']='mpnstPDXMT'
@@ -62,7 +62,7 @@ else:
 #####now we can take single drug points and format those
 if len(singledose) > 0:
     stab = pd.concat(singledose)
-    stab.rename(columns={"drugName": "improve_drug_id", 
+    stab = stab.rename(columns={"drugName": "improve_drug_id", 
                             "timePoint": "time", "timePointUnit": "time_unit"})
     stab['study']='mpnstPDXMT'
     stab['source']='synapse'
