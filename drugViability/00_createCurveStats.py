@@ -39,11 +39,11 @@ for index,row in filelist.iterrows():
 if len(multidose) > 0:
     fulltab = pd.concat(multidose)
     #print(fulltab)
-    fulltab['DOSE']=fulltab.Concentration_uM+0.0001
-    fulltab['GROWTH']=fulltab.Viability_percentage
-    fulltab['time']=120
-    fulltab['time_unit']='hours'
-    fulltab['study']='cnfPDO'
+    #fulltab['DOSE']=fulltab.concentration#+0.0001 # check if should add 0.0001? perhaps cNF data had 0 values
+    fulltab.rename(columns={"concentration": "DOSE", "percentViability": "GROWTH",
+                            "timePoint": "time", "timePointUnit": "time_unit",
+                            "drugName": "Drug"})
+    fulltab['study']='mpnstPDXMT'
     fulltab['source']='synapse'
     ##mutate the values create new columns
     ncols=['DOSE','GROWTH','study','source','improve_sample_id','Drug','time','time_unit']
@@ -62,14 +62,12 @@ else:
 #####now we can take single drug points and format those
 if len(singledose) > 0:
     stab = pd.concat(singledose)
-    stab['Drug'] = stab['drugName']
-    stab['time']=stab['timePoint']
-    stab['time_unit']=stab['timePointUnit']
+    stab.rename(columns={"drugName": "improve_drug_id", 
+                            "timePoint": "time", "timePointUnit": "time_unit"})
     stab['study']='mpnstPDXMT'
     stab['source']='synapse'
-    stab['improve_drug_id']=stab.Drug
-    stab['dose_response_value'] = stab.relativeLightUnits # was fraction for cNF data (%/100)
-    stab['dose_response_metric'] = 'uM_viability'
+    stab['dose_response_value'] = stab.percentViability/100.00
+    stab['dose_response_metric'] = 'uM_viability' # not sure, but concentrationUnit='uM' and assay='cell viability assay', platform='3D CellTiter-Glo'
 
     curve_cols = ['source','improve_sample_id','improve_drug_id','study','time','time_unit',
               'dose_response_metric','dose_response_value']
