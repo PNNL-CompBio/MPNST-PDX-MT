@@ -20,6 +20,9 @@ if (any(diffex$individualID == "skipped C due to lack of DMSO control\n")) {
   diffex <- diffex[diffex$individualID != "skipped C due to lack of DMSO control\n",]
 }
 diffex$stat <- as.numeric(diffex$stat)
+if (any(diffex$Drug == "Ribociblib")) {
+  diffex[diffex$Drug == "Ribociblib",]$Drug <- "Ribociclib"
+}
 counts_ens<-readr::read_csv(synapser::synGet('syn64398049')$path)
 
 ```
@@ -168,7 +171,7 @@ allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
 subset(allcontrast,padj<0.01)|>
   ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+
   geom_point()+coord_flip()+facet_grid(Timepoint~individualID)
-
+#allcontrast[allcontrast$Drug=="Ribociblib",]$Drug <- "Ribociclib"
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
 synapser::synStore(sf)
