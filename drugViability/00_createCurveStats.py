@@ -36,7 +36,7 @@ for index,row in filelist.iterrows():
 
 
 ####first fit multidose curves...
-if len(multidose) > 0:
+if not multidose:
     fulltab = pd.concat(multidose)
     #print(fulltab)
     #fulltab['DOSE']=fulltab.concentration#+0.0001 # check if should add 0.0001? perhaps cNF data had 0 values
@@ -60,7 +60,7 @@ else:
     otab = pd.DataFrame()
 
 #####now we can take single drug points and format those
-if len(singledose) > 0:
+if not singledose:
     stab = pd.concat(singledose)
     stab = stab.rename(columns={"drugName": "improve_drug_id", 
                             "timePoint": "time", "timePointUnit": "time_unit"})
