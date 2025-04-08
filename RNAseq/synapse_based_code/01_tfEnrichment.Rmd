@@ -16,6 +16,10 @@ synLogin()
 
 counts<-readr::read_csv(synapser::synGet('syn64398051')$path)
 diffex<-read.csv(synapser::synGet('syn64397743')$path) # vector memory error if use readr
+if (any(diffex$individualID == "skipped C due to lack of DMSO control\n")) {
+  diffex <- diffex[diffex$individualID != "skipped C due to lack of DMSO control\n",]
+}
+diffex$stat <- as.numeric(diffex$stat)
 counts_ens<-readr::read_csv(synapser::synGet('syn64398049')$path)
 
 ```
@@ -126,11 +130,9 @@ I think this plot is more a message of where the outliers lie rather than the ac
 
 ## Transcription factors by Drug
 
-Here we use t statistics as input to decoupler, so that we cna identify the TFs that are changing positively or negatively in each Drug treatment. 
+Here we use t statistics as input to decoupler, so that we can identify the TFs that are changing positively or negatively in each Drug treatment. 
 
 ```{r tfs by Drug,warning=FALSE, message=FALSE}
-
-
 allcontrast<-do.call(rbind,lapply(unique(diffex$individualID),function(ind){
   do.call(rbind,lapply(unique(diffex$Drug),function(d){
     do.call(rbind,lapply(unique(diffex$Timepoint),function(ti){
@@ -144,41 +146,43 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$individualID),function(ind){
         tibble::column_to_rownames('ensembl_gene_id')
       dtab <- na.omit(dtab)
       if (nrow(dtab)>0) {
-       contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'stat', drop = FALSE], 
-                                    net = enet, 
-                                    .source = 'source', 
+       contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'stat', drop = FALSE],
+                                    net = enet,
+                                    .source = 'source',
                                     .target = 'target',
-                                    .mor='mor', 
+                                    .mor='mor',
                                     minsize = 5)|>
         ungroup()|>
-        mutate(Drug=d,Timepoint=ti,individualID=ind) 
+        mutate(Drug=d,Timepoint=ti,individualID=ind)
       } else {
+        warning("0 rows for ", ti, d, ind)
         contrast_acts <- data.frame()
       }
       return(contrast_acts)
         }))
     }))
 }))
-# 0 rows in allcontrast
 
 allcontrast$padj<-p.adjust(allcontrast$p_value)
 allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
-subset(allcontrast,padj<0.01)|>ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+geom_point()+coord_flip()+facet_grid(~Timepoint)
+subset(allcontrast,padj<0.01)|>
+  ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+
+  geom_point()+coord_flip()+facet_grid(Timepoint~individualID)
 
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
-#synapser::synStore(sf)
+synapser::synStore(sf)
 
 md <- allcontrast|>
-  dplyr::select(Drug,Timepoint)|>
+  dplyr::select(Drug,Timepoint,individualID)|>
   distinct()|>
-  tidyr::unite(Drug,Timepoint,col='DrugTimepoint',remove=FALSE)|>
-  tibble::column_to_rownames('DrugTimepoint')
+  tidyr::unite(Drug,Timepoint,individualID,col='DrugTimepointMPNST',remove=FALSE)|>
+  tibble::column_to_rownames('DrugTimepointMPNST')
 
 mat<-allcontrast|>
-  dplyr::select(source,Drug,Timepoint,score)|>
-  tidyr::unite(Drug,Timepoint,col='DrugTimepoint')|>
-  pivot_wider(names_from=DrugTimepoint,values_from=score,values_fill = 0.0)
+  dplyr::select(source,Drug,Timepoint,individualID,score)|>
+  tidyr::unite(Drug,Timepoint,individualID,col='DrugTimepointMPNST')|>
+  pivot_wider(names_from=DrugTimepointMPNST,values_from=score,values_fill = 0.0)
 
 subset(allcontrast,source%in%c('ZEB1','STAT1','EGR1','RELA'))|>
   ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+
@@ -195,7 +199,9 @@ pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
 
 comps<-cbind(pcs$rotation[rownames(md),],md)|>unique()
 comps|>
-  ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))
+  ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+
+  geom_point()+#ggrepel::geom_label_repel(aes(label=Drug))+
+  facet_grid(~individualID)
 ```
 
 
