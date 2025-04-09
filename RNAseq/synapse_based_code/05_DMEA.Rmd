@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 
 # load packages
-if (require(panSEA)) {
+if (!require(panSEA)) {
   if (!require("devtools", quietly = TRUE))
   install.packages("devtools")
   
