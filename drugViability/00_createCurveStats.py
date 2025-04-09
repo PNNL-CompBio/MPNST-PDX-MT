@@ -62,7 +62,7 @@ if len(multidose) > 0:
     # there was a percentViability == "147.128*" - seems like it might be 147.1288 but double check
     if any(fulltab['GROWTH'].str.contains("\*")):
         print("replacing asterisk")
-        fulltab["GROWTH"] = fulltab["GROWTH"].str.replace("*","8")
+        fulltab["GROWTH"] = fulltab["GROWTH"].replace(r'\*','', regex=True)
     fulltab['GROWTH'] = pd.to_numeric(fulltab['GROWTH'])
     ##change file headers to DOSE/RESPONSE values needed by other script
     fulltab.to_csv('mpnst_drug_response.tsv',sep='\t')
