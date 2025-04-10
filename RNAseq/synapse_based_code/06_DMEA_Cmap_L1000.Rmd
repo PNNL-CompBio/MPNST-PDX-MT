@@ -77,7 +77,7 @@ build_L1000 <- function() {
 synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
 diffexp <- read.csv(synapser::synGet('syn64397743')$path)
-degs <- na.omit(diffexp[diffexp$padj <= 0.05,])
+degs <- na.omit(diffexp)#[diffexp$padj <= 0.05,])
 degs$log2FoldChange <- as.numeric(degs$log2FoldChange)
 if (any(degs$drug=="Ribociblib")) {
  degs[degs$drug=="Ribociblib",]$drug <- "Ribociclib" 
@@ -113,16 +113,19 @@ base.path <- getwd()
 dmea.path <- file.path(base.path, "DMEA_Cmap_L1000")
 dir.create("DMEA_Cmap_L1000")
 
+old.degs <- read.csv(file.path(base.path,"DMEA_Cmap_L1000_sigOnly/Top_150_DEGs_by_absLog2FC_noTies.csv"))
 all.drug.degs <- data.frame()
 for (i in timepoints) {
   # filter for time
   time.deg <- degs.L1000[degs.L1000$Timepoint == i,]
+  old.time.deg <- old.degs[old.degs$Timepoint == i,]
   
   temp.dmea.sens <- list()
   temp.drug.corr.sens <- list()
   for (m in mpnst) {
     # filter for mpnst
     mpnst.deg <- time.deg[time.deg$individualID == m,]
+    old.mpnst.deg <- old.time.deg[old.time.deg$individualID == m,]
     # prep inputs for each drug
     drug.degs <- list()
     #expr <- list()
@@ -137,10 +140,19 @@ for (i in timepoints) {
       }
       #temp.deg <- temp.deg[temp.deg$Gene %in% colnames(ccle)[2:ncol(ccle)],]
       if (nrow(temp.deg) > 0) {
+        old.temp.deg <- old.mpnst.deg[old.mpnst.deg$Drug == j,]
         up.deg <- temp.deg[temp.deg$Log2FC>0,] %>% slice_max(Log2FC, n=150, with_ties=FALSE)
+        old.up.deg <- old.temp.deg[old.temp.deg$Log2FC > 0,]
         dn.deg <- temp.deg[temp.deg$Log2FC<0,] %>% slice_min(Log2FC, n=150, with_ties=FALSE)
+        old.up.deg <- old.temp.deg[old.temp.deg$Log2FC > 0,]
         if (nrow(up.deg) >= 10 & nrow(dn.deg) >= 10) {
-          drug.degs[[j]] <- rbind(up.deg, dn.deg) 
+          temp.drug.degs <- rbind(up.deg, dn.deg)
+          temp.drug.degs$redo <- TRUE
+          if (identical(sort(up.deg$Gene), sort(old.up.deg$Gene)) &
+              identical(sort(dn.deg$Gene), sort(old.dn.deg$Gene))) {
+            temp.drug.degs$redo <- FALSE
+          }
+          drug.degs[[j]] <- temp.drug.degs 
         }
       }
     }
