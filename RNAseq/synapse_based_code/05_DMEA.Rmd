@@ -86,7 +86,8 @@ get_CCLE_RNA <- function(hgnc = FALSE) {
 synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
 diffexp <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
-degs <- diffexp[diffexp$padj <= 0.05,]
+degs <- diffexp#[diffexp$padj <= 0.05,]
+degs$log2FoldChange <- as.numeric(degs$log2FoldChange)
 
 # CCLE RNA-seq with HGNC symbols
 ccle <- get_CCLE_RNA(hgnc = TRUE)
@@ -129,15 +130,17 @@ mpnst <- na.omit(unique(degs$individualID))
 base.path <- getwd()
 dmea.path <- file.path(base.path, "DMEA")
 dir.create("DMEA")
+setwd("DMEA")
 
 dmea.sens <- list()
 drug.corr.sens <- list()
 for (i in timepoints) {
-  setwd(dmea.path)
-  dir.create(i)
-  setwd(i)
-  timeSyn <- synapser::synStore(synapser::Folder(i, 
-                                parent = synapse_id)) 
+  #setwd(dmea.path)
+  cat(i, "\n")
+  #dir.create(i)
+  #setwd(i)
+  # timeSyn <- synapser::synStore(synapser::Folder(i, 
+  #                               parent = synapse_id)) 
   
   # filter for time
   time.deg <- degs[degs$Timepoint == i,]
@@ -145,11 +148,12 @@ for (i in timepoints) {
   temp.dmea.sens <- list()
   temp.drug.corr.sens <- list()
  for (m in mpnst) {
-  setwd(file.path(dmea.path, i))
-  dir.create(m)
-  setwd(m)
-  tempSyn <- synapser::synStore(synapser::Folder(m, 
-                                parent = timeSyn)) 
+  #setwd(file.path(dmea.path, i))
+  #dir.create(m)
+  #setwd(m)
+  # tempSyn <- synapser::synStore(synapser::Folder(m, 
+  #                               parent = timeSyn)) 
+  cat(m, "\n")
   
   # filter for mpnst
   mpnst.deg <- time.deg[time.deg$individualID == m,]
@@ -176,20 +180,20 @@ for (i in timepoints) {
   # also run analysis for each drug
   drugResults <- panSEA::mDMEA(drug.sensitivity = prism, gmt = gmt.drug,
                                  expression = expr, weights = drug.degs,
-                                 types = names(drug.degs))
-  temp.files <- list()
-  tested.drugs <- names(drugResults$all.results)
-  for (j in tested.drugs) {
-    temp.files[[j]] <- extract_DMEA_files(drugResults, j)
-  }
-  temp.files[["Compiled"]] <- 
-    list("DMEA_results.csv" = drugResults$compiled.results$results,
-         "Compiled_DMEA_results.csv" = drugResults$compiled.results$mean.results,
-         "DMEA_venn_diagram.pdf" = drugResults$compiled.results$venn.diagram,
-         "DMEA_dot_plot.pdf" = drugResults$compiled.results$dot.plot,
-         "DMEA_correlations.csv" = drugResults$compiled.results$corr,
-         "DMEA_correlation_matrix.pdf" =drugResults$compiled.results$corr.matrix)
-  save_to_synapse_v2(temp.files, tempSyn)
+                                 types = names(drug.degs), scatter.plots=FALSE)
+  # temp.files <- list()
+  # tested.drugs <- names(drugResults$all.results)
+  # for (j in tested.drugs) {
+  #   temp.files[[j]] <- extract_DMEA_files(drugResults, j)
+  # }
+  # temp.files[["Compiled"]] <- 
+  #   list("DMEA_results.csv" = drugResults$compiled.results$results,
+  #        "Compiled_DMEA_results.csv" = drugResults$compiled.results$mean.results,
+  #        "DMEA_venn_diagram.pdf" = drugResults$compiled.results$venn.diagram,
+  #        "DMEA_dot_plot.pdf" = drugResults$compiled.results$dot.plot,
+  #        "DMEA_correlations.csv" = drugResults$compiled.results$corr,
+  #        "DMEA_correlation_matrix.pdf" =drugResults$compiled.results$corr.matrix)
+  # save_to_synapse_v2(temp.files, tempSyn)
   
   temp.dmea.sens[[m]] <- drugResults$compiled.results$result
   
