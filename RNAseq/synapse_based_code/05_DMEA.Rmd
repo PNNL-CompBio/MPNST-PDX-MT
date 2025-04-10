@@ -85,9 +85,8 @@ get_CCLE_RNA <- function(hgnc = FALSE) {
 ```{r load inputs, echo = FALSE}
 synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
-diffexp <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
-degs <- diffexp#[diffexp$padj <= 0.05,]
-degs$log2FoldChange <- as.numeric(degs$log2FoldChange)
+degs <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
+#degs <- diffexp[diffexp$padj <= 0.05,]
 
 # CCLE RNA-seq with HGNC symbols
 ccle <- get_CCLE_RNA(hgnc = TRUE)
@@ -163,10 +162,13 @@ for (i in timepoints) {
   expr <- list()
   all.drugs <- na.omit(unique(mpnst.deg$Drug))
   for (j in all.drugs) {
+    cat(j,"(",which(all.drugs == j),"/",length(all.drugs),"drugs)\n")
     temp.deg <- na.omit(dplyr::distinct(
-      mpnst.deg[mpnst.deg$Drug == j,c("hgnc_symbol","log2FoldChange")]))
+      mpnst.deg[mpnst.deg$Drug == j,
+                c("hgnc_symbol","log2FoldChange")]))
     colnames(temp.deg) <- c("Gene", "Log2FC")
     if (any(duplicated(temp.deg$Gene))) {
+      cat("resolving duplicates\n")
       temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
                               Log2FC = mean(Log2FC))
     }
@@ -199,11 +201,13 @@ for (i in timepoints) {
   
   # also compile drug correlations
   drug.corr.list <- list()
-  for (j in tested.drugs) {
+  for (j in all.drugs) {
     drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
   }
   drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "DrugTreatment")
   temp.drug.corr.sens[[m]] <- drug.corr.df
+  saveRDS(temp.dmea.sens, file.path(dmea.path,"tempDMEAsens8h.rds"))
+  saveRDS(temp.drug.corr.sens, file.path(dmea.path,"tempDMEAcorrSens8h.rds"))
  }  
   temp.drug.corr.sens.df <- data.table::rbindlist(temp.drug.corr.sens, use.names=TRUE, idcol="MPNST")
   temp.dmea.sens.df <- data.table::rbindlist(temp.dmea.sens, use.names=TRUE, idcol="MPNST")
