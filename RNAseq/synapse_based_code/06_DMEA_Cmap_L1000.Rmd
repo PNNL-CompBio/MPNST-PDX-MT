@@ -76,8 +76,8 @@ build_L1000 <- function() {
 ```{r load inputs, echo = FALSE}
 synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
-diffexp <- read.csv(synapser::synGet('syn64397743')$path)
-degs <- na.omit(diffexp)#[diffexp$padj <= 0.05,])
+degs <- read.csv(synapser::synGet('syn64397743')$path)
+#degs <- na.omit(diffexp)#[diffexp$padj <= 0.05,])
 degs$log2FoldChange <- as.numeric(degs$log2FoldChange)
 if (any(degs$drug=="Ribociblib")) {
  degs[degs$drug=="Ribociblib",]$drug <- "Ribociclib" 
@@ -144,7 +144,7 @@ for (i in timepoints) {
         up.deg <- temp.deg[temp.deg$Log2FC>0,] %>% slice_max(Log2FC, n=150, with_ties=FALSE)
         old.up.deg <- old.temp.deg[old.temp.deg$Log2FC > 0,]
         dn.deg <- temp.deg[temp.deg$Log2FC<0,] %>% slice_min(Log2FC, n=150, with_ties=FALSE)
-        old.up.deg <- old.temp.deg[old.temp.deg$Log2FC > 0,]
+        old.dn.deg <- old.temp.deg[old.temp.deg$Log2FC < 0,]
         if (nrow(up.deg) >= 10 & nrow(dn.deg) >= 10) {
           temp.drug.degs <- rbind(up.deg, dn.deg)
           temp.drug.degs$redo <- TRUE
