@@ -226,11 +226,19 @@ pcvals<-pcs$rotation|>
   dplyr::select(PC1,PC2)|>
   tibble::rownames_to_column('id')|>
   left_join(sampmeta)
+pcvals$Timepoint <- factor(pcvals$Timepoint, c("0h", "8h", "24h"))
 
- ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,shape=Timepoint))+geom_point(aes(size=4))+
+ ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,shape=Timepoint))+geom_point(size=4)+
    facet_grid(~indDate)+scale_color_discrete()
-
  ggsave('batched_pca.png',width=12,height=6)
+ 
+  ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,alpha=Timepoint, shape=indDate))+geom_point(size=4)+
+   scale_alpha_discrete(range=c(0.1,1))+scale_color_discrete()
+ ggsave('batched_pca_noFacet.png',width=8,height=8)
+ 
+ ggplot(pcvals[pcvals$Date %in% c("B", "C"),],aes(x=PC1,y=PC2,col=Drug,alpha=Timepoint, shape=indDate))+geom_point(size=4)+
+   scale_alpha_discrete(range=c(0.1,1))+scale_color_discrete()
+ ggsave('batched_pca_noFacet_datesBC.png',width=8,height=6)
  
 ```
 
