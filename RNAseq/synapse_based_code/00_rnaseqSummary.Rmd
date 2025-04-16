@@ -46,8 +46,8 @@ rnaSeqTab<-getRNASeq<-function(){
   
  ##not sure what the 'samples' are here so isolating them out
 
- samples<-manifest$name[grep('sample',manifest$name)]
- mnt<-manifest$name[grep('MN-2',manifest$name)]
+ #samples<-manifest$name[grep('sample',manifest$name)]
+ #mnt<-manifest$name[grep('MN-2',manifest$name)]
 
  batch1metadata<-readr::read_csv(synGet('syn64608368')$path)|>
    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
@@ -64,21 +64,26 @@ rnaSeqTab<-getRNASeq<-function(){
  mn2_b1<-manifest|>#subset(name%in%mnt)|>
     dplyr::right_join(batch1metadata)|>
    dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
+ 
  mn2_b2<-manifest|>
    tidyr::separate(name,into=c('Proceeded_id','sf'),sep='_quant.genes.')|>
    dplyr::select(-specimenID)|>
    dplyr::right_join(batch2metadata)|>
     dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
+ 
  jh2002_b3 <- manifest|>
    dplyr::filter(stringr::str_starts(name, "B3_"))
- jh2002_b3$specimenID <- sub("_quant.genes.sf","",jh2002_b3$name)
- jh2002_b3 <- merge(jh2002_b3, batch3metadata, by="specimenID", all=TRUE)
- warning("missing synIDs for ", paste(jh2002_b3[is.na(jh2002_b3$id),]$specimenID, collapse=" "))
- jh2002_b3 <- jh2002_b3[!is.na(jh2002_b3$id),]|>
+ jh2002_b3$specimenID <- sub(".quant.genes.sf","",jh2002_b3$name) # filenames used to end in _quant.genes.sf before April 2, 2025
+ jh2002_b3 <- merge(jh2002_b3, batch3metadata, by="specimenID", all=TRUE) |> 
    dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
    
  
  allmeta<-rbind(mn2_b1,mn2_b2,jh2002_b3)
+ if (any(is.na(allmeta$id))) {
+   warning("missing synIDs for ", paste(allmeta[is.na(allmeta$id),]$specimenID, collapse=" ")) 
+   allmeta <- allmeta[!is.na(allmeta$id),]
+ }
+ 
  mtab<-do.call(rbind,lapply(allmeta$id,function(x){
    readr::read_tsv(synapser::synGet(x)$path)|>
       dplyr::mutate(id=x)
