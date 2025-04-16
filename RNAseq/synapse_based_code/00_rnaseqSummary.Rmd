@@ -55,7 +55,7 @@ rnaSeqTab<-getRNASeq<-function(){
  batch2metadata<-readr::read_csv(synGet('syn64608372')$path)|>
    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
    distinct()
- batch3metadata <- read.csv(synGet("syn65549564")$path)|>
+ batch3metadata <- read.csv(synGet("syn66050299")$path)|> # was syn6559564 before 20250415
    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
    distinct()
  batch3metadata$specimenID <- sub("-", "_", batch3metadata$specimenID)
@@ -87,7 +87,7 @@ rnaSeqTab<-getRNASeq<-function(){
  
   drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',
                   DEC='Decitabine',IRI='Irinotecan', IFO='Ifosfamide',
-                  OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',
+                  OLA='Olaparib',PAL='Palbociclib',RIB='Ribociclib',
                   TNO='TNO155',VIR='Vorinostat',VOR='Vorinostat',
                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',
                   TRAM='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
@@ -272,11 +272,14 @@ counts<-reduced.data|>
 
 diffexCalls<-do.call(rbind,lapply(unique(sampmeta$Date),function(dval){
   cat("Running diffexp for", dval,"\n")
-  datemeta<-subset(sampmeta,Date==dval)
-  mpnst <- unique(datemeta$individualID) # no need to filter for MPNST because only 1 MPNST per date
-  if (!("DMSO" %in% datemeta$Drug)) {
-    warning("skipped ",dval," due to lack of DMSO control\n")
+  if (dval == "C") { # use DMSO from group B for group C
+    datemeta <- na.omit(sampmeta[sampmeta$Date == dval | 
+                           (sampmeta$Drug == "DMSO" & sampmeta$Date == "B"),])
   } else {
+   datemeta<-subset(sampmeta,Date==dval) 
+  }
+  mpnst <- unique(datemeta$individualID) # no need to filter for MPNST because only 1 MPNST per date
+  if ("DMSO" %in% datemeta$Drug) {
     datemeta<-datemeta|>
       subset(Drug!='DMSO')
     ##check for each drug at the date
