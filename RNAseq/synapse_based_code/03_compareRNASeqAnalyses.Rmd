@@ -42,7 +42,7 @@ When you click the **Knit** button a document will be generated that includes bo
 ```{r load data}
 #synLogin()
 #all_exp<-readr::read_csv(synGet('syn64398051')$path)
-#diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
+diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
 #diffex_tfs<-readr::read_csv(synGet('syn64420968')$path)
 #diff_tf_scores<-readr::read_csv(synGet('syn64695280')$path)
 
@@ -120,6 +120,7 @@ subset(diffex_genes,padj<0.05)|>group_by(individualID,Drug,Timepoint,direction)|
 ggsave("Ndegs.pdf", width=5.5, height=5)
 
 
+
 # need to redo TF analysis with individualID
 # tfmat<-diffex_tfs|>
 #   dplyr::select(source,individualID, Drug,Timepoint,score)|>
@@ -167,6 +168,165 @@ ggsave("Ndegs.pdf", width=5.5, height=5)
 ```
 
 Conclusion: 8 hours is the most informative time point overall. Mirda and doxorubicin show more changes at 24 hrs. 
+
+```{r box and whisker, echo=FALSE}
+# prep data
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+diffex_genes <- read.csv(synapser::synGet('syn64397743')$path)
+diffex_genes$Drug <- factor(diffex_genes$Drug, levels=names(drug.info))
+timepoints <- c("8h", "24h")
+diffex_genes$Timepoint <- factor(diffex_genes$Timepoint, levels=timepoints)
+individualID <- c("MN-2", "JH-2-002")
+all.drugs <- levels(diffex_genes$Drug)
+all.moas <- sort(unique(unlist(drug.info)))
+drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
+names(drugCol) <- all.drugs
+
+sig.tf <- na.omit(diffex_genes[diffex_genes$padj <= 0.05 & diffex_genes$individualID %in% individualID,])
+ntfs <- plyr::ddply(sig.tf, .(individualID, Drug, Timepoint), dplyr::summarize,
+                    N = length(na.omit(unique(hgnc_symbol))))
+ntfs.overall <- plyr::ddply(sig.tf, .(Drug, Timepoint), dplyr::summarize,
+                    N = length(na.omit(unique(hgnc_symbol))))
+
+# are there more/less enriched tfs at 8h vs. 24h? No, p = 0.2003
+for (m in individualID) {
+ cat(m, "# of DEGs at 8h vs. 24h\n")
+  t.test(ntfs[ntfs$individualID==m & ntfs$Timepoint=="8h",]$N, 
+         ntfs[ntfs$individualID==m & ntfs$Timepoint=="24h",]$N) 
+}
+cat("Overall", "# of DEGs at 8h vs. 24h\n")
+t.test(ntfs.overall[ntfs.overall$Timepoint=="8h",]$N, 
+       ntfs.overall[ntfs.overall$Timepoint=="24h",]$N)
+
+cat("Overall", "# of DEGs in MN-2 vs. JH-2-002\n") # more in MN-2, p=2.567E-05
+t.test(ntfs[ntfs$individualID=="MN-2",]$N, 
+       ntfs[ntfs$individualID=="JH-2-002",]$N)
+
+ntfs$moa <- NA
+ntfs.overall$moa <- NA
+for (i in all.moas) {
+  temp.drugs <- names(drug.info[drug.info %in% i])
+  if (any(ntfs$Drug %in% temp.drugs)) {
+   ntfs[ntfs$Drug %in% temp.drugs,]$moa <- i 
+   ntfs.overall[ntfs.overall$Drug %in% temp.drugs,]$moa <- i
+  }
+}
+
+# generate plot
+ntfs$moa <- factor(ntfs$moa, levels=all.moas)
+ntf.plot <- ggplot2::ggplot(ntfs, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=Drug, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + 
+  scale_color_manual(limits=all.drugs, values=drugCol) +
+  labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+  theme_classic(base_size=12) +
+  theme(legend.box="horizontal") + facet_wrap(~individualID)
+ggplot2::ggsave("N_DEGs.pdf", ntf.plot, width=6, height=4.5)
+
+ntfs.overall$moa <- factor(ntfs.overall$moa, levels=all.moas)
+ntf.plot.overall <- ggplot2::ggplot(ntfs.overall, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=Drug, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+  labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("N_DEGs_overall.pdf", ntf.plot.overall, width=6, height=4.5)
+
+
+# # just MN-2
+# sig.tf <- na.omit(diffex_genes[diffex_genes$padj <= 0.05,])
+# ntfs <- plyr::ddply(sig.tf, .(Drug, Timepoint), dplyr::summarize,
+#                     N = length(na.omit(unique(hgnc_symbol))))
+# # generate plot
+# ntfs$moa <- NA
+# for (i in all.moas) {
+#   temp.drugs <- names(drug.info[drug.info %in% i])
+#   if (any(ntfs$Drug %in% temp.drugs)) {
+#    ntfs[ntfs$Drug %in% temp.drugs,]$moa <- i 
+#   }
+# }
+# ntfs$moa <- factor(ntfs$moa, levels=all.moas)
+# ntf.plot <- ggplot2::ggplot(ntfs, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+#   geom_point(aes(color=Drug, shape=moa)) +
+#   geom_boxplot(width=0.2, alpha = 0) + 
+#   scale_color_manual(limits=all.drugs, values=drugCol) +
+#   labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+#        color = "Drug Treatment", shape = "Mechanism") +
+#   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+#   theme_classic(base_size=12) +
+#   theme(legend.box="horizontal")
+# ggplot2::ggsave("N_DEGs_MN-2.pdf", ntf.plot, width=6, height=4.5)
+# sig.tf$individualID <- "MN-2"
+# 
+# JH2.de <- read.csv("totalRNASeqDiffExtoDate.csv")
+# JH2.de <- na.omit(JH2.de[JH2.de$padj <= 0.05 & JH2.de$individualID == "JH-2-002",])
+# all.sig.tf <- rbind(sig.tf, JH2.de)
+# 
+# ntfs <- plyr::ddply(all.sig.tf, .(individualID, Drug, Timepoint), dplyr::summarize,
+#                     N = length(na.omit(unique(hgnc_symbol))))
+# ntfs.overall <- plyr::ddply(all.sig.tf, .(Drug, Timepoint), dplyr::summarize,
+#                     N = length(na.omit(unique(hgnc_symbol))))
+# 
+# # are there more/less enriched tfs at 8h vs. 24h? No, p = 0.2003
+# for (m in individualID) {
+#  cat(m, "# of DEGs at 8h vs. 24h\n")
+#   t.test(ntfs[ntfs$individualID==m & ntfs$Timepoint=="8h",]$N, 
+#          ntfs[ntfs$individualID==m & ntfs$Timepoint=="24h",]$N) 
+# }
+# cat("Overall", "# of DEGs at 8h vs. 24h\n") # no difference, p = 0.7106 when Sara swapped samples back; 20250416: p = 0.3314
+# t.test(ntfs.overall[ntfs.overall$Timepoint=="8h",]$N, 
+#        ntfs.overall[ntfs.overall$Timepoint=="24h",]$N)
+# 
+# cat("Overall", "# of DEGs in MN-2 vs. JH-2-002\n") # no difference, p = 0.06382 when Sara swapped samples back; 20250416: p=0.0008461 (MN-2 has more DEGs than JH-2-002)
+# t.test(ntfs[ntfs$individualID=="MN-2",]$N, 
+#        ntfs[ntfs$individualID=="JH-2-002",]$N)
+# 
+# ntfs$moa <- NA
+# ntfs.overall$moa <- NA
+# for (i in all.moas) {
+#   temp.drugs <- names(drug.info[drug.info %in% i])
+#   if (any(ntfs$Drug %in% temp.drugs)) {
+#    ntfs[ntfs$Drug %in% temp.drugs,]$moa <- i 
+#    ntfs.overall[ntfs.overall$Drug %in% temp.drugs,]$moa <- i
+#   }
+# }
+# 
+# # generate plot
+# ntfs$moa <- factor(ntfs$moa, levels=all.moas)
+# ntf.plot <- ggplot2::ggplot(ntfs, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+#   geom_point(aes(color=Drug, shape=moa)) +
+#   geom_boxplot(width=0.2, alpha = 0) + 
+#   scale_color_manual(limits=all.drugs, values=drugCol) +
+#   labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+#        color = "Drug Treatment", shape = "Mechanism") +
+#   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+#   theme_classic(base_size=12) +
+#   theme(legend.box="horizontal") + facet_wrap(~individualID)
+# ggplot2::ggsave("N_DEGs_v2.pdf", ntf.plot, width=6, height=4.5)
+# 
+# ntfs.overall$moa <- factor(ntfs.overall$moa, levels=all.moas)
+# ntf.plot.overall <- ggplot2::ggplot(ntfs.overall, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+#   geom_point(aes(color=Drug, shape=moa)) +
+#   geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+#   labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+#        color = "Drug Treatment", shape = "Mechanism") +
+#   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
+#   theme(legend.box="horizontal")
+# ggplot2::ggsave("N_DEGs_overall_v2.pdf", ntf.plot.overall, width=6, height=4.5)
+
+
+
+```
 
 ## UMAP plots of data
 
