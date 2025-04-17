@@ -62,7 +62,7 @@ design<-counts_ens|>
 #                                 split_complexes = FALSE)
 # [OmnipathR] Failed to download `https://omabrowser.org/All/oma-species.txt` (attempt 1/3); error: vector memory exhausted (limit reached?)
 # readr::write_csv(net,file='collecTRI_complexes_network.csv')
-net <- read.csv(synapser::synGet("syn64713369")$path)
+# net <- read.csv(synapser::synGet("syn64713369")$path)
 
 # net <- decoupleR::get_collectri(organism = 'human', 
 #                                 split_complexes = TRUE)
@@ -295,7 +295,7 @@ mean.results <- plyr::ddply(dot.df, .(source), summarize,
 setOrder <- mean.results[order(mean.results$score),]$source
 
 dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
-dot.df$minusLogFDR <- -log(dot.df[,"padj"], base = 10)
+dot.df$minusLogFDR <- -log10(dot.df$padj)
 maxAbsscore <- ceiling(max(abs(dot.df$score)))
 dot.plot <- ggplot2::ggplot(
   na.omit(dot.df),
@@ -340,7 +340,7 @@ for (n.top in n.top.list) {
   topSigpathway <- data.frame()
   for (i in all.drugs) {
     tempSig <- allcontrast[allcontrast$Drug == i &
-                              allcontrast$sig,] %>% slice_max(abs(score), n=n.top)
+                              allcontrast$signif,] %>% slice_max(abs(score), n=n.top)
     topSigpathway <- rbind(topSigpathway, tempSig)
   }
   length(unique(topSigpathway$source)) # 20
@@ -352,7 +352,7 @@ for (n.top in n.top.list) {
   drugOrder <- unlist(drug.info)
   
   dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
-  dot.df$minusLogFDR <- -log(dot.df[,"padj"], base = 10)
+  dot.df$minusLogFDR <- -log10(dot.df$padj)
   maxAbsscore <- ceiling(max(abs(dot.df$score)))
   dot.plot <- ggplot2::ggplot(
     na.omit(dot.df),
@@ -406,7 +406,7 @@ for (moa in all.moas) {
       drugOrder <- unlist(drug.info)
       
       dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
-      dot.df$minusLogFDR <- -log(dot.df[,"padj"], base = 10)
+      dot.df$minusLogFDR <- -log10(dot.df$padj)
       maxAbsscore <- ceiling(max(abs(dot.df$score)))
       dot.plot <- ggplot2::ggplot(
         na.omit(dot.df),
