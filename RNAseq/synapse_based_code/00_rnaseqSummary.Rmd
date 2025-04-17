@@ -285,16 +285,15 @@ diffexCalls<-do.call(rbind,lapply(unique(sampmeta$Date),function(dval){
   }
   mpnst <- unique(datemeta$individualID) # no need to filter for MPNST because only 1 MPNST per date
   if ("DMSO" %in% datemeta$Drug) {
-    datemeta<-datemeta|>
-      subset(Drug!='DMSO')
+    temp.drugs <- unique(datemeta$Drug)
+    temp.drugs <- temp.drugs[temp.drugs != "DMSO"]
     ##check for each drug at the date
-    do.call(rbind,lapply(unique(datemeta$Drug),function(d_name){
+    do.call(rbind,lapply(temp.drugs,function(d_name){
       cat(d_name,"\n")
       ##check for each time point at the drug/date
       do.call(rbind,lapply(c('8h','24h'),function(tval){
         cat(tval,"\n")
-        samps<-subset(sampmeta,Date==dval)|>
-          subset(Timepoint==tval)|>
+        samps <- subset(datemeta, Timepoint==tval)|>
           subset(Drug%in%c(d_name,"DMSO"))|>
           subset(id%in%colnames(counts))
         samps$Drug <- factor(samps$Drug, levels=c("DMSO",d_name)) # make sure contrast is drug vs. dmso per DESeq2 vignette
@@ -356,6 +355,7 @@ if(!require(ggalluvial)){
   library('ggalluvial')
 }
 
+mpnst <- unique(sumstats$individualID)
 for (i in mpnst) {
  ggplot(data=sumstats[sumstats$individualID==i,],aes(axis1=Timepoint,axis2=Drug,y=numgenes))+geom_alluvium(aes(fill=direction))+
    geom_stratum()+
@@ -392,14 +392,14 @@ drugscounts<-subset(diffex,signif)|>group_by(Gene,Timepoint,direction)|>summariz
 dgenes<-diffex|>
   tidyr::separate(Gene,sep="\\.",into=c('ensembl_gene_id','Version'))
 
-# if (file.exists('map.csv')) {
-#   map <- read.csv('map.csv')
-# } else {
-#   library(biomaRt)
-#   ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-#   map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
-#   write.csv(map, 'map.csv', row.names = FALSE) 
-# }
+if (file.exists('map.csv')) {
+  map <- read.csv('map.csv')
+} else {
+  library(biomaRt)
+  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+  map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
+  write.csv(map, 'map.csv', row.names = FALSE) 
+}
 diffex_gene<-dgenes|>left_join(map)
 ##let's save this back to synapse for future reference
 readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
