@@ -52,7 +52,7 @@ rnaSeqTab<-getRNASeq<-function(){
  batch1metadata<-readr::read_csv(synGet('syn64608368')$path)|>
    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
    distinct()
- batch2metadata<-readr::read_csv(synGet('syn64608372')$path)|>
+ batch2metadata<-readr::read_csv(synGet('syn66302373')$path)|>
    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
    distinct()
  batch3metadata <- read.csv(synGet("syn66050299")$path)|> # was syn6559564 before 20250415
