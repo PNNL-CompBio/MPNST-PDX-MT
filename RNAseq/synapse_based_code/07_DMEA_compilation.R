@@ -10,21 +10,22 @@ setwd("DMEA_synergy")
 diffexp <- read.csv(synapser::synGet('syn64397743')$path)
 diffexp$log2FoldChange <- as.numeric(diffexp$log2FoldChange)
 diffexp$padj <- as.numeric(diffexp$padj)
+diffexp$Timepoint <- diffexp$Time
 diffexp$Timepoint <- factor(diffexp$Timepoint, levels=c("8h", "24h"))
 sens <- read.csv(synapser::synGet("syn65672258")$path)
 sens$sig <- FALSE
 sens[sens$p_value <= 0.05 & sens$FDR_q_value <= 0.25,]$sig <- TRUE
-colnames(sens)[1] <- "Timepoint" # change 'Time' to 'Timepoint'
+sens$Timepoint <- paste0(sens$Time, "h")
 sens$Timepoint <- factor(sens$Timepoint, levels=c("8h","24h"))
 
-sim <- read.csv(synapser::synGet("syn65674473")$path)
+sim <- read.csv(synapser::synGet("syn66310901")$path)
 sim$sig <- FALSE
 sim[sim$p_value <= 0.05 & sim$FDR_q_value <= 0.25,]$sig <- TRUE
 sim$Timepoint <- paste0(sim$Time, "h")
 sim$Timepoint <- factor(sim$Timepoint, levels=c("8h","24h"))
 
 # how many MOAs are evaluated for both sens and sim?
-allSharedMOAs <- na.omit(unique(sens$Drug_set[sens$Drug_set %in% sim$Drug_set])) # 26
+allSharedMOAs <- na.omit(unique(sens$Drug_set[sens$Drug_set %in% sim$Drug_set]))
 
 #### find drug targets ####
 # for each drugTreatment MOA
