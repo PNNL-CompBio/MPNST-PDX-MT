@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse); library(synapser); library(pheatmap)
+library(plyr);library(dplyr);library(tidyverse); library(synapser); library(pheatmap)
 drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
                   "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
@@ -40,7 +40,7 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r load data}
-#synLogin()
+synLogin()
 #all_exp<-readr::read_csv(synGet('syn64398051')$path)
 diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
 #diffex_tfs<-readr::read_csv(synGet('syn64420968')$path)
@@ -195,7 +195,7 @@ ntfs <- plyr::ddply(sig.tf, .(individualID, Drug, Timepoint), dplyr::summarize,
 ntfs.overall <- plyr::ddply(sig.tf, .(Drug, Timepoint), dplyr::summarize,
                     N = length(na.omit(unique(hgnc_symbol))))
 
-# are there more/less enriched tfs at 8h vs. 24h? No, p = 0.2003
+# are there more/less enriched tfs at 8h vs. 24h? No, p = 0.9211
 for (m in individualID) {
  cat(m, "# of DEGs at 8h vs. 24h\n")
   t.test(ntfs[ntfs$individualID==m & ntfs$Timepoint=="8h",]$N, 
@@ -205,7 +205,7 @@ cat("Overall", "# of DEGs at 8h vs. 24h\n")
 t.test(ntfs.overall[ntfs.overall$Timepoint=="8h",]$N, 
        ntfs.overall[ntfs.overall$Timepoint=="24h",]$N)
 
-cat("Overall", "# of DEGs in MN-2 vs. JH-2-002\n") # more in MN-2, p=2.567E-05
+cat("Overall", "# of DEGs in MN-2 vs. JH-2-002\n") # similar (p=0.4545)
 t.test(ntfs[ntfs$individualID=="MN-2",]$N, 
        ntfs[ntfs$individualID=="JH-2-002",]$N)
 
