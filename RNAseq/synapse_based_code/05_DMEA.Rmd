@@ -85,16 +85,19 @@ get_CCLE_RNA <- function(hgnc = FALSE) {
 ```{r load inputs, echo = FALSE}
 synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
-degs <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
+#degs <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
 #degs <- diffexp[diffexp$padj <= 0.05,]
+degs <- read.csv("DMEA_Cmap_L1000/Top_150_DEGs_by_absLog2FC_noTies.csv")
+length(na.omit(unique(degs$Gene))) # 2950
 
 # CCLE RNA-seq with HGNC symbols
 ccle <- get_CCLE_RNA(hgnc = TRUE)
 
 # reduce to overlapping genes
-degs <- degs[degs$hgnc_symbol %in% colnames(ccle)[2:ncol(ccle)],] # 55087 genes
-ccle <- ccle[,c("CCLE_ID", degs$hgnc_symbol)]
-degs$log2FoldChange <- as.numeric(degs$log2FoldChange)
+degs <- degs[degs$Gene %in% colnames(ccle)[2:ncol(ccle)],]
+length(na.omit(unique(degs$Gene))) # 2880
+ccle <- ccle[,c("CCLE_ID", degs$Gene)]
+degs$Log2FC <- as.numeric(degs$Log2FC)
 
 # PRISM drug sensitivity (i.e., AUC)
 prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
@@ -124,8 +127,8 @@ drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
 # compare treated vs. untreated
 # DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
 synapse_id <- "syn64618500"
-timepoints <- na.omit(unique(degs$Timepoint))
-mpnst <- na.omit(unique(degs$individualID))
+timepoints <- na.omit(unique(degs$Time))
+mpnst <- na.omit(unique(degs$MPNST))
 base.path <- getwd()
 dmea.path <- file.path(base.path, "DMEA")
 dir.create("DMEA")
@@ -142,7 +145,7 @@ for (i in timepoints) {
   #                               parent = synapse_id)) 
   
   # filter for time
-  time.deg <- degs[degs$Timepoint == i,]
+  time.deg <- degs[degs$Time == i,]
   
   temp.dmea.sens <- list()
   temp.drug.corr.sens <- list()
@@ -155,18 +158,17 @@ for (i in timepoints) {
   cat(m, "\n")
   
   # filter for mpnst
-  mpnst.deg <- time.deg[time.deg$individualID == m,]
+  mpnst.deg <- time.deg[time.deg$MPNST == m,]
   
   # prep inputs for each drug
   drug.degs <- list()
   expr <- list()
-  all.drugs <- na.omit(unique(mpnst.deg$Drug))
+  all.drugs <- na.omit(unique(mpnst.deg$DrugTreatment))
   for (j in all.drugs) {
     cat(j,"(",which(all.drugs == j),"/",length(all.drugs),"drugs)\n")
     temp.deg <- na.omit(dplyr::distinct(
-      mpnst.deg[mpnst.deg$Drug == j,
-                c("hgnc_symbol","log2FoldChange")]))
-    colnames(temp.deg) <- c("Gene", "Log2FC")
+      mpnst.deg[mpnst.deg$DrugTreatment == j,
+                c("Gene","Log2FC")]))
     if (any(duplicated(temp.deg$Gene))) {
       cat("resolving duplicates\n")
       temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
@@ -238,7 +240,10 @@ dmea.sens.df <- read.csv("DMEA_results.csv")
 drug.corr.sens.df <- read.csv("DMEA_correlations.csv")
 drug.corr.sens.df$DrugTreatment <- factor(drug.corr.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 dmea.sens.df$DrugTreatment <- factor(dmea.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
+drug.corr.sens.df$Time <- paste0(drug.corr.sens.df$Time, "h")
+timepoints <- unique(drug.corr.sens.df$Time)
 drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=timepoints)
+dmea.sens.df$Time <- paste0(dmea.sens.df$Time, "h")
 dmea.sens.df$Time <- factor(dmea.sens.df$Time, levels=timepoints)
 all.drugs <- levels(dmea.sens.df$DrugTreatment)
 all.moas <- sort(names(drug.info))
@@ -252,12 +257,12 @@ nMOAs <- plyr::ddply(sig.dmea, .(MPNST, DrugTreatment, Time), dplyr::summarize,
 nMOAs.overall <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug_set))))
 
-# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.7988
-for (m in mpnst) {
- cat(m, "# of MOAs enriched at 8h vs. 24h\n")
-  t.test(nMOAs[nMOAs$MPNST==m & nMOAs$Time=="8h",]$N, 
-         nMOAs[nMOAs$MPNST==m & nMOAs$Time=="24h",]$N) 
-}
+# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.8576
+# for (m in mpnst) {
+#  cat(m, "# of MOAs enriched at 8h vs. 24h\n")
+#   t.test(nMOAs[nMOAs$MPNST==m & nMOAs$Time=="8h",]$N, 
+#          nMOAs[nMOAs$MPNST==m & nMOAs$Time=="24h",]$N) 
+# }
 cat("Overall", "# of MOAs enriched at 8h vs. 24h\n")
 t.test(nMOAs.overall[nMOAs.overall$Time=="8h",]$N, 
        nMOAs.overall[nMOAs.overall$Time=="24h",]$N)
@@ -302,7 +307,7 @@ nDrugs <- plyr::ddply(sig.drug.corr, .(MPNST, DrugTreatment, Time), dplyr::summa
 nDrugs.overall <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug))))
 
-# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.5048
+# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.3133
 for (m in mpnst) {
  cat(m, "# of drugs correlated at 8h vs. 24h\n")
   t.test(nDrugs[nDrugs$MPNST==m & nDrugs$Time=="8h",]$N, 
@@ -630,6 +635,8 @@ ggplot2::ggsave("validatedDrugs_scatterPlot.pdf", validation.plot, width=5.5, he
 ### upset plots to see overlap across drug treatments
 ```{r plot overlap of results, echo = FALSE}
 library(ComplexHeatmap)
+dmea.path <- file.path(getwd(),"DMEA")
+setwd(dmea.path)
 # inspired by: https://jokergoo.github.io/ComplexHeatmap-reference/book/upset-plot.html#upset-making-the-plot
 moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
 myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
