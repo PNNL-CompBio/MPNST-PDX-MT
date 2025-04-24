@@ -155,6 +155,34 @@ for (i in timepoints) {
 setwd(dmea.path)
 write.csv(all.drug.degs,"Top_150_DEGs_by_absLog2FC_noTies.csv", row.names = FALSE)
 ```
+### extract results
+```{r extract results, echo=FALSE}
+dmea.path <- file.path(getwd(), "DMEA_Cmap_L1000")
+setwd(dmea.path)
+setwd("Query_results")
+zip.results <- list.files(pattern="*.tar.gz")
+for (i in zip.results) {
+  dir.info <- archive::archive_extract(i)
+  dir.name <- dir.info[1]
+  
+  # for Cmap MOA results
+  # fname2 <- "gsea/TAG/arfs/NORM_CS/gsea_result.gct" # this points to Cmap MOA results
+  # fname3 <- paste0(dir.name, fname2)
+  # rank.data <- read.delim(file=archive::archive_extract(fname, files=fname3), skip = 2)
+  # rank.data <- rank.data[rank.data$cell_iname=="-666" & rank.data$pert_type=="TRT_CP" &
+  #                                (rank.data$set_type=="PCL" | rank.data$set_type=="MOA_CLASS"),
+  #                        c("id","raw_cs","norm_cs","fdr_q_nlog10")]
+  
+  # for Cmap drug ranks
+  fname2 <- "arfs/TAG/query_result.gct" # this points to Cmap drug results
+  fname3 <- paste0(dir.name, fname2)
+  rank.data <- read.delim(file=archive::archive_extract(i, files=fname3), skip = 2)
+        
+  rank.name <- rank.data$norm_cs[1]
+  write.csv(rank.data, paste0(rank.name,"_Cmap_L1000_Query.csv"), row.names=FALSE)
+}
+```
+
 
 ### compile results
 ```{r compile results, echo=FALSE}
@@ -163,38 +191,37 @@ setwd(dmea.path)
 all.drug.degs <- read.csv("Top_150_DEGs_by_absLog2FC_noTies.csv")
 timepoints <- na.omit(unique(all.drug.degs$Time))
 mpnst <- na.omit(unique(all.drug.degs$MPNST))
-cmap.outputs <- list()
+#cmap.outputs <- list()
 outputs <- list()
 inputs <- list()
 
 for (i in timepoints) {
-  temp.cmap.outputs <- list()
+  #temp.cmap.outputs <- list()
   temp.outputs <- list()
   temp.inputs <- list()
   for (m in mpnst) {
     setwd(dmea.path)
-    cmap.results <- list()
+    #cmap.results <- list()
     moa.results <- list()
     drug.list <- list()
     for (j in na.omit(unique(all.drug.degs$DrugTreatment))) {
-      fname <- paste0("Query_results/",m,"_",as.character(i),"h_",j,"_Cmap_L1000_Query.tar.gz")
+      mpnstNoChar <- gsub("-","",m)
+      fname <- paste0("Query_results/",mpnstNoChar,"_",as.character(i),"h_",j,"_Cmap_L1000_Query.csv")
       if (file.exists(fname)) {
         ## get Cmap MOA results
         cat(file=stderr(), "About to load", fname, "\n")
-        dir.info <- archive::archive_extract(fname)
-        dir.name <- dir.info[1]
-        fname2 <- "gsea/TAG/arfs/NORM_CS/gsea_result.gct" # this points to Cmap MOA results
-        fname3 <- paste0(dir.name, fname2)
-        rank.data <- read.delim(file=archive::archive_extract(fname, files=fname3), skip = 2)
-        rank.data <- rank.data[rank.data$cell_iname=="-666" & rank.data$pert_type=="TRT_CP" &
-                                 (rank.data$set_type=="PCL" | rank.data$set_type=="MOA_CLASS"),]
-        cmap.results[[j]] <- rank.data[,c("id","raw_cs","norm_cs","fdr_q_nlog10")]
+        #dir.info <- archive::archive_extract(fname)
+        #dir.name <- dir.info[1]
+        # fname2 <- "gsea/TAG/arfs/NORM_CS/gsea_result.gct" # this points to Cmap MOA results
+        # fname3 <- paste0(dir.name, fname2)
+        # rank.data <- read.delim(file=archive::archive_extract(fname, files=fname3), skip = 2)
+        # rank.data <- rank.data[rank.data$cell_iname=="-666" & rank.data$pert_type=="TRT_CP" &
+        #                          (rank.data$set_type=="PCL" | rank.data$set_type=="MOA_CLASS"),]
+        # cmap.results[[j]] <- rank.data[,c("id","raw_cs","norm_cs","fdr_q_nlog10")]
         
         ## get drug ranks
         # load file
-        fname2 <- "arfs/TAG/query_result.gct" # this points to Cmap MOA results
-        fname3 <- paste0(dir.name, fname2)
-        rank.data <- read.delim(file=archive::archive_extract(fname, files=fname3), skip = 2)
+        rank.data <- read.csv(fname)
         
         # filter drug list
         cat(file=stderr(), "About to filter input", "\n")
@@ -222,22 +249,22 @@ for (i in timepoints) {
         moa.results[[j]] <- DMEA.output$result
       }
     }  
-    temp.cmap.outputs[[m]] <- data.table::rbindlist(cmap.results, use.names = TRUE, idcol="DrugTreatment")
+    #temp.cmap.outputs[[m]] <- data.table::rbindlist(cmap.results, use.names = TRUE, idcol="DrugTreatment")
     temp.outputs[[m]] <- data.table::rbindlist(moa.results, use.names = TRUE, idcol="DrugTreatment")
     temp.inputs[[m]] <- data.table::rbindlist(drug.list, use.names = TRUE, idcol="DrugTreatment") 
   }
-  cmap.outputs[[as.character(i)]] <- data.table::rbindlist(temp.cmap.outputs, use.names = TRUE, idcol="MPNST")
+  #cmap.outputs[[as.character(i)]] <- data.table::rbindlist(temp.cmap.outputs, use.names = TRUE, idcol="MPNST")
   outputs[[as.character(i)]] <- data.table::rbindlist(temp.outputs, use.names = TRUE, idcol="MPNST")
   inputs[[as.character(i)]] <- data.table::rbindlist(temp.inputs, use.names = TRUE, idcol="MPNST")
 }
-cmap.dmea.sens.df <- data.table::rbindlist(cmap.outputs, use.names = TRUE, idcol = "Time")
+#cmap.dmea.sens.df <- data.table::rbindlist(cmap.outputs, use.names = TRUE, idcol = "Time")
 drug.corr.sens.df <- data.table::rbindlist(inputs, use.names = TRUE, idcol="Time")
 dmea.sens.df <- data.table::rbindlist(outputs, use.names = TRUE, idcol = "Time")
-write.csv(cmap.dmea.sens.df, "Cmap_L1000_moaRanks.csv", row.names = FALSE)
+#write.csv(cmap.dmea.sens.df, "Cmap_L1000_moaRanks.csv", row.names = FALSE)
 write.csv(drug.corr.sens.df, "Cmap_L1000_drugRanks.csv", row.names = FALSE)
 write.csv(dmea.sens.df, "DMEA_Cmap_L1000.csv", row.names = FALSE)
 dmea.files <- list("Cmap_L1000_drugRanks.csv" = drug.corr.sens.df,
-                   "Cmap_L1000_moaRanks.csv" = cmap.dmea.sens.df,
+                   #"Cmap_L1000_moaRanks.csv" = cmap.dmea.sens.df,
                    "DMEA_Cmap_L1000.csv" = dmea.sens.df)
 synapse_id <- "syn64693139"
 synapser::synLogin()
@@ -309,9 +336,9 @@ drug.corr.sens.df$Time <- paste0(drug.corr.sens.df$Time, "h")
 drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=c("8h", "24h"))
 sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$fdr_q_nlog10 >= -log10(0.05),]
 nDrugs <- plyr::ddply(sig.drug.corr, .(MPNST, DrugTreatment, Time), dplyr::summarize,
-                    N = length(na.omit(unique(Drug))))
+                    N = length(na.omit(unique(pert_iname))))
 nDrugs.overall <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
-                    N = length(na.omit(unique(Drug))))
+                    N = length(na.omit(unique(pert_iname))))
 
 # are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.5048
 # for (m in mpnst) {
