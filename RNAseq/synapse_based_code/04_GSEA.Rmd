@@ -226,7 +226,7 @@ n.top.list <- c(1, 2, 3, 5)
 for (n.top in n.top.list) {
   ### pathway
   topSigpathway <- data.frame()
-  for (i in tested.drugs) {
+  for (i in all.drugs) {
     tempSig <- gsea.df[gsea.df$DrugTreatment == i &
                               gsea.df$sig,] %>% slice_max(abs(NES), n=n.top)
     topSigpathway <- rbind(topSigpathway, tempSig)
@@ -342,6 +342,8 @@ for (moa in all.pathways) {
 
 ### upset plots to see overlap across drug treatments
 ```{r plot overlap of results, echo = FALSE}
+gsea.path <- file.path(getwd(),"GSEA")
+setwd(gsea.path)
 for (m in mpnst) {
   # generate list of significant results
   sigList <- list()
