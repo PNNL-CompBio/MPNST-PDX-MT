@@ -240,7 +240,7 @@ ntfs <- plyr::ddply(sig.tf, .(individualID, Drug, Timepoint), dplyr::summarize,
 ntfs.overall <- plyr::ddply(sig.tf, .(Drug, Timepoint), dplyr::summarize,
                     N = length(na.omit(unique(source))))
 
-# are there more/less enriched tfs at 8h vs. 24h? Yes, more at 8h (p=0.004508)
+# are there more/less enriched tfs at 8h vs. 24h? No (p=0.217)
 for (m in individualID) {
  cat(m, "# of tfs enriched at 8h vs. 24h\n")
   t.test(ntfs[ntfs$individualID==m & ntfs$Timepoint=="8h",]$N, 
