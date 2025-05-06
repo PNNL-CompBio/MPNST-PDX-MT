@@ -193,8 +193,6 @@ for (i in unique(unlist(drug.info2))) {
   # likewise, if drug is similar to given MOA, filter for similarity
   # else filter for opposite behavior
   temp.drugs <- names(drug.info2[drug.info2 == i])
-  temp.max.effect <- max.effect[max.effect$Drug %in% temp.drugs,]
-  
   mpnst <- na.omit(unique(c(sens$MPNST)))
   timepoints <- levels(sens$Timepoint)
   keepCols <- c("MPNST", "Timepoint", "DrugTreatment", 
@@ -311,7 +309,7 @@ for (i in unique(unlist(drug.info2))) {
       #sharedMOAs <- sens.dot.df$Drug_set[sens.dot.df$Drug_set %in% sim.dot.df$Drug_set]
       sigMOAs <- unique(c(simMOAs, sensMOAs))
       #sigSharedMOAs <- sigMOAs[sigMOAs %in% sharedMOAs]
-      if (length(sigSharedMOAs) > 0) {
+      if (length(sigMOAs) > 0) {
         #sigOrder1 <- sigOrder[sigOrder %in% sigSharedMOAs]
         dot.df <- na.omit(dmea.df)#[dmea.df$Drug_set %in% sigSharedMOAs,])
         library(ggplot2)
