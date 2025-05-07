@@ -6,23 +6,108 @@ setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-
 dir.create("DMEA_synergy_lessStrict")
 setwd("DMEA_synergy_lessStrict")
 
+DMEAdotPlots <- function(dot.df,  y.order, title, fname, min.width = 5, min.height = 4, 
+                         maxAbsNES = max(abs(dot.df[,color])), 
+                         maxLogFDR = max(dot.df[,size])) {
+  dot.plot <- ggplot2::ggplot(dot.df, ggplot2::aes(x = DrugTreatment, y = Drug_set, 
+                                                   color = NES, size = minusLogFDR)) + 
+    facet_grid(Timepoint ~ Ranking) + ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = y.order) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsNES, maxAbsNES)) +
+    theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) + 
+    ggplot2::labs(color = "NES", size = "-log(FDR)", title=title) +  
+    theme(axis.title=element_blank(), plot.title=element_text(hjust=0.5, face="bold"),
+          axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
+    geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
+  customHeight <- ifelse(length(y.order)/5 < min.height, min.height, length(y.order)/5)
+  ggplot2::ggsave(paste0(fname,".pdf"), dot.plot, width=min.width, height=customHeight)
+  
+  if (all(grepl(" inhibitor", y.order))) {
+    dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
+    sigOrder2 <- sub(" inhibitor", "", y.order)
+    longNames <- c("Aurora kinase", "Bromodomain", "Sterol demethylase", 
+                   "Topoisomerase", "Tyrosine kinase", "Tubulin",
+                   "Ribonucleotide reductase")
+    names(longNames) <- c("AURK", "BET", "CYP51", "TOP", "TK", "TUB", "RNR")
+    if (any(dot.df$Inhibitor %in% longNames)) {
+      for (tempName in names(longNames)) {
+        if (any(dot.df$Inhibitor == longNames[[tempName]])) {
+          dot.df[dot.df$Inhibitor == longNames[[tempName]],]$Inhibitor <- tempName
+          sigOrder2 <- sub(longNames[[tempName]], tempName, sigOrder2)
+        }
+      }
+    }
+    dot.plot <- ggplot2::ggplot(
+      dot.df,
+      ggplot2::aes(
+        x = DrugTreatment, y = Inhibitor, color = NES,
+        size = minusLogFDR
+      )
+    ) + facet_grid(Timepoint ~ Ranking) +
+      ggplot2::geom_point() +
+      ggplot2::scale_y_discrete(limits = sigOrder2) +
+      scale_color_gradient2(low="blue",high="red", mid="grey", 
+                            limits=c(-maxAbsNES, maxAbsNES)) +
+      theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) + 
+      ggplot2::labs(color = "NES", size = "-log(FDR)",title=m) +  
+      theme(axis.title=element_blank(), plot.title=element_text(hjust=0.5, face="bold"),
+            axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
+      geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
+    ggplot2::ggsave(paste0(fname,"_inhibitors.pdf"), dot.plot, width=(min.width-1), height=customHeight)
+    ggplot2::ggsave(paste0(fname,"_inhibitors_wider.pdf"), dot.plot, width=min.width, height=customHeight)
+    ggplot2::ggsave(paste0(fname,"_inhibitors_evenWider.pdf"), dot.plot, width=(min.width+1), height=customHeight)
+  } else if (customHeight<49) {
+    ggplot2::ggsave(paste0(fname,"_wider.pdf"), dot.plot, width=(min.width+1), height=customHeight)
+    ggplot2::ggsave(paste0(fname,"_widerTaller.pdf"), dot.plot, width=(min.width+1), height=(customHeight+1))
+  }
+}
+
 # load results
 diffexp <- read.csv(synapser::synGet('syn64397743')$path)
 diffexp$log2FoldChange <- as.numeric(diffexp$log2FoldChange)
 diffexp$padj <- as.numeric(diffexp$padj)
 diffexp$Timepoint <- diffexp$Time
 diffexp$Timepoint <- factor(diffexp$Timepoint, levels=c("8h", "24h"))
+diffexp$feature <- diffexp$hgnc_symbol
+diffexp$minusLogFDR <- -log10(diffexp$padj)
+diffexp <- diffexp[!is.na(diffexp$hgnc_symbol) & diffexp$hgnc_symbol != "",]
+
 sens <- read.csv(synapser::synGet("syn65672258")$path)
 sens$sig <- FALSE
 sens[sens$p_value <= 0.05 & sens$FDR_q_value <= 0.25,]$sig <- TRUE
 sens$Timepoint <- paste0(sens$Time, "h")
 sens$Timepoint <- factor(sens$Timepoint, levels=c("8h","24h"))
+sens[sens$FDR_q_value == 0,]$minusLogFDR <- 4
 
 sim <- read.csv(synapser::synGet("syn66310901")$path)
 sim$sig <- FALSE
 sim[sim$p_value <= 0.05 & sim$FDR_q_value <= 0.25,]$sig <- TRUE
 sim$Timepoint <- paste0(sim$Time, "h")
 sim$Timepoint <- factor(sim$Timepoint, levels=c("8h","24h"))
+sim$minusLogFDR <- -log10(sim$FDR_q_value)
+sim[sim$FDR_q_value == 0,]$minusLogFDR <- 4
+
+gsea <- read.csv(synapser::synGet("syn65928903")$path)
+gsea$Timepoint <- gsea$Time
+gsea$Timepoint <- factor(gsea$Timepoint, levels=c("8h", "24h"))
+gsea$individualID <- gsea$MPNST
+gsea$Drug <- gsea$DrugTreatment
+gsea$signif <- gsea$sig
+gsea$feature <- sub("KEGG_","",gsea$Feature_set)
+gsea[gsea$FDR_q_value==0,]$minusLogFDR <- 4
+keepCols2 <- c("Drug_set", "DrugTreatment","NES","minusLogFDR","sig","Ranking","Timepoint")
+
+tf <- read.csv(synapser::synGet("syn64420968")$path)
+tf$feature <- tf$source
+tf$minusLogFDR <- -log10(tf$padj)
+
+maxAbsNESVals <- list("Differential Expression" = max(abs(diffexp$log2FoldChange), na.rm=TRUE),
+                      "Gene Set Enrichment" = max(abs(gsea$NES), na.rm=TRUE),
+                      "Transcription Factor Enrichment" = max(abs(tf$score), na.rm=TRUE))
+maxLogFDRVals <- list("Differential Expression" = max(diffexp$minusLogFDR, na.rm=TRUE),
+                      "Gene Set Enrichment" = max(gsea$minusLogFDR, na.rm=TRUE),
+                      "Transcription Factor Enrichment" = max(tf$minusLogFDR, na.rm=TRUE))
 
 # how many MOAs are evaluated for both sens and sim?
 allSharedMOAs <- na.omit(unique(sens$Drug_set[sens$Drug_set %in% sim$Drug_set]))
@@ -186,6 +271,11 @@ ggsave("target_dotPlot_widest.pdf", target.plots, width=16, height=8)
 
 #### use results to predict synergy ####
 # make plots for each moa
+inputs <- list("Differential Expression" = diffexp, 
+               "Gene Set Enrichment" = gsea,
+               "Transcription Factor Enrichment" = tf)
+maxAbsNES <- max(abs(c(sens$NES, sim$NES))) # 3.6
+maxLogFDR <- max(c(sens$minusLogFDR, sim$minusLogFDR)) # 4
 for (i in unique(unlist(drug.info2))) {
   # if samples are resistant to treatment, filter for sensitivity
   # else filter for resistance if they are still sensitive to the given treatment
@@ -306,72 +396,115 @@ for (i in unique(unlist(drug.info2))) {
       mean.dmea.df <- plyr::ddply(dmea.df, .(Drug_set), summarize,
                                   absNES = mean(abs(NES), na.rm=TRUE))
       sigOrder <- mean.dmea.df[order(mean.dmea.df$absNES),]$Drug_set
-      #sharedMOAs <- sens.dot.df$Drug_set[sens.dot.df$Drug_set %in% sim.dot.df$Drug_set]
+      sharedMOAs <- sens.dot.df$Drug_set[sens.dot.df$Drug_set %in% sim.dot.df$Drug_set]
       sigMOAs <- unique(c(simMOAs, sensMOAs))
-      #sigSharedMOAs <- sigMOAs[sigMOAs %in% sharedMOAs]
+      sigSharedMOAs <- sigMOAs[sigMOAs %in% sharedMOAs]
       if (length(sigMOAs) > 0) {
-        #sigOrder1 <- sigOrder[sigOrder %in% sigSharedMOAs]
-        dot.df <- na.omit(dmea.df)#[dmea.df$Drug_set %in% sigSharedMOAs,])
-        library(ggplot2)
-        maxAbsNES <- max(abs(dot.df$NES))
-        dot.array <- NULL
-        dot.plot <- ggplot2::ggplot(
-          dot.df,
-          ggplot2::aes(
-            x = DrugTreatment, y = Drug_set, color = NES,
-            size = minusLogFDR
-          )
-        ) + facet_grid(Timepoint ~ Ranking) +
-          ggplot2::geom_point() +
-          ggplot2::scale_y_discrete(limits = sigOrder) +
-          scale_color_gradient2(low="blue",high="red", mid="grey", 
-                                limits=c(-maxAbsNES, maxAbsNES)) +
-          theme_classic(base_size=12) + 
-          ggplot2::labs(color = "NES", size = "-log(FDR)", title=m) +  
-          theme(axis.title=element_blank(), plot.title=element_text(hjust=0.5, face="bold"),
-                axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
-          geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
-        dot.plot
-        ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot.pdf"), width=4.2, height=4)
+        dot.df <- na.omit(dmea.df)
+        DMEAdotPlots(dot.df, y.order = sigOrder, title=m, 
+                     fname = paste0(m,"_",i,"_DMEA_dotPlot"), 
+                     maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR)
         
-        if (all(grepl(" inhibitor", sigOrder))) {
-          dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
-          sigOrder2 <- sub(" inhibitor", "", sigOrder)
-          longNames <- c("Aurora kinase", "Bromodomain", "Sterol demethylase", 
-                         "Topoisomerase", "Tyrosine kinase", "Tubulin",
-                         "Ribonucleotide reductase")
-          names(longNames) <- c("AURK", "BET", "CYP51", "TOP", "TK", "TUB", "RNR")
-          if (any(dot.df$Inhibitor %in% longNames)) {
-            for (tempName in names(longNames)) {
-              if (any(dot.df$Inhibitor == longNames[[tempName]])) {
-                dot.df[dot.df$Inhibitor == longNames[[tempName]],]$Inhibitor <- tempName
-                sigOrder2 <- sub(longNames[[tempName]], tempName, sigOrder2)
+        sigOrder1 <- sigOrder[sigOrder %in% sigSharedMOAs]
+        if (length(sigOrder1) > 0) {
+          dot.df <- na.omit(dmea.df[dmea.df$Drug_set %in% sigSharedMOAs,])
+          DMEAdotPlots(dot.df, y.order = sigOrder1, title=m, 
+                       fname = paste0(m,"_",i,"_shared_DMEA_dotPlot"), 
+                       maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR) 
+        }
+        
+        # look at shared diffexp, GSEA, TF enrichment
+        for (otherMOA in sigMOAs[sigMOAs != i]) {
+          other.drugs <- names(drug.info2[drug.info2 == otherMOA])
+          if (length(other.drugs) > 0) {
+            both.drugs <- c(temp.drugs, other.drugs)
+            for (temp.input in names(inputs)) {
+              input <- inputs[[temp.input]]
+              sigList <- list()
+              for (drug in both.drugs) {
+                if (nrow(input[input$Drug == drug & input$individualID == m & input$signif,]) > 0) {
+                  sigList[[drug]] <- na.omit(unique(input[input$Drug == drug & input$individualID == m & input$signif,]$feature)) 
+                }
               }
+              
+              if (length(sigList) > 1) {
+                if (length(sigList) > 4) {
+                  # convert to matrix
+                  myPlot = ComplexHeatmap::make_comb_mat(sigList)
+                  #ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
+                  pdf(paste0(m,"_",i,"_",otherMOA,"_sig_",temp.input,"_upsetPlot.pdf"))
+                  up <- ComplexHeatmap::UpSet(myPlot)
+                  ComplexHeatmap::draw(up)
+                  dev.off() 
+                } else if (length(sigList) > 1) {
+                  venn.plot <- wrap_elements(
+                    ggvenn::ggvenn(sigList, show_percentage = FALSE, 
+                                   set_name_size = 3, text_size = 4) + 
+                      plot_annotation(title=m, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
+                  ggplot2::ggsave(paste0(m,"_",i,"_",otherMOA, "_sig_",temp.input,"_vennDiagram.pdf"), venn.plot, width=3, height=5) 
+                }
+                
+                # also make dot plot
+                overlapSig <- unlist(sigList[temp.drugs])[unlist(sigList[temp.drugs]) %in% unlist(sigList[other.drugs])]
+                if (length(overlapSig) > 0) {
+                  dot.df <- input[input$Drug %in% both.drugs & input$individualID == m & input$feature %in% overlapSig,]
+                  
+                  # change colnames so we don't have to make another custom dotPlot function
+                  dot.df$DrugTreatment <- dot.df$Drug
+                  dot.df$Drug_set <- dot.df$feature
+                  if (temp.input == "Differential Expression") {
+                    dot.df$NES <- dot.df$log2FoldChange
+                    dot.df$minusLogFDR <- -log10(dot.df$padj)
+                  } else if (temp.input == "Transcription Factor Enrichment") {
+                    dot.df$NES <- dot.df$score
+                    dot.df$minusLogFDR <- -log10(dot.df$padj)
+                  }
+                  dot.df$Ranking <- temp.input
+                  dot.df$sig <- dot.df$signif
+                  mean.df <- plyr::ddply(dot.df, .(Drug_set), summarize,
+                                         absNES = mean(abs(NES), na.rm=TRUE))
+                  sigOrder <- mean.df[order(mean.df$absNES),]$Drug_set
+                  if (length(sigOrder)/5 < 49) {
+                    if (temp.input == "Gene Set Enrichment") {
+                      min.width=7
+                    } else { min.width = 5 }
+                    DMEAdotPlots(dot.df, y.order = sigOrder, title=m, min.width = min.width,
+                                 fname = paste0(m,"_",i,"_",otherMOA,"_",temp.input,"_dotPlot"), 
+                                 maxAbsNES = maxAbsNESVals[[temp.input]], maxLogFDR = maxLogFDRVals[[temp.input]]) 
+                  } 
+                  
+                  # check for known targets
+                  temp.targets <- unique(target.diffexp[target.diffexp$Drug %in% temp.drugs,]$hgnc_symbol)
+                  if (any(temp.targets %in% overlapSig)) {
+                    dot.df <- input[input$Drug %in% both.drugs & input$feature %in% temp.targets & input$individualID == m,]
+                    # change colnames so we don't have to make another custom dotPlot function
+                    dot.df$DrugTreatment <- dot.df$Drug
+                    dot.df$Drug_set <- dot.df$feature
+                    if (temp.input == "Differential Expression") {
+                      dot.df$NES <- dot.df$log2FoldChange
+                      dot.df$minusLogFDR <- -log10(dot.df$padj)
+                    } else if (temp.input == "Transcription Factor Enrichment") {
+                      dot.df$NES <- dot.df$score
+                      dot.df$minusLogFDR <- -log10(dot.df$padj)
+                    }
+                    dot.df$Ranking <- temp.input
+                    dot.df$sig <- dot.df$signif
+                    mean.df <- plyr::ddply(dot.df, .(Drug_set), summarize,
+                                           absNES = mean(abs(NES), na.rm=TRUE))
+                    sigOrder <- mean.df[order(mean.df$absNES),]$Drug_set
+                    if (length(sigOrder)/5 < 49) {
+                      if (temp.input == "Gene Set Enrichment") {
+                        min.width=7
+                      } else { min.width = 5 }
+                      DMEAdotPlots(dot.df, y.order = sigOrder, title=m, min.width = min.width,
+                                   fname = paste0(m,"_",i,"_",otherMOA,"_",temp.input,"_target_dotPlot"), 
+                                   maxAbsNES = maxAbsNESVals[[temp.input]], maxLogFDR = maxLogFDRVals[[temp.input]]) 
+                    } 
+                  }
+                }
+              }  
             }
           }
-          dot.plot <- ggplot2::ggplot(
-            dot.df,
-            ggplot2::aes(
-              x = DrugTreatment, y = Inhibitor, color = NES,
-              size = minusLogFDR
-            )
-          ) + facet_grid(Timepoint ~ Ranking) +
-            ggplot2::geom_point() +
-            ggplot2::scale_y_discrete(limits = sigOrder2) +
-            scale_color_gradient2(low="blue",high="red", mid="grey", 
-                                  limits=c(-maxAbsNES, maxAbsNES)) +
-            theme_classic(base_size=12) + 
-            ggplot2::labs(color = "NES", size = "-log(FDR)",title=m) +  
-            theme(axis.title=element_blank(), plot.title=element_text(hjust=0.5, face="bold"),
-                  axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
-            geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
-          dot.plot
-          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_inhibitors.pdf"), width=3.4, height=4)
-          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_inhibitors_wider.pdf"), width=5, height=4)
-          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_inhibitors_evenWider.pdf"), width=6, height=4)
-        } else {
-          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_wider.pdf"), width=5, height=4)
-          ggplot2::ggsave(paste0(m,"_",i,"_DMEA_dotPlot_widerTaller.pdf"), width=5, height=5)
         }
       }
     }

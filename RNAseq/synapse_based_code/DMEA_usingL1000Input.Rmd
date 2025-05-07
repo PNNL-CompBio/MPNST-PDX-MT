@@ -1,5 +1,5 @@
 ---
-title: "DMEA_L1000"
+title: "DMEA"
 author: "Belinda B. Garana"
 date: "2025-01-14"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 
 # load packages
-if (require(panSEA)) {
+if (!require(panSEA)) {
   if (!require("devtools", quietly = TRUE))
   install.packages("devtools")
   
@@ -17,58 +17,67 @@ if (require(panSEA)) {
 }
 
 library(plyr);library(dplyr);library(ggplot2);library(synapser);library(panSEA)
-library(data.table)
+library(data.table); library(RColorBrewer)
 source("https://raw.githubusercontent.com/PNNL-CompBio/MPNST_Chr8/refs/heads/main/panSEA_helper_20240913.R")
 
 # load helper functions
-# adapted from: https://github.com/PNNL-CompBio/coderdata/blob/main/build/lincs/05-LINCS_perturbations.R
-build_L1000 <- function() {
-  options(timeout = 300)
-
-  # identify URLs
-  #basename="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE101406"
-  L1000 <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5FLevel4%5FZSPCINF%5Fmlr12k%5Fn1667x12328.gctx.gz'
-  L1000.genes <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Fgene%5Finfo.txt.gz'
-  L1000.inst <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Finst%5Finfo.txt.gz'
-
-  # download source sample & perturbation info
-  L1000.genes.info <- readr::read_delim(L1000.genes, "\t") # pr_gene_symbol, pr_gene_id
-  L1000.inst.info <- readr::read_delim(L1000.inst, "\t") # pert_iname; pert_type = "trt_cp" if drug, "ctl_vehicle" if DMSO; cell_id
-  L1000.inst.info <- L1000.inst.info[L1000.inst.info$pert_type == "trt_cp", ] # only keep drug treatments (remove DMSO controls)
-
-  # download L1000 data
-  if (file.exists("L1000.gctx")) {
-    L1000.df <- cmapR::parse_gctx("L1000.gctx")
+#source("https://github.com/PNNL-CompBio/coderdata/blob/main/build/lincs/05-LINCS_perturbations.R")
+get_CCLE_RNA <- function(hgnc = FALSE) {
+  message("Loading adherent CCLE RNA-seq data version 19Q4")
+  if (hgnc) {
+    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")) {
+      download.file(
+        paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin"
+        ),
+        destfile =
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin"
+      )
+    }
+    
+    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")) {
+      download.file(
+        paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin"
+        ),
+        destfile =
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin"
+      )
+    }
+    
+    RNA.first200 <- readRDS("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")
+    RNA.rest <- readRDS("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")
+    RNA.df <- rbind(RNA.first200, RNA.rest) 
   } else {
-   res<-download.file(L1000,'L1000.gctx.gz', mode="wb")
-  L1000.df<-cmapR::parse_gctx(R.utils::gunzip("L1000.gctx.gz")) 
+    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin")) {
+      download.file(
+        paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin"
+        ),
+        destfile =
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin"
+      )
+    }
+    
+    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin")) {
+      download.file(
+        paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin"
+        ),
+        destfile =
+          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin"
+      )
+    }
+    
+    load("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin")
+    load("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin")
+    RNA.df <- rbind(RNA.first200, RNA.rest) 
   }
-
-  # put data into long format
-  L1000.long <- cmapR::melt_gct(L1000.df)
-  colnames(L1000.long) <- c("inst_id", "pr_gene_id", "data_value")
-  L1000.long$pr_gene_id <- as.numeric(L1000.long$pr_gene_id)
-
-  # join with L1000.gene.info based on pr_gene_id;
-  # L1000.inst.info based on inst_id;
-  # keep only cell_id, pert_type, pert_iname, gene_symbol, data_value
-  L1000.full <- L1000.long |>
-    dplyr::left_join(L1000.genes.info) |>
-    dplyr::left_join(L1000.inst.info) |>
-    dplyr::select(cell_id,pert_type,pert_iname,pr_gene_symbol,data_value)|>
-    dplyr::distinct()
-  L1000.long <- NULL # save space
-
-  # add relevant columns
-  L1000.full <- na.omit(L1000.full)
-  colnames(L1000.full)[1] <- "other_names" # match samples column name
-  colnames(L1000.full)[4] <- "gene_symbol" # match genes column name
-  colnames(L1000.full)[3] <- "chem_name"
-  L1000.full$data_type <- "transcriptomics"
-  L1000.full$source <- "Broad"
-  L1000.full$study <- "LINCS"
-  L1000.full$perturbation_type <- "drug" # all entries have pert_type="trt_cp"
-  return(L1000.full)
+  return(RNA.df)
 }
 ```
 
@@ -76,31 +85,33 @@ build_L1000 <- function() {
 ```{r load inputs, echo = FALSE}
 synapser::synLogin()
 # RNA-seq data with HGNC symbols (update once batch-corrected)
-diffexp <- read.csv(synapser::synGet('syn64397743')$path)
-degs <- na.omit(diffexp[diffexp$padj <= 0.05,])
-degs$log2FoldChange <- as.numeric(degs$log2FoldChange)
-if (any(degs$Drug=="Ribociblib")) {
- degs[degs$Drug=="Ribociblib",]$Drug <- "Ribociclib" 
-}
+#degs <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
+#degs <- diffexp[diffexp$padj <= 0.05,]
+degs <- read.csv("DMEA_Cmap_L1000/Top_150_DEGs_by_absLog2FC_noTies.csv")
+length(na.omit(unique(degs$Gene))) # 2950
 
-# # CCLE RNA-seq with HGNC symbols
-L1000 <- build_L1000()
+# CCLE RNA-seq with HGNC symbols
+ccle <- get_CCLE_RNA(hgnc = TRUE)
 
-# reduce to overlapping genes, check for overlapping drugs
-degs.L1000 <- degs[degs$hgnc_symbol %in% L1000$gene_symbol,] # 40027 / 62734
+# reduce to overlapping genes
+degs <- degs[degs$Gene %in% colnames(ccle)[2:ncol(ccle)],]
+length(na.omit(unique(degs$Gene))) # 2880
+ccle <- ccle[,c("CCLE_ID", degs$Gene)]
+degs$Log2FC <- as.numeric(degs$Log2FC)
 
-# check for overlapping drugs
-L1000.drugs <- na.omit(unique(L1000$chem_name))
-drug.overlap <- na.omit(unique(degs$Drug[tolower(degs$Drug) %in% tolower(L1000.drugs)])) # 5
-cat("Drugs in both our data and the L1000:", drug.overlap)
+# PRISM drug sensitivity (i.e., AUC)
+prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
+        "DMEA/shiny-app/Inputs/PRISM_drug_mean_AUC_6-23-21.csv"))
+prism$X <- NULL
 
-# aggregate L1000 across cell types
-L1000.full <- reshape2::dcast(L1000, gene_symbol ~ chem_name, 
-                              value.var = "data_value", fun.aggregate = mean)
-colnames(L1000.full)[1] <- "Gene"
+# PRISM drug mechanism of action annotations
+gmt.drug <- GSA::GSA.read.gmt(file = paste0(
+          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/",
+          "Inputs/MOA_gmt_file_n6_no_special_chars.gmt"))
+
 ```
 
-## run DMEA, ranking drugs based on correlation with Cmap signatures
+## run DMEA
 ```{r DMEA, echo = FALSE}
 drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
                   "Chemotherapy" = "Trabectidin",
@@ -115,82 +126,91 @@ drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
                   "TEADi" = "Verteporfin")
 # compare treated vs. untreated
 # DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
-synapse_id <- "syn64660160"
-timepoints <- na.omit(unique(degs.L1000$Timepoint))
-mpnst <- na.omit(unique(degs.L1000$individualID))
+synapse_id <- "syn64618500"
+timepoints <- na.omit(unique(degs$Time))
+mpnst <- na.omit(unique(degs$MPNST))
 base.path <- getwd()
-dmea.path <- file.path(base.path, "DMEA_L1000")
-dir.create("DMEA_L1000")
+dmea.path <- file.path(base.path, "DMEA")
+dir.create("DMEA")
+setwd("DMEA")
+
 dmea.sens <- list()
 drug.corr.sens <- list()
-
 for (i in timepoints) {
-  setwd(dmea.path)
-  dir.create(i)
-  setwd(i)
-  timeSyn <- synapser::synStore(synapser::Folder(i, 
-                                                 parent = synapse_id)) 
+  #setwd(dmea.path)
+  cat(i, "\n")
+  #dir.create(i)
+  #setwd(i)
+  # timeSyn <- synapser::synStore(synapser::Folder(i, 
+  #                               parent = synapse_id)) 
   
   # filter for time
-  time.deg <- degs.L1000[degs.L1000$Timepoint == i,]
+  time.deg <- degs[degs$Time == i,]
   
   temp.dmea.sens <- list()
   temp.drug.corr.sens <- list()
-  for (m in mpnst) {
-    setwd(file.path(dmea.path, i))
-    dir.create(m)
-    setwd(m)
-    tempSyn <- synapser::synStore(synapser::Folder(m, 
-                                                   parent = timeSyn)) 
-    
-    # filter for mpnst
-    mpnst.deg <- time.deg[time.deg$individualID == m,]
-    
-    # prep inputs for each drug
-    drug.degs <- list()
-    expr <- list()
-    all.drugs <- na.omit(unique(mpnst.deg$Drug))
-    for (j in all.drugs) {
-      temp.deg <- na.omit(dplyr::distinct(
-        mpnst.deg[mpnst.deg$Drug == j,c("hgnc_symbol","log2FoldChange")]))
-      colnames(temp.deg) <- c("Gene", "Log2FC")
-      if (any(duplicated(temp.deg$Gene))) {
-        temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
-                                Log2FC = mean(Log2FC))
-      }
-      if (nrow(temp.deg) > 0) {
-        drug.degs[[j]] <- temp.deg
-        expr[[j]] <- L1000.full[L1000.full$Gene %in% temp.deg$Gene,]
-      }
+ for (m in mpnst) {
+  #setwd(file.path(dmea.path, i))
+  #dir.create(m)
+  #setwd(m)
+  # tempSyn <- synapser::synStore(synapser::Folder(m, 
+  #                               parent = timeSyn)) 
+  cat(m, "\n")
+  
+  # filter for mpnst
+  mpnst.deg <- time.deg[time.deg$MPNST == m,]
+  
+  # prep inputs for each drug
+  drug.degs <- list()
+  expr <- list()
+  all.drugs <- na.omit(unique(mpnst.deg$DrugTreatment))
+  for (j in all.drugs) {
+    cat(j,"(",which(all.drugs == j),"/",length(all.drugs),"drugs)\n")
+    temp.deg <- na.omit(dplyr::distinct(
+      mpnst.deg[mpnst.deg$DrugTreatment == j,
+                c("Gene","Log2FC")]))
+    if (any(duplicated(temp.deg$Gene))) {
+      cat("resolving duplicates\n")
+      temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
+                              Log2FC = mean(Log2FC))
     }
-    
-    # also run analysis for each drug
-    drugResults <- mDMEA_gene_corr(expression=expr, weights = drug.degs,
-                                   types = names(drug.degs), min.per.set=3)
-    temp.files <- list()
-    tested.drugs <- names(drugResults$all.results)
-    for (j in tested.drugs) {
-      temp.files[[j]] <- extract_DMEA_files(drugResults, j)
+    temp.deg <- temp.deg[temp.deg$Gene %in% colnames(ccle)[2:ncol(ccle)],]
+    if (nrow(temp.deg) > 0) {
+      drug.degs[[j]] <- temp.deg
+      expr[[j]] <- ccle[,c("CCLE_ID", temp.deg$Gene)]
     }
-    temp.files[["Compiled"]] <- 
-      list("DMEA_results.csv" = drugResults$compiled.results$results,
-           "Compiled_DMEA_results.csv" = drugResults$compiled.results$mean.results,
-           "DMEA_venn_diagram.pdf" = drugResults$compiled.results$venn.diagram,
-           "DMEA_dot_plot.pdf" = drugResults$compiled.results$dot.plot,
-           "DMEA_correlations.csv" = drugResults$compiled.results$corr,
-           "DMEA_correlation_matrix.pdf" =drugResults$compiled.results$corr.matrix)
-    save_to_synapse_v2(temp.files, tempSyn)
-    
-    temp.dmea.sens[[m]] <- drugResults$compiled.results$result
-    
-    # also compile drug correlations
-    drug.corr.list <- list()
-    for (j in tested.drugs) {
-      drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
-    }
-    drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "DrugTreatment")
-    temp.drug.corr.sens[[m]] <- drug.corr.df
   }
+  
+  # also run analysis for each drug
+  drugResults <- panSEA::mDMEA(drug.sensitivity = prism, gmt = gmt.drug,
+                                 expression = expr, weights = drug.degs,
+                                 types = names(drug.degs), scatter.plots=FALSE)
+  # temp.files <- list()
+  # tested.drugs <- names(drugResults$all.results)
+  # for (j in tested.drugs) {
+  #   temp.files[[j]] <- extract_DMEA_files(drugResults, j)
+  # }
+  # temp.files[["Compiled"]] <- 
+  #   list("DMEA_results.csv" = drugResults$compiled.results$results,
+  #        "Compiled_DMEA_results.csv" = drugResults$compiled.results$mean.results,
+  #        "DMEA_venn_diagram.pdf" = drugResults$compiled.results$venn.diagram,
+  #        "DMEA_dot_plot.pdf" = drugResults$compiled.results$dot.plot,
+  #        "DMEA_correlations.csv" = drugResults$compiled.results$corr,
+  #        "DMEA_correlation_matrix.pdf" =drugResults$compiled.results$corr.matrix)
+  # save_to_synapse_v2(temp.files, tempSyn)
+  
+  temp.dmea.sens[[m]] <- drugResults$compiled.results$result
+  
+  # also compile drug correlations
+  drug.corr.list <- list()
+  for (j in all.drugs) {
+    drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
+  }
+  drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "DrugTreatment")
+  temp.drug.corr.sens[[m]] <- drug.corr.df
+  saveRDS(temp.dmea.sens, file.path(dmea.path,"tempDMEAsens8h.rds"))
+  saveRDS(temp.drug.corr.sens, file.path(dmea.path,"tempDMEAcorrSens8h.rds"))
+ }  
   temp.drug.corr.sens.df <- data.table::rbindlist(temp.drug.corr.sens, use.names=TRUE, idcol="MPNST")
   temp.dmea.sens.df <- data.table::rbindlist(temp.dmea.sens, use.names=TRUE, idcol="MPNST")
   colnames(temp.dmea.sens.df)[2] <- "DrugTreatment"
@@ -208,19 +228,22 @@ synapser::synStore(synapser::File("DMEA_results.csv", parent=synapse_id))
 synapser::synStore(synapser::File("DMEA_correlations.csv", parent=synapse_id))
 ```
 
-
 ### plot number of correlated drugs, enriched MOAs
 ```{r plot # of results, echo = FALSE}
 ## drug mechanisms
 # prep data
 library(plyr);library(dplyr);library(ggplot2);library(patchwork)
-dmea.path <- file.path(getwd(),"DMEA_L1000")
+base.path <- getwd()
+dmea.path <- file.path(base.path, "DMEA")
 setwd(dmea.path)
 dmea.sens.df <- read.csv("DMEA_results.csv")
 drug.corr.sens.df <- read.csv("DMEA_correlations.csv")
 drug.corr.sens.df$DrugTreatment <- factor(drug.corr.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 dmea.sens.df$DrugTreatment <- factor(dmea.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
+drug.corr.sens.df$Time <- paste0(drug.corr.sens.df$Time, "h")
+timepoints <- unique(drug.corr.sens.df$Time)
 drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=timepoints)
+dmea.sens.df$Time <- paste0(dmea.sens.df$Time, "h")
 dmea.sens.df$Time <- factor(dmea.sens.df$Time, levels=timepoints)
 all.drugs <- levels(dmea.sens.df$DrugTreatment)
 all.moas <- sort(names(drug.info))
@@ -234,7 +257,7 @@ nMOAs <- plyr::ddply(sig.dmea, .(MPNST, DrugTreatment, Time), dplyr::summarize,
 nMOAs.overall <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug_set))))
 
-# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.1679
+# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.8576
 # for (m in mpnst) {
 #  cat(m, "# of MOAs enriched at 8h vs. 24h\n")
 #   t.test(nMOAs[nMOAs$MPNST==m & nMOAs$Time=="8h",]$N, 
@@ -284,7 +307,7 @@ nDrugs <- plyr::ddply(sig.drug.corr, .(MPNST, DrugTreatment, Time), dplyr::summa
 nDrugs.overall <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug))))
 
-# are there more/less correlated drugs at 8h vs. 24h? Yes, overall more at 8h; p = 0.01227
+# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.3133
 for (m in mpnst) {
  cat(m, "# of drugs correlated at 8h vs. 24h\n")
   t.test(nDrugs[nDrugs$MPNST==m & nDrugs$Time=="8h",]$N, 
@@ -339,7 +362,7 @@ ggplot2::ggsave("N_drugsAndMOAs_overall_taller.pdf", patchN.plot.overall, width=
 ```{r plot all results, echo = FALSE}
 
 library(plyr);library(dplyr);library(ggplot2)
-dmea.path <- file.path(getwd(),"DMEA_L1000")
+dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
 
 topSets <- unique(dmea.sens.df[dmea.sens.df$sig,]$Drug_set)
@@ -398,7 +421,7 @@ ggplot2::ggsave("Enriched_MOAs_dotPlot.pdf", dot.plot, width=10, height=20)
 ### plot top correlated drugs, enriched MOAs
 ```{r plot top results, echo = FALSE}
 library(plyr);library(dplyr);library(ggplot2)
-dmea.path <- file.path(getwd(),"DMEA_L1000")
+dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
 
 moa.info2 <- dplyr::distinct(nMOAs[,c("DrugTreatment","moa")])
@@ -515,7 +538,7 @@ ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
 ```{r plot validation results, echo = FALSE}
 
 library(plyr);library(dplyr);library(ggplot2)
-dmea.path <- file.path(getwd(),"DMEA_L1000")
+dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
 ### MOA
 topSets <- names(drug.info)
@@ -608,11 +631,12 @@ validation.plot <- ggplot2::ggplot(drugValidations, aes(x=Time, y=Pearson.est, c
 ggplot2::ggsave("validatedDrugs_scatterPlot.pdf", validation.plot, width=5.5, height=3)
 ```
 
+
 ### upset plots to see overlap across drug treatments
 ```{r plot overlap of results, echo = FALSE}
-dmea.path <- file.path(getwd(),"DMEA_L1000")
-setwd(dmea.path)
 library(ComplexHeatmap)
+dmea.path <- file.path(getwd(),"DMEA")
+setwd(dmea.path)
 # inspired by: https://jokergoo.github.io/ComplexHeatmap-reference/book/upset-plot.html#upset-making-the-plot
 moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
 myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
