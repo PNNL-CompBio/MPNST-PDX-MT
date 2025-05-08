@@ -172,7 +172,7 @@ for (i in timepoints) {
     temp.deg <- na.omit(dplyr::distinct(
       mpnst.deg[mpnst.deg$Drug == j,
                 c("Gene","Log2FC")]))
-    temp.deg <- temp.deg %>% slice_max(abs(Log2FC), n = 500)
+    #temp.deg <- temp.deg %>% slice_max(abs(Log2FC), n = 500)
     if (any(duplicated(temp.deg$Gene))) {
       cat("resolving duplicates\n")
       temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
