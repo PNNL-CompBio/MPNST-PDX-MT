@@ -89,6 +89,8 @@ degs <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
 degs <- degs[degs$hgnc_symbol != "" & !is.na(degs$hgnc_symbol),]
 colnames(degs)[15] <- "Gene"
 colnames(degs)[4] <- "Log2FC"
+degs$padj <- as.numeric(degs$padj)
+degs <- degs[degs$padj <= 0.05,]
 length(na.omit(unique(degs$Gene))) # 2950
 
 # CCLE RNA-seq with HGNC symbols
