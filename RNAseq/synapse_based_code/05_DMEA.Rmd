@@ -259,7 +259,7 @@ nMOAs <- plyr::ddply(sig.dmea, .(MPNST, DrugTreatment, Time), dplyr::summarize,
 nMOAs.overall <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug_set))))
 
-# are there more/less enriched drug MOAs at 8h vs. 24h? No: p-value = 0.1573208
+# are there more/less enriched drug MOAs at 8h vs. 24h? more at 24h p=0.02221
 # for (m in mpnst) {
 #  cat(m, "# of MOAs enriched at 8h vs. 24h\n")
 #   t.test(nMOAs[nMOAs$MPNST==m & nMOAs$Time=="8h",]$N, 
@@ -309,7 +309,7 @@ nDrugs <- plyr::ddply(sig.drug.corr, .(MPNST, DrugTreatment, Time), dplyr::summa
 nDrugs.overall <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug))))
 
-# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.3060333
+# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.9166
 for (m in mpnst) {
  cat(m, "# of drugs correlated at 8h vs. 24h\n")
   t.test(nDrugs[nDrugs$MPNST==m & nDrugs$Time=="8h",]$N, 
