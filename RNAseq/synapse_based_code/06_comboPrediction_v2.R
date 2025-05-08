@@ -495,3 +495,32 @@ for (i in unique(unlist(drug.info2))) {
     }
   }
 }
+
+# plot top DEGs
+dir.create("diffexp_dotPlots")
+setwd("diffexp_dotPlots")
+maxAbsNES <- max(abs(diffexp$log2FoldChange), na.rm=TRUE)
+maxLogFDR <- max(-log10(diffexp$padj), na.rm=TRUE)
+for (m in mpnst) {
+  for (t in timepoints) {
+    for (d in tested.drugs) {
+      dot.df <- diffexp[diffexp$individualID == m & diffexp$Timepoint == t & diffexp$Drug == d,]
+      sig.dot.df <- na.omit(dot.df[dot.df$signif,] %>% slice_max(abs(log2FoldChange),n=10))
+      geneOrder <- unique(sig.dot.df[order(sig.dot.df$log2FoldChange),]$hgnc_symbol)
+      dot.df <- na.omit(dot.df[dot.df$hgnc_symbol %in% sig.dot.df$hgnc_symbol,])
+      if (nrow(sig.dot.df) > 0) {
+        dot.df$DrugTreatment <- dot.df$Drug
+        dot.df$Drug_set <- dot.df$hgnc_symbol
+        dot.df$NES <- dot.df$log2FoldChange
+        dot.df$minusLogFDR <- -log10(dot.df$padj)
+        dot.df$Ranking <- "Differential Expression"
+        dot.df$sig <- dot.df$signif
+        DMEAdotPlots(dot.df, y.order=geneOrder, title=m,
+                     fname=paste0(m,"_",d,"_",t,"_top10diffexp_dotPlot"), 
+                     maxAbsNES=maxAbsNES, maxLogFDR = maxLogFDR) 
+      } else {
+        warning("no DEGs for",m,d,t)
+      }
+    }
+  }
+}

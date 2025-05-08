@@ -476,6 +476,7 @@ for (n.top in n.top.list) {
     facet_wrap(vars(cols = Time, rows=MPNST))
   dot.plot
   ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top*1.5<3,3,n.top*1.5))
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_taller.pdf"), dot.plot, width=10, height=ifelse(n.top*3<6,6,n.top*3))
   
   # create tile plot for drug MOA annotations
   moa.plot <- ggplot2::ggplot(moa.info2, aes(x=DrugTreatment,y=1, fill=moa)) + 

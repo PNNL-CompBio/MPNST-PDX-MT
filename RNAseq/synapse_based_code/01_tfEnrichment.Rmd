@@ -466,3 +466,67 @@ for (m in individualID) {
   }
 }
 ```
+
+```{r STRING physical interaction networks, echo=FALSE}
+library(PCSF)
+data("STRINGv12")
+dir.create("TF_networks")
+setwd("TF_networks")
+for (m in mpnst) {
+  for (t in timepoints) {
+    for (d in tested.drugs) {
+      temp.tf <- tf[tf$Drug == d & tf$Timepoint == t & tf$individualID == m & tf$signif,]
+      pos.tf <- temp.tf[temp.tf$score > 0,]
+      neg.tf <- temp.tf[temp.tf$score < 0,]
+      
+      if (nrow(pos.tf) > 0) {
+        pos.edges <- STRINGv12[STRINGv12$from %in% pos.tf$source | 
+                               STRINGv12$to %in% pos.tf$source,]
+        pos.tf <- pos.tf[pos.tf$source %in% c(pos.edges$from, pos.edges$to),]
+        pos.vert <- data.frame(unique(c(pos.edges$from, pos.edges$to)))
+        colnames(pos.vert) <- "source"
+        pos.vert <- merge(pos.vert, pos.tf, all.x=TRUE)
+        pos.vert$type <- "Inferred"
+        pos.vert[!is.na(pos.vert$score),]$type <- "Transcription Factor"
+        topGraph <- igraph::graph_from_data_frame(pos.edges, directed=FALSE, vertices=pos.vert) 
+      tempTitle <- paste0(m,"_",d,"_",t,"_positive_TF")
+      RCy3::createNetworkFromIgraph(topGraph, title=tempTitle)
+      write.csv(pos.vert, paste0(tempTitle,"_vertices.csv"), row.names=FALSE)
+      write.csv(pos.edges, paste0(tempTitle,"_edges.csv"), row.names=FALSE)
+      pos.centrality <- data.frame(name = V(topGraph)$name,
+                                    degree = igraph::degree(topGraph, mode="all"),
+                                    closeness = igraph::closeness(topGraph, mode="all"),
+                                    betweenness = igraph::betweenness(topGraph, directed = FALSE),
+                                    eigen_centrality = igraph::eigen_centrality(topGraph, directed = FALSE)$vector,
+                                    hub_score = igraph::hub_score(topGraph)$vector,
+                                    authority_score = igraph::authority_score(topGraph)$vector)
+      write.csv(pos.centrality, paste0(tempTitle,"_centrality.csv"), row.names=FALSE)
+      }
+      
+      if (nrow(neg.tf) > 0) {
+        neg.edges <- STRINGv12[STRINGv12$from %in% neg.tf$source | 
+                               STRINGv12$to %in% neg.tf$source,]
+        neg.tf <- neg.tf[neg.tf$source %in% c(neg.edges$from, neg.edges$to),]
+        neg.vert <- data.frame(unique(c(neg.edges$from, neg.edges$to)))
+        colnames(neg.vert) <- "source"
+        neg.vert <- merge(neg.vert, neg.tf, all.x=TRUE)
+        neg.vert$type <- "Inferred"
+        neg.vert[!is.na(neg.vert$score),]$type <- "Transcription Factor"
+       topGraph <- igraph::graph_from_data_frame(neg.edges, directed=FALSE, vertices=neg.vert) 
+      tempTitle <- paste0(m,"_",d,"_",t,"_negative_TF")
+      RCy3::createNetworkFromIgraph(topGraph, title=tempTitle)
+      write.csv(neg.vert, paste0(tempTitle,"_vertices.csv"), row.names=FALSE)
+      write.csv(neg.edges, paste0(tempTitle,"_edges.csv"), row.names=FALSE)
+      neg.centrality <- data.frame(name = V(topGraph)$name,
+                                    degree = igraph::degree(topGraph, mode="all"),
+                                    closeness = igraph::closeness(topGraph, mode="all"),
+                                    betweenness = igraph::betweenness(topGraph, directed = FALSE),
+                                    eigen_centrality = igraph::eigen_centrality(topGraph, directed = FALSE)$vector,
+                                    hub_score = igraph::hub_score(topGraph)$vector,
+                                    authority_score = igraph::authority_score(topGraph)$vector)
+      write.csv(neg.centrality, paste0(tempTitle,"_centrality.csv"), row.names=FALSE) 
+      }
+    }
+  }
+}
+```
