@@ -119,7 +119,228 @@ subset(diffex_genes,padj<0.05)|>group_by(individualID,Drug,Timepoint,direction)|
   labs(y='# of Differentially Expressed Genes (q < 0.05)', fill="Direction")+coord_flip()
 ggsave("Ndegs.pdf", width=5.5, height=5)
 
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+all.drugs <- names(drug.info)
+timepoints <- c("8h","24h")
+diffex_genes$log2FoldChange <- as.numeric(diffex_genes$log2FoldChange)
+n.top.list <- c(1, 2, 3, 5)
+for (n.top in n.top.list) {
+  ### pathway
+  topSigpathway <- data.frame()
+  for (i in all.drugs) {
+    tempSig <- diffex_genes[diffex_genes$Drug == i &
+                              diffex_genes$signif,] %>% slice_max(abs(log2FoldChange), n=n.top)
+    topSigpathway <- rbind(topSigpathway, tempSig)
+  }
+  length(unique(topSigpathway$hgnc_symbol)) # 20
+  dot.df <- na.omit(diffex_genes[diffex_genes$hgnc_symbol %in% unique(topSigpathway$hgnc_symbol),])
+  
+  mean.results <- plyr::ddply(dot.df, .(hgnc_symbol), summarize,
+                              Log2FC = mean(log2FoldChange, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$Log2FC),]$hgnc_symbol
+  drugOrder <- unlist(drug.info)
+  
+  dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+  dot.df$minusLogFDR <- -log10(dot.df$padj)
+  maxAbsscore <- ceiling(max(abs(dot.df$log2FoldChange)))
+  dot.plot <- ggplot2::ggplot(
+    dot.df,
+    ggplot2::aes(
+      x = Drug, y = hgnc_symbol, color = log2FoldChange,
+      size = minusLogFDR
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    ggplot2::scale_x_discrete(limits=all.drugs) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsscore, maxAbsscore)) +
+    theme_minimal(base_size=12) +
+    ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+          axis.title = element_blank()) +
+    geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+    facet_grid(Timepoint~individualID)
+  dot.plot
+  ggplot2::ggsave(paste0(n.top,"_topDEGs_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top<2,4,2*n.top))
+}
+# there were ensembl ids which mapped to the same gene
 
+n.top.list <- c(10, 20, 30, 50)
+for (n.top in n.top.list) {
+  dot.df <- na.omit(diffex_genes) %>% slice_max(abs(log2FoldChange), n=n.top)
+  
+  mean.results <- plyr::ddply(dot.df, .(hgnc_symbol), summarize,
+                              Log2FC = mean(log2FoldChange, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$Log2FC),]$hgnc_symbol
+  drugOrder <- unlist(drug.info)
+  
+  dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+  dot.df$minusLogFDR <- -log10(dot.df$padj)
+  maxAbsscore <- ceiling(max(abs(dot.df$log2FoldChange)))
+  dot.plot <- ggplot2::ggplot(
+    dot.df,
+    ggplot2::aes(
+      x = Drug, y = hgnc_symbol, color = log2FoldChange,
+      size = minusLogFDR
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    ggplot2::scale_x_discrete(limits=all.drugs) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsscore, maxAbsscore)) +
+    theme_minimal(base_size=12) +
+    ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+          axis.title = element_blank()) +
+    geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+    facet_grid(Timepoint~individualID)
+  dot.plot
+  ggplot2::ggsave(paste0(n.top,"_topDEGsOverall_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top<16,4,n.top/4))
+}
+
+drug.targets <- read.csv("comboPrediction_usingTop500Sig/target_diffexp.csv")
+dot.df <- na.omit(diffex_genes[diffex_genes$hgnc_symbol %in% drug.targets$hgnc_symbol,]) #%>% slice_max(abs(log2FoldChange), n=n.top)
+
+mean.results <- plyr::ddply(dot.df, .(hgnc_symbol), summarize,
+                            Log2FC = mean(log2FoldChange, na.rm=TRUE))
+setOrder <- mean.results[order(mean.results$Log2FC),]$hgnc_symbol
+drugOrder <- rownames(drug.info)
+timepoints <- c("8h","24h")
+dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+dot.df$minusLogFDR <- -log10(dot.df$padj)
+maxAbsscore <- ceiling(max(abs(dot.df$log2FoldChange)))
+dot.plot <- ggplot2::ggplot(
+  dot.df,
+  ggplot2::aes(
+    x = Drug, y = hgnc_symbol, color = log2FoldChange,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = setOrder) +
+  ggplot2::scale_x_discrete(limits=drugOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsscore, maxAbsscore)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(Timepoint~individualID)
+dot.plot
+ggplot2::ggsave("targetDiffExp_dotPlot.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/4))
+
+dot.plot <- ggplot2::ggplot(
+  dot.df,
+  ggplot2::aes(
+    x = Drug, y = hgnc_symbol, color = log2FoldChange,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_discrete(limits=drugOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsscore, maxAbsscore)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(Timepoint~individualID)
+dot.plot
+ggplot2::ggsave("targetDiffExp_dotPlot_alphabeticalOrder.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/2.67))
+
+ggplot2::ggsave("targetDiffExp_dotPlot_alphabeticalOrder_shorter.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/3.5))
+
+dot.df <- na.omit(diffex_genes[diffex_genes$hgnc_symbol %in% drug.targets$hgnc_symbol,]) #%>% slice_max(abs(log2FoldChange), n=n.top)
+sig.dot.df <- dot.df[dot.df$signif,]
+dot.df <- dot.df[dot.df$hgnc_symbol %in% sig.dot.df$hgnc_symbol,]
+
+drugOrder <- rownames(drug.info)
+timepoints <- c("8h","24h")
+dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+dot.df$minusLogFDR <- -log10(dot.df$padj)
+maxAbsscore <- ceiling(max(abs(dot.df$log2FoldChange)))
+dot.plot <- ggplot2::ggplot(
+  dot.df,
+  ggplot2::aes(
+    x = Drug, y = hgnc_symbol, color = log2FoldChange,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_discrete(limits=drugOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsscore, maxAbsscore)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(Timepoint~individualID)
+dot.plot
+ggplot2::ggsave("sigTargetDiffExp_dotPlot_alphabeticalOrder.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/2.67))
+
+ggplot2::ggsave("sigTargetDiffExp_dotPlot_alphabeticalOrder_shorter.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/3.5))
+
+diffex_genes$Timepoint <- factor(diffex_genes$Timepoint, levels=c("8h","24h"))
+Nbar <- ggplot2::ggplot(na.omit(diffex_genes[diffex_genes$signif,]), aes(x=Drug, fill=Timepoint)) + 
+  geom_bar(stat="count") + facet_wrap(.~individualID) + theme_classic() + 
+  scale_x_discrete(limits=drugOrder) + theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+                                             axis.title.x=element_blank()) + 
+  ylab("# of Differentially\nExpressed Genes")
+ggsave("nSigDEGs.pdf", Nbar, width=7, height=2)
+
+Ndegs <- plyr::ddply(na.omit(diffex_genes[diffex_genes$signif,]), .(individualID, Timepoint, Drug),summarize,
+                     n=length(unique(hgnc_symbol)))
+Ndegs$Timepoint <- factor(Ndegs$Timepoint, levels=c("8h","24h"))
+Nbar <- ggplot2::ggplot(Ndegs, aes(x=Drug, y=n, fill=Timepoint)) + 
+  geom_bar(stat="identity", position="dodge") + facet_wrap(.~individualID) + 
+  theme_classic() + scale_y_continuous(trans="log10") + 
+  scale_x_discrete(limits=drugOrder) + 
+  theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+        axis.title.x=element_blank()) + 
+  ylab("# of Differentially\nExpressed Genes")
+ggsave("nSigDEGs_log10.pdf", Nbar, width=7, height=2)
+write.csv(Ndegs, "nSigDEGs.csv", row.names=FALSE)
+
+# does JH-2-002 have earlier response than MN-2?
+jh2.time.degs <- t.test(Ndegs[Ndegs$individualID=="JH-2-002" & Ndegs$Timepoint=="8h",]$n, 
+                         Ndegs[Ndegs$individualID=="JH-2-002" & Ndegs$Timepoint=="24h",]$n)
+mn2.time.degs <- t.test(Ndegs[Ndegs$individualID=="MN-2" & Ndegs$Timepoint=="8h",]$n, 
+                         Ndegs[Ndegs$individualID=="MN-2" & Ndegs$Timepoint=="24h",]$n)
+
+# upset plots for each MPNST
+for (m in unique(diffex_genes$individualID)) {
+  # generate list of significant results
+  sigList <- list()
+  for (i in unique(diffex_genes$Drug)) {
+    if (nrow(diffex_genes[diffex_genes$Drug == i & 
+                          diffex_genes$individualID == m & diffex_genes$signif,]) > 0) {
+      sigList[[i]] <- na.omit(unique(diffex_genes[diffex_genes$Drug == i & 
+                                                    diffex_genes$individualID == m & 
+                                                    diffex_genes$signif,]$source)) 
+    }
+  }
+  
+  if (length(sigList) > 1) {
+    # convert to matrix
+    myPlot = ComplexHeatmap::make_comb_mat(sigList)
+    pdf(file.path(tf.path,paste0(m,"_enrichedTF_upsetPlot.pdf")))
+    up <- ComplexHeatmap::UpSet(myPlot)
+    ComplexHeatmap::draw(up)
+    dev.off()
+  }
+}
 
 # need to redo TF analysis with individualID
 # tfmat<-diffex_tfs|>

@@ -237,9 +237,33 @@ pcvals$Timepoint <- factor(pcvals$Timepoint, c("0h", "8h", "24h"))
    facet_grid(~indDate)+scale_color_discrete()
  ggsave('batched_pca.png',width=12,height=6)
  
+ ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,shape=Timepoint))+geom_point(size=4)+
+   facet_grid(~individualID)+scale_color_discrete()
+ ggsave('batched_pca_noDates.png',width=12,height=6)
+ 
   ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,alpha=Timepoint, shape=indDate))+geom_point(size=4)+
    scale_alpha_discrete(range=c(0.1,1))+scale_color_discrete()
  ggsave('batched_pca_noFacet.png',width=8,height=8)
+ 
+ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+ drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(drug.info),"Set3"))(length(drug.info)) # need color ramp for >12 colors
+ drugCol <- c("black", drugCol)
+names(drugCol) <- c("DMSO", names(drug.info))
+ ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,alpha=Timepoint, shape=individualID))+geom_point(size=4)+
+   scale_alpha_discrete(range=c(0.2,1))+scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
+   scale_color_manual(values=drugCol, breaks=names(drugCol))
+ ggsave('batched_pca_noFacet_noDates.png',width=8,height=8)
+  ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
+   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
+   scale_color_manual(values=drugCol, breaks=names(drugCol))
+ ggsave('batched_pca_noFacet_noDates_sizeTime.png',width=8,height=8)
  
  ggplot(pcvals[pcvals$Date %in% c("B", "C"),],aes(x=PC1,y=PC2,col=Drug,alpha=Timepoint, shape=indDate))+geom_point(size=4)+
    scale_alpha_discrete(range=c(0.1,1))+scale_color_discrete()

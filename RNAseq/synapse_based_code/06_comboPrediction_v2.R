@@ -524,3 +524,93 @@ for (m in mpnst) {
     }
   }
 }
+
+#### TF network centrality ####
+# what are the most central proteins in each MOA's TF network(s)?
+centrality <- data.frame()
+mpnst <- c("JH-2-002","MN-2")
+timepoints <- c("8h","24h")
+tf.path <- "/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code/TF_networks"
+for (i in unique(unlist(drug.info2))) {
+  temp.drugs <- names(drug.info2[drug.info2 == i])
+  for (m in mpnst) {
+    for (t in timepoints) {
+      for (j in temp.drugs) {
+        fname <- paste0(m,"_",j,"_",t)
+        pos.fname <- file.path(tf.path,paste0(fname, "_positive_TF_centrality.csv"))
+        neg.fname <- file.path(tf.path,paste0(fname, "_negative_TF_centrality.csv"))
+        if (file.exists(pos.fname)) {
+          pos.centrality <- read.csv(pos.fname)
+          pos.centrality$Direction <- "positive"
+          pos.centrality$Drug <- j
+          pos.centrality$Timepoint <- t
+          pos.centrality$individualID <- m
+          pos.centrality$moa <- i
+          centrality <- rbind(centrality, pos.centrality)
+        }
+        if (file.exists(neg.fname)) {
+          neg.centrality <- read.csv(neg.fname) 
+          neg.centrality$Direction <- "Negative"
+          neg.centrality$Drug <- j
+          neg.centrality$Timepoint <- t
+          neg.centrality$individualID <- m
+          neg.centrality$moa <- i
+          centrality <- rbind(centrality, neg.centrality)
+        }
+      }
+    }
+  }
+}
+write.csv(centrality, "TF_centrality.csv", row.names=FALSE)
+
+mean.centrality <- plyr::ddply(centrality,.(individualID, moa, name), summarize,
+                               meanCentrality=mean(eigen_centrality, na.rm=TRUE),
+                               drugs = paste0(sort(unique(Drug)), collapse=", "),
+                               directions=paste0(sort(unique(Direction)), collapse=", "),
+                               times = paste0(sort(unique(Timepoint)), collapse=", "))
+write.csv(mean.centrality, "TF_meanCentrality.csv", row.names=FALSE)
+
+# #### look at correlations ####
+corr <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code/degCorr.csv")
+rownames(corr) <- corr$X
+corr$X <- NULL
+setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code")
+dir.create("diffexpCorrelations")
+setwd("diffexpCorrelations")
+library(plyr);library(dplyr);library(tidyr)
+for (i in unique(unlist(drug.info2))) {
+  temp.drugs <- names(drug.info2[drug.info2 == i])
+  moa.cols <- c()
+  for (d in temp.drugs) {
+    moa.cols <- c(colnames(corr)[grepl(d,colnames(corr))],moa.cols) 
+  }
+  moa.corr <- corr[,moa.cols]
+  moa.corr$otherDrug <- rownames(moa.corr)
+  moa.corr.df <- reshape2::melt(moa.corr)
+  moa.corr.df <- moa.corr.df %>% tidyr::separate_wider_delim(variable,"_",names=c("MPNST","Timepoint","Drug"))
+  moa.corr.df <- moa.corr.df %>% tidyr::separate_wider_delim(otherDrug,"_",names=c("MPNST2","Timepoint2","Drug2"))
+  moa.corr.df$MPNST <- gsub("[.]","-",moa.corr.df$MPNST)
+  moa.corr.df <- moa.corr.df[moa.corr.df$MPNST == moa.corr.df$MPNST2 & moa.corr.df$Timepoint==moa.corr.df$Timepoint2,]
+  # mean.moa.corr.df <- plyr::ddply(moa.corr.df,.(MPNST, Drug, Drug2), summarize,
+  #                                 meanPearsonEst = mean(value, na.rm=TRUE),
+  #                                 medianPearsonEst = median(value,na.rm=TRUE),
+  #                                 sdPearsonEst = sd(value, na.rm=TRUE))
+  moa.corr.df$Timepoint <- factor(moa.corr.df$Timepoint, levels=c("8h","24h"))
+  moa.corr.plot <- ggplot(moa.corr.df, aes(x=Drug2, y=value)) + geom_violin(alpha=0) +
+    geom_point(aes(color=Timepoint, shape=Drug)) +
+    geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
+    scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
+    theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+          plot.title=element_text(face="bold", hjust=0.5)) +
+    ggtitle(i) + scale_y_continuous(limits=c(0,1))
+  ggsave(paste0(i,"_diffexp_correlations_v2.pdf"),moa.corr.plot,width=7,height=2)
+  moa.corr.plot <- ggplot(moa.corr.df, aes(x=Drug2, y=value)) + geom_violin(alpha=0) +
+    geom_point(aes(color=Timepoint, shape=Drug)) +
+    geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
+    scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
+    theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+          plot.title=element_text(face="bold", hjust=0.5)) +
+    ggtitle(i) + scale_y_continuous(limits=c(-1,1))
+  ggsave(paste0(i,"_diffexp_correlations_v2.pdf"),moa.corr.plot,width=7,height=4)
+}
+
