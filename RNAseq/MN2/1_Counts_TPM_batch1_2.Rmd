@@ -65,7 +65,7 @@ Reference_path=config$Reference_path
 
 dir(Reference_path)
 # load function
-source(file.path(getwd(),"Rfunction.R" ))
+source(file.path("/Volumes/lyu.yang/MAC_1/Github/MPNST-PDX-MT/RNAseq","Rfunction.R" ))
 ```
 
 
@@ -108,8 +108,8 @@ synapser::synLogin(email=email,authToken=Token)
 # download files from synapse
 Rawcounts_syID_b2="syn64608369"
 RawTPM_syID_b2="syn64608370"
-Annotation_syID_b2="syn64608372"
-
+#Annotation_syID_b2="syn64608372" # DMSO_batch_version1
+Annotation_syID_b2="syn66302373"
 for (i in c(Rawcounts_syID_b2,RawTPM_syID_b2,Annotation_syID_b2)){
    synapser::synGet(i,downloadLocation = Rawdata_path_b2,ifcollision="keep.local")
 
@@ -126,7 +126,7 @@ synapser::synGet(Drug_table_syID,downloadLocation = Rawdata_path,ifcollision="ke
 load(file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))
 Drug_anno=readxl::read_excel(file.path(Rawdata_path,"Drug_annotation.xlsx"))%>%arrange(Drug_class)
 Drug_name = Drug_anno$Drug %>% unique()%>%na.omit()
-Drug_name=factor(Drug_name,levels = c("DMSO" ,"PAL",  "RIB" , "DEC" , "VOR" , "TRA"  ,"MIR"  ,"SEL"  ,"OLA",  "TNO",  "RMC" , "CAP"  ,"TRAB", "DOX"  ,"IFO"  ,"IRI"))
+Drug_name=factor(Drug_name,levels = c("DMSO" ,"PAL",  "RIB" , "DEC" , "VOR" , "TRAM"  ,"MIR"  ,"SEL"  ,"OLA",  "TNO",  "RMC" , "CAP"  ,"TRAB", "DOX"  ,"IFO"  ,"IRI"))
 
 length(Drug_name)
 # Ensure you have 14 unique Drug names (1 for black, 13 other colors)
@@ -199,7 +199,8 @@ set.seed(12345)
 dir(Rawdata_path_b2)
 Raw_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T)
 TPM_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_tpm.tsv_corrected_ID.csv"),sep=",",header = T)
-Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap.csv"),sep=",",header = T)
+#Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap_.csv"),sep=",",header = T)
+Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap_swap_DMSO.csv"),sep=",",header = T)%>%dplyr::mutate(Drug=ifelse(Full_name=="Trametinib","TRAM",Drug))
 Annotation_b2$Drug=factor(Annotation_b2$Drug)
 Annotation_b2$Timepoint=factor(Annotation_b2$Timepoint,levels=c("0h","8h","24h"))
 TPM_b2_2=TPM_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()

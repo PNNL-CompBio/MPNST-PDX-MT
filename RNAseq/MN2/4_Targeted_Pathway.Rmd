@@ -1,5 +1,5 @@
 ---
-title: "3_GSEA analysis"
+title: "4_Target_pathways"
 author: "`r config::get(file = 'config.yml')$document$author`"
 date: "`r Sys.Date()`"
 output:
@@ -14,7 +14,7 @@ knit: (
   function(inputFile, encoding) {
     config=config::get(file = 'config.yml') 
     
-    pSubTitle <- "3_GSEA analysis.pdf"
+    pSubTitle <- "4_Target_pathways.pdf"
     
     base_output_dir <- paste0(config$Path,"/","Report")
     
@@ -64,15 +64,19 @@ if (!dir.exists(output_dir)) {
 Reference_path=config$Reference_path
 
 dir(Reference_path)
+
+getwd()
 # load function
-source(file.path(getwd(),"Rfunction.R" ))
+source(file.path("/Volumes/lyu.yang/MAC_1/Github/MPNST-PDX-MT/RNAseq","Rfunction.R" ))
+
+ 
 ```
 
 
 ```{r}
 if (! file.exists( file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))){
    syID="syn63828384"
-    synapser::synGet(syID,downloadLocation = Reference_path,ifcollision="keep.local")
+  synapser::synGet(syID,downloadLocation = Reference_path,ifcollision="keep.local")
 
 }
 
@@ -110,7 +114,8 @@ synapser::synLogin(email=email,authToken=Token)
 # download files from synapse
 Rawcounts_syID_b2="syn64608369"
 RawTPM_syID_b2="syn64608370"
-Annotation_syID_b2="syn64608372"
+#Annotation_syID_b2="syn64608372" # DMSO_batch_version1
+Annotation_syID_b2="syn66302373"
 
 for (i in c(Rawcounts_syID_b2,RawTPM_syID_b2,Annotation_syID_b2)){
    synapser::synGet(i,downloadLocation = Rawdata_path_b2,ifcollision="keep.local")
@@ -118,23 +123,52 @@ for (i in c(Rawcounts_syID_b2,RawTPM_syID_b2,Annotation_syID_b2)){
   
 }
 
+Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap_swap_DMSO.csv"),sep=",",header = T)%>%dplyr::mutate(Drug=ifelse(Full_name=="Trametinib","TRAM",Drug))
+
 Drug_table_syID="syn64608501"
 
 synapser::synGet(Drug_table_syID,downloadLocation = Rawdata_path,ifcollision="keep.local")
 
 # human GMT files download
-GMT_folder_id="	syn63828408"
+GMT_folder_id="syn63828408"
 GSEA_path=file.path(Reference_path,"Human_GSEA")
-download_synapse_folder(folder_id=GMT_folder_id, destination_path=GSEA_path)
+
+ children <-synapser:: synGetChildren(GMT_folder_id)
+out=children$asList()
+ 
+    
+download_synapse_folder(folder_id=GMT_folder_id, download_path=GSEA_path)
+
+```
+
+```{r,include=F}
+load(file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))
+
+set.seed(12345)
+dir(Rawdata_path_b1)
+Raw_counts_b1=read.table(file.path(Rawdata_path_b1,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T,row.names = 1)
+TPM_counts_b1=read.table(file.path(Rawdata_path_b1,"salmon.merged.gene_tpm_corrected_id.csv"),sep=",",header = T,row.names = 1)
+Annotation_b1=read.table(file.path(Rawdata_path_b1,"01172025_Batch1_Samplemap.csv"),sep=",",header = T)
+Annotation_b1$Drug=factor(Annotation_b1$Drug,levels = c("DMSO","MIR"))
+Annotation_b1$Timepoint=factor(Annotation_b1$Timepoint,levels=c("0h","8h","24h"))
+TPM_b1_2=TPM_counts_b1%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
+Counts_b1_2=Raw_counts_b1%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()%>%mutate_all(.,as.integer)
+
+Raw_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T)
+TPM_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_tpm.tsv_corrected_ID.csv"),sep=",",header = T)
+Annotation_b2$Drug=factor(Annotation_b2$Drug)
+Annotation_b2$Timepoint=factor(Annotation_b2$Timepoint,levels=c("0h","8h","24h"))
+TPM_b2_2=TPM_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
+Counts_b2_2=Raw_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()%>%mutate_all(.,as.integer)
 
 ```
 
 
+
 ```{r}
-load(file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))
 Drug_anno=readxl::read_excel(file.path(Rawdata_path,"Drug_annotation.xlsx"))%>%arrange(Drug_class)
 Drug_name = Drug_anno$Drug %>% unique()%>%na.omit()
-Drug_name=factor(Drug_name,levels = c("DMSO" ,"PAL",  "RIB" , "DEC" , "VOR" , "TRA"  ,"MIR"  ,"SEL"  ,"OLA",  "TNO",  "RMC" , "CAP"  ,"TRAB", "DOX"  ,"IFO"  ,"IRI"))
+Drug_name=factor(Drug_name,levels = c("DMSO" ,"PAL",  "RIB" , "DEC" , "VOR" , "TRAM"  ,"MIR"  ,"SEL"  ,"OLA",  "TNO",  "RMC" , "CAP"  ,"TRAB", "DOX"  ,"IFO"  ,"IRI"))
 
 length(Drug_name)
 # Ensure you have 14 unique Drug names (1 for black, 13 other colors)
@@ -155,7 +189,12 @@ names(drug_colors) = sort(Drug_name)
 
 Timepoint_colors= RColorBrewer::brewer.pal(5,"Set1")[2:4]
 names(Timepoint_colors)=c("0h","8h","24h")
+
+
+
 ```
+
+
 ```{r}
 # RES and GSEA data download
 load(file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))
@@ -234,87 +273,324 @@ FGSEA_sig$Group=factor(FGSEA_sig$Group,levels=FGSEA_sig_org$Group)
   
 Group_anno=FGSEA_sig[,c("Group","Drug","Timepoint")]
 ```
+
+
+
+\newpage
+
+## Cell cycle related pathway  
 ```{r}
-plot_pathway_heatmap <- function(data, pathway_col, padj_col, NES_col, group_col, drug_col) {
-  library(ggplot2)
-  library(dplyr)
+keywords <- "CELL_CYCLE"
 
-  # Ensure the input data is a data frame
-  if (!is.data.frame(data)) stop("Input data must be a data frame")
+add_keywords=c("")
 
-  # Check if the required columns exist
-  required_cols <- c(pathway_col, padj_col, NES_col, group_col, drug_col)
-  if (!all(required_cols %in% colnames(data))) {
-    stop("Specified columns do not exist in the data frame")
+# Print extracted keywords
+keyword_pattern <-paste(c(keywords,add_keywords), collapse = "|")%>%gsub("\\|$","",.)
+pathway_list_1=FGSEA_sig %>%  filter(grepl(keyword_pattern, pathway, ignore.case = TRUE))
+# Filter FGSEA results using grepl (case-insensitive matching)
+filtered_fgsea <- FGSEA_sig %>%  filter(grepl(keyword_pattern, pathway, ignore.case = TRUE))%>%arrange(Group)
+#filtered_fgsea$Group
+missing_samples=setdiff(unique(FGSEA_sig$Group),filtered_fgsea$Group)
+missing_samples_anno=data.frame(Group=missing_samples)%>%left_join(., Group_anno)%>%mutate(pathway=filtered_fgsea$pathway[1],pval=NA,padj=NA,log2err=NA,ES=NA,NES=NA,size=NA,leadingEdge=NA)%>%.[,colnames(filtered_fgsea)]
+filtered_fgsea2=rbind(filtered_fgsea,missing_samples_anno)%>%arrange(Group)
+
+Plot_all=plot_pathway_heatmap_2(filtered_fgsea2, pathway_col = "pathway", padj_col = "padj", NES_col = "NES", group_col = "Group",drug_col = "Drug",timepoint_col = "Timepoint",Drug_colors_set = drug_colors,Timepoint_color_set = Timepoint_colors)
+
+
+```
+
+```{r,fig.width=30,fig.height=28,include=T}
+Plot_all
+```
+
+\newpage
+
+```{r,include=T}
+Select_pathway="FISCHER_G2_M_CELL_CYCLE"
+
+Cell_cycle_UP=FGSEA_sig%>%dplyr::filter(pathway==Select_pathway)%>%dplyr::filter(NES>0)%>%arrange(Drug )
+knitr::kable(Cell_cycle_UP[,c("pathway","NES","pval","Drug","Timepoint")],caption = "Group with Cell cycle upregulated")%>%kableExtra::kable_styling(latex_options = "scale_down")
+```
+
+
+ 
+
+
+# Mirda (batch1)
+
+```{r,include=T}
+Drug_name="MIR"
+Select_pathway="FISCHER_G2_M_CELL_CYCLE"
+anno_2=Annotation_b1[c("specimenID","Drug","Timepoint")]%>%arrange(Timepoint,Drug)%>%matrix.please()%>%as.data.frame()
+TPM_b1_2_arrange=TPM_b1_2[,rownames(anno_2)]
+
+number= anno_2%>%dplyr::filter(Timepoint=="8h")%>%nrow()
+Color_list=list(Drug= drug_colors[unique(anno_2$Drug)])
+Test=FGSEA_sig%>%dplyr::filter(Drug==Drug_name&pathway==Select_pathway)%>%arrange(NES) 
+
+Gene_list=Test$leadingEdge%>%unlist()%>%as.character()
+fig_title=paste0(Drug_name,"_",Select_pathway)
+p2=TPM_heatmap(TPM_b1_2_arrange,Gene_list,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title=fig_title)
+
+```
+
+
+```{r}
+knitr::knit_exit()
+```
+
+
+```{r}
+# Generare Heatmap by using significant genes from GSEA output
+generate_TPM_heatmap <- function(Drug_name, Pathway_name=NULL,Gene_list=NULL) {
+  # Get the experiment date for the specified drug
+  Date_exp <- Annotation_b2[c("specimenID", "Drug", "Timepoint", "Date")] %>%
+    dplyr::filter(Drug == Drug_name) %>%
+    .$Date %>%
+    unique()
+
+  # Filter annotations for the drug and DMSO at the same experiment date
+  anno_2 <- Annotation_b2[c("specimenID", "Drug", "Timepoint", "Date")] %>%
+    arrange(Timepoint, Drug) %>%
+    dplyr::filter(Drug %in% c(Drug_name, "DMSO")) %>%
+    dplyr::filter(Date == Date_exp) %>%
+    .[, c("specimenID", "Drug", "Timepoint")] %>%
+    matrix.please() %>%
+    as.data.frame()
+
+  # Subset TPM data based on the arranged annotation
+  TPM_b2_2_arrange <- TPM_b2_2[, rownames(anno_2)]
+
+  # Count the number of samples at 8h timepoint
+  number <- anno_2 %>%
+    dplyr::filter(Timepoint == "8h") %>%
+    nrow()
+
+  # Set colors for annotation
+  Color_list <- list(Drug = drug_colors[unique(anno_2$Drug)])
+
+# Extract leading-edge genes for the pathway
+if (! is.null(Pathway_name)){
+  # Filter FGSEA results for the specified drug and pathway
+  Test <- FGSEA_sig %>%
+    dplyr::filter(Drug == Drug_name) %>%
+    dplyr::filter(pathway == Pathway_name)   
+  Pathway_pickup <- Test %>%
+    dplyr::filter(pathway == Pathway_name) %>%
+    .$leadingEdge %>%
+    unlist() %>%
+    as.character()
+  }
+  
+  if (! is.null(Gene_list)){
+    Pathway_pickup=Gene_list[,1]
+    Pathway_name=colnames(Gene_list)
   }
 
-  # Compute metrics for each pathway
-  metrics <- data %>%
-    group_by(.data[[pathway_col]]) %>%
-    summarise(
-      drugs = paste(sort(unique(.data[[drug_col]])), collapse = "+"),  # Concatenate drugs
-      sig_count = sum(.data[[padj_col]] < 0.05),                       # Count significant padj values
-      NES_sum = n(),                                                   # Count occurrences
-      NES_value = sum(.data[[NES_col]]),                               # Sum NES values
-      Var = prod(.data[[NES_col]])                                     # Product of NES values
-    ) %>%
-    ungroup()
+   # Generate the title for the figure
+  fig_title <- paste0(Drug_name, "_", Pathway_name)
 
-  # Sort pathways based on significance and NES
-  sorted_pathways <- metrics %>%
-    arrange(desc(NES_sum), drugs, desc(Var), desc(sig_count), desc(NES_value)) %>%
-    mutate(!!sym(pathway_col) := factor(.data[[pathway_col]], levels = unique(.data[[pathway_col]])))
-
-  # Merge sorted pathways with the input data
-  plot_data <- data %>%
-    mutate(
-      color_val = ifelse(.data[[padj_col]] > 0.05, NA, .data[[NES_col]]) # Color grey if padj > 0.05
-    )
-
-  # Ensure pathway order follows sorted pathways
-  plot_data[[pathway_col]] <- factor(plot_data[[pathway_col]], levels = rev(sorted_pathways[[pathway_col]]))
-
-  # Get unique group labels (samples) for vertical lines
-  unique_groups <- unique(plot_data[[group_col]])
-
-  # Create the heatmap
-  heatmap_plot <- ggplot(plot_data, aes(
-    x = .data[[group_col]], 
-    y = .data[[pathway_col]], 
-    fill = color_val, 
-    size = -log10(.data[[padj_col]])
-  )) +
-    geom_point(shape = 21, color = "black") +  # Circle with border
-    scale_fill_gradient2(
-      low = "blue", high = "red", mid = "white", midpoint = 0, limits = c(-6, 6),
-      na.value = "grey"  # Set NA values to grey
-    ) +
-    scale_size(range = c(2, 10)) +  # Point size based on -log10(padj)
-    geom_vline(xintercept = seq(1.5, length(unique_groups) - 0.5, by = 1),  # Add vertical lines between samples
-               color = "gray60", linetype = "dashed", size = 0.5) + 
-    labs(
-      title = "Pathway Heatmap",
-      x = "Group (Samples)",
-      y = "Pathway",
-      fill = "NES",
-      size = "-log10(padj)"
-    ) +
-    # Enhanced theme
-    theme_minimal(base_size = 12) +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),  # Title in center and bold
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 10),      # Rotate x-axis labels
-      axis.text.y = element_text(size = 10),                            # Y-axis text size
-      panel.grid.major = element_blank(),                               # Remove major gridlines
-      panel.grid.minor = element_blank(),                               # Remove minor gridlines
-      panel.background = element_rect(fill = "white"),                  # White background
-      legend.position = "right",                                        # Legend to the right
-      legend.title = element_text(size = 12),                           # Legend title size
-      legend.text = element_text(size = 10)                             # Legend text size
-    )
-
-  return(heatmap_plot)
+  # Generate the heatmap
+  p2 <- TPM_heatmap(TPM_b2_2_arrange, Pathway_pickup, 
+                     Annotation_col = anno_2, 
+                     Annotation_color = Color_list, 
+                     gap_set = c(3, 3 + number, 3 + number), 
+                     Title = fig_title)
+  
+  return(p2)
 }
+
+ 
+
+```
+
+```{r}
+Drug_check_list=Cell_cycle_UP$Drug%>%unique()
+Plotlist=list()
+for (i in Drug_check_list) {
+  Drug_name=i
+  Pahway_name="FISCHER_G2_M_CELL_CYCLE"
+  Plotlist[[i]]=generate_TPM_heatmap(Drug_name,Pahway_name)%>%.[[4]]
+  
+}
+
+
+```
+
+
+```{r,fig.width=24,fig.height=40,include=T}
+cowplot::plot_grid(plotlist = Plotlist,nrow=1)
+```
+
+
+```{r}
+CDK_genes=data.frame(CDK_genes=c("CDK4","CDK6","CCND1"))
+Drug_name="PAL"
+P1=generate_TPM_heatmap(Drug_name,Pathway_name=NULL,Gene_list =CDK_genes )
+Drug_name="RIB"
+P2=generate_TPM_heatmap(Drug_name,Pathway_name=NULL,Gene_list =CDK_genes )
+```
+
+```{r,include=T,fig.width=12,fig.height=6}
+cowplot::plot_grid(plotlist = list(P1$gtable,P2$gtable),nrow=1)
+```
+
+
+
+## MAPK inhibitor
+```{r}
+Drug_name=c("SEL","TRA")
+MAPK_genes=data.frame(MAPK_sig=c("PHLDA1","SPRY2", "SPRY4", "ETV4", "ETV5", "DUSP4", "DUSP6", "CCND1", "EPHA2", "EPHA4") )
+#Selected_path="WP_HOSTPATHOGEN_INTERACTION_OF_HUMAN_CORONAVIRUSES_MAPK_SIGNALING"
+
+Plot_list=list()
+#Plot_list2=list()
+for (i in Drug_name) {
+  Plot_list[[i]]=generate_TPM_heatmap(i,Pathway_name=NULL,Gene_list =MAPK_genes )%>%.$gtable
+ # Plot_list2[[i]]=generate_TPM_heatmap(i,Pathway_name=Selected_path,Gene_list =NULL )%>%.$gtable
+  
+}
+
+```
+
+
+```{r,include=T,fig.width=12,fig.height=6}
+cowplot::plot_grid(plotlist = Plot_list,nrow=1)
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+
+```{r,include=T,fig.width=12,fig.height=6}
+cowplot::plot_grid(plotlist = Plot_list2,nrow=1)
+```
+
+
+
+```{r}
+Drug_name="PAL"
+Select_pathway="CHICAS_RB1_TARGETS_LOW_SERUM"
+Date_exp=Annotation_b2[c("specimenID","Drug","Timepoint","Date")]%>%dplyr::filter(Drug==Drug_name)%>%.$Date%>%unique()
+anno_2=Annotation_b2[c("specimenID","Drug","Timepoint","Date")]%>%arrange(Timepoint,Drug)%>%dplyr::filter(Drug%in%c(Drug_name,"DMSO"))%>%
+                      dplyr::filter(Date==Date_exp)%>%.[,c("specimenID","Drug","Timepoint")]%>%matrix.please()%>%as.data.frame()
+
+TPM_b2_2_arrange=TPM_b2_2[,rownames(anno_2)]
+number= anno_2%>%dplyr::filter(Timepoint=="8h")%>%nrow()
+
+Color_list=list(Drug= drug_colors[unique(anno_2$Drug)])
+
+NES_neg=FGSEA_sig%>%dplyr::filter(Drug==Drug_name&NES<0)%>%arrange(NES)
+Test=FGSEA_sig%>%dplyr::filter(Drug==Drug_name)%>%arrange(NES)%>%dplyr::filter(pathway==Select_pathway)
+
+Pathway_pickup=Test%>%dplyr::filter(pathway==Select_pathway)%>%.$leadingEdge%>%unlist()%>%as.character()
+fig_title=paste0(Drug_name,"_",Select_pathway)
+
+p2=TPM_heatmap(TPM_b2_2_arrange,Pathway_pickup,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title=fig_title)
+
+CDK_genes=data.frame(CDK_genes=c("CDK4","CDK6","CCND1"))
+
+Test=generate_TPM_heatmap(Drug_name,Pathway_name=NULL,Gene_list =CDK_genes )
+
+fig_title=paste0(Drug_name,"_","CDK genes")
+p3=TPM_heatmap(TPM_b2_2_arrange,CDK_genes,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title=fig_title)
+
+PCA_Plot_3_shape(t(TPM_b2_2_arrange), Annotation_b2, "specimenID", "Drug", "Timepoint")+scale_color_manual(values=drug_colors)
+```
+```{r}
+p2
+```
+
+
+# Mirda
+
+```{r}
+Drug_name="MIR"
+anno_2=Annotation_b1[c("specimenID","Drug","Timepoint")]%>%arrange(Timepoint,Drug)%>%matrix.please()%>%as.data.frame()
+TPM_b1_2_arrange=TPM_b1_2[,rownames(anno_2)]
+number= anno_2%>%dplyr::filter(Timepoint=="8h")%>%nrow()
+
+Color_list=list(Drug= drug_colors[unique(anno_2$Drug)])
+
+MAPK_genes=c("PHLDA1","SPRY2", "SPRY4", "ETV4", "ETV5", "DUSP4", "DUSP6", "CCND1", "EPHA2", "EPHA4") 
+
+p1=TPM_heatmap(TPM_b1_2_arrange,MAPK_genes,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title="Mirda signature")
+
+Test=FGSEA_sig%>%dplyr::filter(Drug==Drug_name&Timepoint=="8h")%>%arrange(NES)%>%dplyr::filter(grepl("MAPK|ERK|CYCLE",pathway))
+
+Select_pathway="FISCHER_G2_M_CELL_CYCLE"
+fig_title=paste0(Drug_name,"_",Select_pathway)
+FISCHER_G1_S_CELL_CYCLE=Test%>%dplyr::filter(pathway==Select_pathway)%>%.$leadingEdge%>%unlist()%>%as.character()
+
+
+p2=TPM_heatmap(TPM_b1_2_arrange,FISCHER_G1_S_CELL_CYCLE,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title=fig_title)
+
+```
+
+```{r,include=T,fig.width=12,fig.height=6}
+cowplot::plot_grid(plotlist = list(p1$gtable,p2$gtable),nrow=1)
+```
+
+# Selumetinib
+
+```{r}
+Drug_name="SEL"
+Date_exp=Annotation_b2[c("specimenID","Drug","Timepoint","Date")]%>%dplyr::filter(Drug==Drug_name)%>%.$Date%>%unique()
+anno_2=Annotation_b2[c("specimenID","Drug","Timepoint","Date")]%>%arrange(Timepoint,Drug)%>%dplyr::filter(Drug%in%c(Drug_name,"DMSO"))%>%
+                      dplyr::filter(Date==Date_exp)%>%.[,c("specimenID","Drug","Timepoint")]%>%matrix.please()%>%as.data.frame()
+TPM_b2_2_arrange=TPM_b2_2[,rownames(anno_2)]
+number= anno_2%>%dplyr::filter(Timepoint=="8h")%>%nrow()
+
+Color_list=list(Drug= drug_colors[unique(anno_2$Drug)])
+
+p1=TPM_heatmap(TPM_b2_2_arrange,MAPK_genes,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title="Mirda target genes")
+
+Test=FGSEA_sig%>%dplyr::filter(Drug==Drug_name)%>%arrange(NES)%>%dplyr::filter(grepl("MAPK|ERK|CYCLE",pathway))%>%arrange(pathway)
+
+Pahway_name="GOBP_ERK1_AND_ERK2_CASCADE"
+
+Pathway_pickup=Test%>%dplyr::filter(pathway=="GOBP_ERK1_AND_ERK2_CASCADE")%>%.$leadingEdge%>%unlist()%>%as.character()
+
+p2=TPM_heatmap(TPM_b2_2_arrange,Pathway_pickup,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title=Pahway_name)
+
+Pahway_name="WP_HOSTPATHOGEN_INTERACTION_OF_HUMAN_CORONAVIRUSES_MAPK_SIGNALING"
+
+Pathway_pickup=Test%>%dplyr::filter(pathway=="GOBP_ERK1_AND_ERK2_CASCADE")%>%.$leadingEdge%>%unlist()%>%as.character()
+
+p3=TPM_heatmap(TPM_b2_2_arrange,Pathway_pickup,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title=Pahway_name)
+
+Pahway_name="FISCHER_G2_M_CELL_CYCLE"
+Pathway_pickup=Test%>%dplyr::filter(pathway==Pahway_name)%>%.$leadingEdge%>%unlist()%>%as.character()
+
+
+p4=TPM_heatmap(TPM_b2_2_arrange,Pathway_pickup,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title=Pahway_name)
+
+
+
+```
+```{r,include=T,fig.width=12,fig.height=12}
+cowplot::plot_grid(plotlist = list(p1$gtable,p2$gtable,p3$gtable,p4$gtable),nrow=2)
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+
+```{r}
+
+Test
+
+Test$leadingEdge
+```
+
+
+```{r}
+Test=FGSEA_sig%>%dplyr::filter(Drug=="RIB"&Timepoint=="8h")%>%arrange(NES)%>%dplyr::filter(grepl("MAPK|ERK|CYCLE|RB1",pathway))
+
+Test%>%dplyr::filter(pathway=="REACTOME_PERK_REGULATES_GENE_EXPRESSION")%>%.$leadingEdge
+Test$leadingEdge
 ```
 
 

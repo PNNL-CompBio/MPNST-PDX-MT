@@ -41,9 +41,11 @@ library(synapser)
 library(dplyr)
 library(readr)
 library(tidyr)
+# install config
+#BiocManager::install("SummarizedExperiment")
+
 
 ```
-
 
 # Define your own config
 ```{r,setup, include=FALSE}
@@ -65,7 +67,7 @@ Reference_path=config$Reference_path
 
 dir(Reference_path)
 # load function
-source(file.path(getwd(),"Rfunction.R" ))
+source(file.path("/Volumes/lyu.yang/MAC_1/Github/MPNST-PDX-MT/RNAseq","Rfunction.R" ))
 ```
 
 
@@ -110,13 +112,17 @@ synapser::synLogin(email=email,authToken=Token)
 # download files from synapse
 Rawcounts_syID_b2="syn64608369"
 RawTPM_syID_b2="syn64608370"
-Annotation_syID_b2="syn64608372"
+#Annotation_syID_b2="syn64608372" # DMSO_batch_version1
+Annotation_syID_b2="syn66302373"
+
 
 for (i in c(Rawcounts_syID_b2,RawTPM_syID_b2,Annotation_syID_b2)){
    synapser::synGet(i,downloadLocation = Rawdata_path_b2,ifcollision="keep.local")
 
   
 }
+Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap_swap_DMSO.csv"),sep=",",header = T)%>%dplyr::mutate(Drug=ifelse(Full_name=="Trametinib","TRAM",Drug))
+
 
 Drug_table_syID="syn64608501"
 
@@ -134,7 +140,7 @@ download_synapse_folder(folder_id=GMT_folder_id, destination_path=GSEA_path)
 load(file.path(Reference_path,"Human_GSEA","Protein_coding_genelist.rdata"))
 Drug_anno=readxl::read_excel(file.path(Rawdata_path,"Drug_annotation.xlsx"))%>%arrange(Drug_class)
 Drug_name = Drug_anno$Drug %>% unique()%>%na.omit()
-Drug_name=factor(Drug_name,levels = c("DMSO" ,"PAL",  "RIB" , "DEC" , "VOR" , "TRA"  ,"MIR"  ,"SEL"  ,"OLA",  "TNO",  "RMC" , "CAP"  ,"TRAB", "DOX"  ,"IFO"  ,"IRI"))
+Drug_name=factor(Drug_name,levels = c("DMSO" ,"PAL",  "RIB" , "DEC" , "VOR" , "TRAM"  ,"MIR"  ,"SEL"  ,"OLA",  "TNO",  "RMC" , "CAP"  ,"TRAB", "DOX"  ,"IFO"  ,"IRI"))
 
 length(Drug_name)
 # Ensure you have 14 unique Drug names (1 for black, 13 other colors)
@@ -171,7 +177,8 @@ Counts_b1_2=Raw_counts_b1%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protei
 
 Raw_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_counts_corrected_id.csv"),sep=",",header = T)
 TPM_counts_b2=read.table(file.path(Rawdata_path_b2,"salmon.merged.gene_tpm.tsv_corrected_ID.csv"),sep=",",header = T)
-Annotation_b2=read.table(file.path(Rawdata_path_b2,"01172025_Batch2_Samplemap.csv"),sep=",",header = T)
+
+
 Annotation_b2$Drug=factor(Annotation_b2$Drug)
 Annotation_b2$Timepoint=factor(Annotation_b2$Timepoint,levels=c("0h","8h","24h"))
 TPM_b2_2=TPM_counts_b2%>%.[,c(2:ncol(.))]%>%dplyr::filter(gene_name%in%Protein_coding_genelist)%>%group_by(gene_name)%>%summarise_all(mean)%>%as.data.frame()%>%matrix.please()%>%as.data.frame()
@@ -186,19 +193,24 @@ GMT_files=list.files(file.path(Reference_path,"Human_GSEA"),pattern="all.v7.5.1.
 ```
 
 
-
 ```{r}
 # upload pdf to synapse syn64612888
 ```
 
 ```{r,include=F}
+dir(Processed_path)
+library(SummarizedExperiment)
+library(DESeq2)
+
+#file.remove(file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))
+
 if (! file.exists(file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))){
 
-Annotation_file=rbind(Annotation_b1,Annotation_b2[,colnames(Annotation_b1)])
-Drug_list=unique(Annotation_file$Drug)%>%unique%>%.[!grepl("DMSO",.)] 
-Rawcounts=cbind(Counts_b1_2,Counts_b2_2)
-Result_list=list()
-for (i in Drug_list) {
+ Annotation_file=rbind(Annotation_b1,Annotation_b2[,colnames(Annotation_b1)])
+ Drug_list=unique(Annotation_file$Drug)%>%unique%>%.[!grepl("DMSO",.)] 
+ Rawcounts=cbind(Counts_b1_2,Counts_b2_2)
+ Result_list=list()
+ for (i in Drug_list) {
    drug_pickup=Annotation_file%>%dplyr::filter(Drug==i)
    Paired_DMSO=Annotation_file%>%dplyr::filter(Drug=="DMSO"&Date==unique(drug_pickup$Date))
    new_anno=rbind(drug_pickup,Paired_DMSO)%>%mutate(Sample_name=specimenID)%>%dplyr::filter(Timepoint!="0h")%>%mutate(Group=paste0(Drug,"_",Timepoint))
@@ -211,6 +223,7 @@ for (i in Drug_list) {
    keep.exprs <- selectGenes_BY_group(new_counts, min.count=10, N=0.90,new_anno)
    keep.exprs_2=keep.exprs%>%mutate(Sum=apply(.,1,sum))%>%dplyr::filter(Sum>2)
    myFilt <- new_counts[rownames(keep.exprs_2),]
+   setClassUnion("ExpData", c("matrix", "SummarizedExperiment"))
    deseq2Data=DESeq2:: DESeqDataSetFromMatrix(countData =myFilt,colData = new_anno,design = ~Group)
    dds <- DESeq2::DESeq(deseq2Data)
    res_list=list()
@@ -265,15 +278,10 @@ save(Result_list,file=file.path(Processed_path,"All_drug_RES_FGSEA.rdata"))
 
 
 ```{r}
-library(ggplot2)
-library(dplyr)
-library(tidyr)
-
 # Function to extract DEG counts from Result_list
 
-
-# Extract DEG counts
-DEG_summary <- get_DEG_counts(Result_list)
+# Extract DEG counts.
+DEG_summary <- get_DEG_counts(Result_list,logFC=0.27)
 
 # Reshape data for plotting
 DEG_summary_long <- DEG_summary %>%
@@ -286,9 +294,9 @@ P1=ggplot(DEG_summary_long, aes(x = Timepoint, y = Count, fill = Direction)) +
   facet_wrap(~Drug, scales = "free_y") +
   theme_minimal() +ylim(c(0,4000))+
   labs(
-    title = "Number of Upregulated and Downregulated Genes",
+    title = "Number of Upregulated and Downregulated Genes,|log2FC|>0.27, padj<0.05",
     x = "Timepoint",
-    y = paste0("padj<0.05","_",""),
+  #  y = paste0("padj<0.05","_","log2FC>0.27"),
     fill = "Regulation Direction"
   ) +
   theme(
@@ -300,8 +308,12 @@ P1=ggplot(DEG_summary_long, aes(x = Timepoint, y = Count, fill = Direction)) +
 ```
 
 ```{r,fig.width=12,fig.height=16,include=T}
+
+
 P1
 ```
+
+
 
 
 ```{r}

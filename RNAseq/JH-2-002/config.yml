@@ -1,8 +1,9 @@
 default:
   document:
      author: "Yang Lyu"   
-  Path: "/Volumes/lyu.yang/MAC_1/R/Project/6_PDX_MT_drug/21_PDX_drug_2"
+  Path: "/Volumes/lyu.yang/MAC_1/R/Project/24_PDX_Drug_3"
   Email: "lyu.yang@wustl.edu"
   Token_file: "/Volumes/lyu.yang/MAC_1/Github/synapse_token.txt"
   Reference_path: "/Volumes/lyu.yang/MAC_1/R/Public_database/Reference"
+  base_output_dir: "/Volumes/lyu.yang/MAC_1/R/Project/24_PDX_Drug_3/Report"
   yml:
