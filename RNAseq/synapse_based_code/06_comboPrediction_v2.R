@@ -614,3 +614,81 @@ for (i in unique(unlist(drug.info2))) {
   ggsave(paste0(i,"_diffexp_correlations_v2.pdf"),moa.corr.plot,width=7,height=4)
 }
 
+# check if vorinostat diffexp is significantly correlated with MEKi diffexp
+de.wide <- reshape2::dcast(diffexp, individualID + Timepoint + hgnc_symbol ~ Drug, mean, value.var="log2FoldChange")
+all.drugs <- colnames(de.wide)[4:ncol(de.wide)]
+corr <- data.frame()
+for (i in 4:ncol(de.wide)) {
+  temp.drug <- colnames(de.wide)[i]
+  other.drugs <- all.drugs[all.drugs != temp.drug]
+  for (t in unique(de.wide$Timepoint)) {
+    for (m in unique(de.wide$individualID)) {
+      temp.de <- de.wide[de.wide$individualID == m & 
+                           de.wide$Timepoint == t &
+                           !is.na(de.wide[,temp.drug]),c("hgnc_symbol", temp.drug, other.drugs)]
+      if (nrow(temp.de) > 2) {
+        temp.corr <- DMEA::rank_corr(temp.de, variable="Drug", value="Log2FC")
+        temp.corr$result$drugInput <- temp.drug
+        temp.corr$result$MPNST <- m
+        temp.corr$result$Timepoint <- t
+        corr <- rbind(corr, temp.corr$result)
+        ggsave(paste0(m, "_", t, "_", temp.drug,"_diffexp_correlations.pdf"),
+               temp.corr$scatter.plots,width=5,height=5)  
+      }
+    } 
+  }
+}
+write.csv(corr, "diffexp_correlations_withStatsMPNSTTime.csv", row.names=FALSE)
+
+setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code")
+dir.create("diffexpCorrelations")
+setwd("diffexpCorrelations")
+library(plyr);library(dplyr);library(tidyr)
+maxVal <- max(corr$Pearson.est)
+minVal <- min(corr$Pearson.est)
+corr$minusLogFDR <- -log10(corr$Pearson.q)
+maxLogFDR <- ceiling(max(corr[corr$Pearson.q != 0,]$minusLogFDR, na.rm=TRUE))
+if (any(corr$Pearson.q == 0)) {
+  corr[corr$Pearson.q == 0,]$minusLogFDR <- maxLogFDR
+}
+for (i in unique(unlist(drug.info2))) {
+  temp.drugs <- names(drug.info2[drug.info2 == i])
+  moa.corr <- corr[corr$drugInput %in% temp.drugs,]
+  moa.corr.df <- reshape2::melt(moa.corr[,c("MPNST","Drug","Pearson.est","Pearson.q","minusLogFDR","drugInput")])
+  #moa.corr.df$Timepoint <- factor(moa.corr.df$Timepoint, levels=c("8h","24h"))
+  moa.corr.plot <- ggplot(moa.corr.df, aes(x=Drug, y=value, size=minusLogFDR)) + geom_violin(alpha=0) +
+    geom_point(aes(color=Timepoint, shape=drugInput)) + labs(shape="Drug") +
+    scale_size_manual(limits=c(0,maxLogFDR)) + 
+    geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
+    scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
+    theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+          plot.title=element_text(face="bold", hjust=0.5)) +
+    ggtitle(i) + scale_y_continuous(limits=c(minVal, maxVal))
+  ggsave(paste0(i,"_diffexp_correlations_withStatsMPNSTTime.pdf"),moa.corr.plot,width=7,height=2)
+  moa.corr.plot <- ggplot(moa.corr.df[moa.corr.df$Pearson.q <= 0.05,], aes(x=Drug2, y=value)) + geom_violin(alpha=0) +
+    geom_point(aes(color=Timepoint, shape=drugInput)) + labs(shape="Drug") +
+    geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
+    scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
+    theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+          plot.title=element_text(face="bold", hjust=0.5)) +
+    ggtitle(i) + scale_y_continuous(limits=c(-1,1))
+  ggsave(paste0(i,"_diffexp_sigCorrelations_withStatsMPNSTTime.pdf"),moa.corr.plot,width=7,height=4)
+}
+
+# does number of degs correlate with drug sensitivity (AUC)?
+nDEGs <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code/nSigDEGs.csv")
+viability <- read.table(synapser::synGet("syn65941820")$path, sep="\t", header = TRUE)
+auc <- viability[viability$dose_response_metric=="fit_auc",c("improve_sample_id","improve_drug_id","time","dose_response_value")]
+colnames(auc) <- c("individualID","Drug","viabilityTime","AUC")
+auc$Drug <- tolower(auc$Drug)
+nDEGs$Drug <- tolower(nDEGs$Drug)
+nAUC <- merge(nDEGs, auc)
+nauc.corr <- cor.test(nAUC$n,nAUC$AUC) # no correlation (p=0.6912685)
+nauc.corr.sp <- cor.test(nAUC$n,nAUC$AUC,method="spearman") # p=0.4870584
+ggplot(nAUC,aes(x=n,y=AUC,shape=individualID,color=Drug))+geom_point()+ 
+  scale_x_continuous(trans="log10") + theme_minimal()+
+  scale_color_manual(values=cols,breaks=tolower(names(drugCol)))+
+  labs(x="# of Differentially\nExpressed Genes",y="Sensitivity Score (AUC)",
+       shape="MPNST")
+ggsave("N_DEGs_vs_AUC.pdf",width=5,height=5)
+

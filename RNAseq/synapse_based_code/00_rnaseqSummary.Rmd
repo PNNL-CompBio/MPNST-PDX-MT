@@ -278,9 +278,57 @@ Clearly there is a batch effect so it will be good to correct for this to enable
 TODO: put the SVA code here and upload a corrected file to synapse
 
 ```{r batch correct, echo=FALSE, warning=FALSE, message=FALSE}
-#library(sva)
-##now to remove the batches for date while still correcting for drug and time
+library("DESeq2")
+library('limma')
 
+counts<-reduced.data|>
+  dplyr::select(Name,id,NumReads)|>
+  tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
+  tibble::column_to_rownames('Name')|>
+  as.matrix()
+
+
+sampmeta$Date=as.factor(sampmeta$Date)
+dds<-DESeqDataSetFromMatrix(countData = round(counts),
+                              colData = sampmeta,
+                              design = ~ Drug+Date+Timepoint )
+
+
+
+dds<-DESeq(dds)
+
+#lets look at both rlog and vsd as transformations
+vsd <- vst(dds, blind=FALSE)
+
+mat <- assay(vsd)
+mm <- model.matrix(~Timepoint+Drug, colData(vsd))
+mat <- limma::removeBatchEffect(mat, batch=vsd$Date, design=mm)
+assay(vsd) <- mat
+
+
+plotPCA(vsd,intgroup='Timepoint')
+ggsave('bcorrected_pca_time.pdf')
+
+plotPCA(vsd,intgroup='Date')
+ggsave('bcorrected_pca_date.pdf')
+
+cols=c("black",brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
+plotPCA(vsd,intgroup='Drug')+
+  scale_color_manual(values=drugCol,breaks=names(drugCol))+theme_minimal()+
+  labs(color="Drug")
+ggsave('bcorrected_pca_drug.pdf', width=5,height=5)
+
+pca.df <- plotPCA(vsd,intgroup=c('Drug','individualID','Timepoint','Date'),returnData=TRUE)
+pca.df$Timepoint <- factor(pca.df$Timepoint, c("0h","8h","24h"))
+ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
+   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
+   scale_color_manual(values=drugCol, breaks=names(drugCol))
+ ggsave('batchCorrected_pca_noFacet_noDates_sizeTime.png',width=8,height=8)
+ 
+ ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
+   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
+   scale_color_manual(values=cols, breaks=names(drugCol))
+ ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors.png',width=8,height=8)
 
 ```
 ### Differential expression
