@@ -499,8 +499,8 @@ results$potentialSynergy <- FALSE
 results[!is.na(results$beta) & results$beta<0 & results$beta_max<0 &
           results$beta<results$beta_max & 
           results$beta_min<results$beta,]$potentialSynergy <- TRUE
-#results$textFace <- "plain"
-#results[results$potentialSynergy,]$textFace <- "bold"
+results$textFace <- "plain"
+results[results$potentialSynergy,]$textFace <- "bold"
 combos <- unique(results$drugCombo) # 17
 for (c in combos) {
   combo.res <- results[results$drugCombo == c,]
@@ -536,6 +536,17 @@ for (c in combos) {
       )
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_musyc.svg"),conf.plotB,width=9,height=4, device="svg")
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_musyc.png"),conf.plotB,width=9,height=4, device="png")
+      
+      conf.plotB <- conf.plot + geom_text(data=combo.res, 
+                                          mapping=aes(x=Inf, y=Inf, fontface=textFace,
+                                                      label=paste0(as.character(" \u03b2="),signif(beta,2),
+                                                                   " [",signif(beta_min,2),", ",signif(beta_max,2),"],\nR\u00b2=",signif(R2,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour=mid.color
+      )
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc.svg"),conf.plotB,width=9,height=4, device="svg")
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc.png"),conf.plotB,width=9,height=4, device="png")
+      
     }
     #temp.colsA <- colorRampPalette(c(cols[[d2]], "gray"))(floor(length(unique(combo.res$conc12.ratio))/2))
     #temp.colsB <- colorRampPalette(c("gray",cols[[d1]]))(floor(length(unique(combo.res$conc12.ratio))/2))
@@ -573,6 +584,16 @@ for (c in combos) {
                                           colour="gray")
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_gray_musyc.svg"),conf.plotB,width=9,height=4, device="svg")
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_gray_musyc.png"),conf.plotB,width=9,height=4, device="png")
+    
+      conf.plotB <- conf.plot + geom_text(data=combo.res, 
+                                          mapping=aes(x=Inf, y=Inf, fontface=textFace,
+                                                      label=paste0(as.character(" \u03b2="),signif(beta,2),
+                                                                   " [",signif(beta_min,2),", ",signif(beta_max,2),"],\nR\u00b2=",signif(R2,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour="gray"
+      )
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_gray_allMusyc.svg"),conf.plotB,width=9,height=4, device="svg")
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_gray_allMusyc.png"),conf.plotB,width=9,height=4, device="png")
     }
     
     temp.cols <- colorRampPalette(c(cols[[d1]], cols[[d2]]))(length(unique(combo.res$conc21.ratio)))
@@ -608,6 +629,16 @@ for (c in combos) {
                                           colour=mid.color)
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_v2_musyc.svg"),conf.plotB,width=9,height=4, device="svg")
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_v2_musyc.png"),conf.plotB,width=9,height=4, device="png")
+      
+      conf.plotB <- conf.plot + geom_text(data=combo.res, 
+                                          mapping=aes(x=Inf, y=Inf, fontface=textFace,
+                                                      label=paste0(as.character(" \u03b2="),signif(beta,2),
+                                                                   " [",signif(beta_min,2),", ",signif(beta_max,2),"],\nR\u00b2=",signif(R2,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour=mid.color
+      )
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_v2_allMusyc.svg"),conf.plotB,width=9,height=4, device="svg")
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_v2_allMusyc.png"),conf.plotB,width=9,height=4, device="png")
     }
     
     #temp.colsA <- colorRampPalette(c(cols[[d1]], "gray"))(floor(length(unique(combo.res$conc21.ratio))/2))
@@ -646,6 +677,16 @@ for (c in combos) {
                                           colour="gray")
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_v2_gray_musyc.svg"),conf.plotB,width=9,height=4, device="svg")
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_v2_gray_musyc.png"),conf.plotB,width=9,height=4, device="png")
+      
+      conf.plotB <- conf.plot + geom_text(data=combo.res, 
+                                          mapping=aes(x=Inf, y=Inf, fontface=textFace,
+                                                      label=paste0(as.character(" \u03b2="),signif(beta,2),
+                                                                   " [",signif(beta_min,2),", ",signif(beta_max,2),"],\nR\u00b2=",signif(R2,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour="gray"
+      )
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_v2_gray_allMusyc.svg"),conf.plotB,width=9,height=4, device="svg")
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_v2_gray_allMusyc.png"),conf.plotB,width=9,height=4, device="png")
     }
   }
 }
