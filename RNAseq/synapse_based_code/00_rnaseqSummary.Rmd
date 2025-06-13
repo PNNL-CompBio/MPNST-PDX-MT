@@ -246,7 +246,7 @@ pcvals$Timepoint <- factor(pcvals$Timepoint, c("0h", "8h", "24h"))
  ggsave('batched_pca_noFacet.png',width=8,height=8)
  
  drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
@@ -313,22 +313,51 @@ plotPCA(vsd,intgroup='Date')
 ggsave('bcorrected_pca_date.pdf')
 
 cols=c("black",brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
+
 plotPCA(vsd,intgroup='Drug')+
   scale_color_manual(values=drugCol,breaks=names(drugCol))+theme_minimal()+
   labs(color="Drug")
 ggsave('bcorrected_pca_drug.pdf', width=5,height=5)
 
 pca.df <- plotPCA(vsd,intgroup=c('Drug','individualID','Timepoint','Date'),returnData=TRUE)
+pca.df$Drug <- droplevels(pca.df$Drug) # didn't work
+pca.df$Drug <- factor(pca.df$Drug, levels=c("DMSO",names(drug.info)))
+pca.df[grepl("Trabectidin",pca.df$group),]$Drug <- "Trabectedin"
+pca.df[grepl("DMSO",pca.df$group),]$Drug <- "DMSO"
 pca.df$Timepoint <- factor(pca.df$Timepoint, c("0h","8h","24h"))
 ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
    scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
    scale_color_manual(values=drugCol, breaks=names(drugCol))
  ggsave('batchCorrected_pca_noFacet_noDates_sizeTime.png',width=8,height=8)
  
+
+ ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,shape=individualID))+geom_point()+
+   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() + facet_wrap(.~Timepoint) +
+   scale_color_manual(values=drugCol, breaks=names(drugCol))
+ ggsave('batchCorrected_pca_noFacet_noDates_facetTime_diffColors.png',width=10,height=8)
+ 
  ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
    scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=cols, breaks=names(drugCol))
+   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
+   scale_y_continuous(limits=c(-40,40))
  ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors.png',width=8,height=8)
+ 
+ ggplot(pca.df[pca.df$Timepoint=="0h",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
+   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
+   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
+   scale_y_continuous(limits=c(-40,40))
+ ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0.png',width=8,height=8)
+ 
+ ggplot(pca.df[pca.df$Timepoint!="24h",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
+   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
+   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
+   scale_y_continuous(limits=c(-40,40))
+ ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0or8.png',width=8,height=8)
+ 
+ # ggplot(pca.df[pca.df$time=="0h",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
+ #   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
+ #   scale_color_manual(values=cols, breaks=names(drugCol))
+ # ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors.png',width=8,height=8)
 
 ```
 ### Differential expression
