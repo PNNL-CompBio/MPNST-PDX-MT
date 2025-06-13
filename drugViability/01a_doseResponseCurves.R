@@ -1134,15 +1134,33 @@ ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,], a
   scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE)) + scale_y_continuous(transform="log10")
 ggsave("MOA_results_musyc_vs_dmea_log10_absMax2B_max0B.pdf", width=7, height=4)
 
-ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,], aes(y=-beta, x=NES)) + 
+ggplot(shared.moa.res2, aes(y=-beta, x=NES)) + 
   geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
-  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,],sig),
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2,sig),
                                              aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
   labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
        x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") + 
   scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE)) + scale_y_continuous(transform="log10") +
   geom_smooth(method="lm",se=FALSE,formula = y ~ x + I(x^2), color="darkgrey", linetype="dashed")
-ggsave("MOA_results_musyc_vs_dmea_log10_absMax2B_max0B_wQuadtraticFit.pdf", width=7, height=4)
+ggsave("MOA_results_musyc_vs_dmea_log10_wQuadtraticFit.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2, aes(y=-beta, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2,sig),
+                                             aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") + 
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE)) + scale_y_continuous(transform="log2") +
+  geom_smooth(method="lm",se=FALSE,formula = y ~ x + I(x^2), color="darkgrey", linetype="dashed")
+ggsave("MOA_results_musyc_vs_dmea_log2_wQuadtraticFit.pdf", width=7, height=4)
+
+# are beta values lower in significant DMEA results?
+b.test <- t.test(shared.moa.res2[shared.moa.res2$sig,]$beta, shared.moa.res2[!shared.moa.res2$sig,]$beta, alternative="less")
+b.test$p.value # 0.1032556
+b.test$estimate # mean of x mean of y 
+# -2.617753 -1.026053 
+length(shared.moa.res2[shared.moa.res2$sig,]$beta) # 12
+length(shared.moa.res2[!shared.moa.res2$sig,]$beta) # 12
 # 
 # ggplot(shared.moa.res[abs(shared.moa.res$beta)<2,], aes(x=beta, y=NES)) + 
 #   geom_point(aes(shape=moaComboShort, color=sig)) + theme_minimal() + 
