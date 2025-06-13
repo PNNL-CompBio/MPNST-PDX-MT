@@ -23,6 +23,9 @@ diffex$stat <- as.numeric(diffex$stat)
 if (any(diffex$Drug == "Ribociblib")) {
   diffex[diffex$Drug == "Ribociblib",]$Drug <- "Ribociclib"
 }
+if (any(diffex$Drug == "Trabectidin")) {
+  diffex[diffex$Drug == "Trabectidin",]$Drug <- "Trabectedin"
+}
 counts_ens<-readr::read_csv(synapser::synGet('syn64398049')$path)
 
 ```
@@ -213,7 +216,7 @@ comps|>
 ```{r plot # of results, echo = FALSE}
 # prep data
 drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
@@ -224,7 +227,10 @@ base.path <- getwd()
 dir.create("TF")
 tf.path <- file.path(base.path, "TF")
 setwd(tf.path)
-#allcontrast <- read.csv(synapser::synGet("syn64420968")$path)
+allcontrast <- read.csv(synapser::synGet("syn64420968")$path)
+if (any(allcontrast$Drug == "Trabectidin")) {
+  allcontrast[allcontrast$Drug == "Trabectidin",]$Drug <- "Trabectedin"
+}
 allcontrast$Drug <- factor(allcontrast$Drug, levels=names(drug.info))
 timepoints <- c("8h", "24h")
 allcontrast$Timepoint <- factor(allcontrast$Timepoint, levels=timepoints)
@@ -326,12 +332,17 @@ library(plyr);library(dplyr);library(ggplot2)
 tf.path <- file.path(getwd(),"TF")
 setwd(tf.path)
 
-moa.info2 <- dplyr::distinct(ntfs[,c("Drug","moa")])
+#moa.info2 <- dplyr::distinct(ntfs[,c("Drug","moa")])
+moa.info2 <- as.data.frame(t(as.data.frame(drug.info)))
+colnames(moa.info2) <- "moa"
+moa.info2$Drug <- rownames(moa.info2)
+moaPal <- scales::hue_pal()(length(unique(moa.info2$moa)))
+names(moaPal) <- unique(moa.info2$moa)
 # create tile plot for drug pathway annotations
   moa.plot <- ggplot2::ggplot(moa.info2, aes(x=Drug,y=1, fill=moa)) + 
   geom_tile() + scale_x_discrete(limits=all.drugs) + theme_classic(base_size=12) +
   theme(axis.ticks=element_blank(), axis.text = element_blank(), axis.title=element_blank(),
-        axis.line=element_blank()) + labs(fill="Drug Mechanism")
+        axis.line=element_blank()) + labs(fill="Drug Mechanism") + scale_color_manual(values=moaPal, breaks=names(moaPal))
 ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
 
 n.top.list <- c(1, 2, 3, 5)
