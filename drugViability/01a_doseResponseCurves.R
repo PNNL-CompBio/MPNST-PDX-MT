@@ -1161,6 +1161,14 @@ b.test$estimate # mean of x mean of y
 # -2.617753 -1.026053 
 length(shared.moa.res2[shared.moa.res2$sig,]$beta) # 12
 length(shared.moa.res2[!shared.moa.res2$sig,]$beta) # 12
+
+b.test <- t.test(shared.moa.res2[shared.moa.res2$sig & abs(shared.moa.res2$beta)<2,]$beta, 
+                 shared.moa.res2[!shared.moa.res2$sig & abs(shared.moa.res2$beta)<2,]$beta, alternative="less")
+b.test$p.value # 0.0125652
+b.test$estimate # mean of x mean of y 
+# -0.6858115 -0.3544596 
+length(shared.moa.res2[shared.moa.res2$sig & abs(shared.moa.res2$beta)<2,]$beta) # 9
+length(shared.moa.res2[!shared.moa.res2$sig & abs(shared.moa.res2$beta)<2,]$beta) # 11
 # 
 # ggplot(shared.moa.res[abs(shared.moa.res$beta)<2,], aes(x=beta, y=NES)) + 
 #   geom_point(aes(shape=moaComboShort, color=sig)) + theme_minimal() + 
