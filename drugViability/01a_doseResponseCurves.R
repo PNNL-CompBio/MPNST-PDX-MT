@@ -1077,6 +1077,72 @@ ggplot(shared.moa.res2, aes(y=-beta, x=NES)) +
   scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE)) + scale_y_continuous(transform="log10")
 ggsave("MOA_results_musyc_vs_dmea_log10.pdf", width=7, height=4)
 write.csv(shared.moa.res2,"MOA_results_musyc_vs_dmea.csv", row.names=FALSE)
+
+ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2,], aes(y=-beta, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2[abs(shared.moa.res2$beta)<2,],sig),
+                                             aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") + 
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE))
+ggsave("MOA_results_musyc_vs_dmea_absMax2B.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2,], aes(y=-beta, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  geom_smooth(method="lm",se=FALSE,formula = y ~ x + I(x^2), color="darkgrey", linetype="dashed") +
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2[abs(shared.moa.res2$beta)<2,],sig),
+                                             aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") +
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE))
+ggsave("MOA_results_musyc_vs_dmea_wQuadraticFit_absMax2B.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2,], aes(y=-beta, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2[abs(shared.moa.res2$beta)<2,],sig),
+                                             aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") + 
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE)) + scale_y_continuous(transform="log10")
+ggsave("MOA_results_musyc_vs_dmea_log10_absMax2B.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,], aes(y=-beta, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,],sig),
+                                             aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") + 
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE))
+ggsave("MOA_results_musyc_vs_dmea_absMax2B_max0B.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,], aes(y=-beta, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  geom_smooth(method="lm",se=FALSE,formula = y ~ x + I(x^2), color="darkgrey", linetype="dashed") +
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,],sig),
+                                             aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") +
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE))
+ggsave("MOA_results_musyc_vs_dmea_wQuadraticFit_absMax2B_max0B.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,], aes(y=-beta, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,],sig),
+                                             aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") + 
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE)) + scale_y_continuous(transform="log10")
+ggsave("MOA_results_musyc_vs_dmea_log10_absMax2B_max0B.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,], aes(y=-beta, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2[abs(shared.moa.res2$beta)<2 & shared.moa.res2$beta<0,],sig),
+                                             aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") + 
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE)) + scale_y_continuous(transform="log10") +
+  geom_smooth(method="lm",se=FALSE,formula = y ~ x + I(x^2), color="darkgrey", linetype="dashed")
+ggsave("MOA_results_musyc_vs_dmea_log10_absMax2B_max0B_wQuadtraticFit.pdf", width=7, height=4)
 # 
 # ggplot(shared.moa.res[abs(shared.moa.res$beta)<2,], aes(x=beta, y=NES)) + 
 #   geom_point(aes(shape=moaComboShort, color=sig)) + theme_minimal() + 
