@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(plyr);library(dplyr);library(tidyverse); library(synapser); library(pheatmap)
 drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
@@ -45,6 +45,9 @@ synLogin()
 diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
 #diffex_tfs<-readr::read_csv(synGet('syn64420968')$path)
 #diff_tf_scores<-readr::read_csv(synGet('syn64695280')$path)
+if (any(diffex_genes$Drug=="Trabectidin")) {
+  diffex_genes[diffex_genes$Drug=="Trabectidin",]$Drug <- "Trabectedin"
+}
 
 ##now we have three different ways of comparing the drugs
 genemat<-diffex_genes|>

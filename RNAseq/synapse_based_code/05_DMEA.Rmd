@@ -117,7 +117,7 @@ gmt.drug <- GSA::GSA.read.gmt(file = paste0(
 ## run DMEA
 ```{r DMEA, echo = FALSE}
 drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
-                  "Chemotherapy" = "Trabectidin",
+                  "Chemotherapy" = "Trabectedin",
                   "DNA alkylating agent" = "Ifosfamide",
                   "DNA methyltransferase inhibitor" = "Decitabine",
                   "HDAC inhibitor" = "Vorinostat",
@@ -242,6 +242,12 @@ dmea.path <- file.path(base.path, "DMEA")
 setwd(dmea.path)
 dmea.sens.df <- read.csv("DMEA_results.csv")
 drug.corr.sens.df <- read.csv("DMEA_correlations.csv")
+if (any(drug.corr.sens.df$DrugTreatment == "Trabectidin")) {
+  drug.corr.sens.df[drug.corr.sens.df$DrugTreatment == "Trabectidin",]$DrugTreatment <- "Trabectedin"
+}
+if (any(dmea.sens.df$DrugTreatment == "Trabectidin")) {
+  dmea.sens.df[dmea.sens.df$DrugTreatment == "Trabectidin",]$DrugTreatment <- "Trabectedin"
+}
 drug.corr.sens.df$DrugTreatment <- factor(drug.corr.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 dmea.sens.df$DrugTreatment <- factor(dmea.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 timepoints <- unique(drug.corr.sens.df$Time)
@@ -266,8 +272,8 @@ nMOAs.overall <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
 #          nMOAs[nMOAs$MPNST==m & nMOAs$Time=="24h",]$N) 
 # }
 cat("Overall", "# of MOAs enriched at 8h vs. 24h\n")
-t.test(nMOAs.overall[nMOAs.overall$Time=="8h",]$N, 
-       nMOAs.overall[nMOAs.overall$Time=="24h",]$N)
+# t.test(nMOAs.overall[nMOAs.overall$Time=="8h",]$N, 
+#        nMOAs.overall[nMOAs.overall$Time=="24h",]$N)
 
 nMOAs$moa <- NA
 nMOAs.overall$moa <- NA
@@ -310,14 +316,14 @@ nDrugs.overall <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summ
                     N = length(na.omit(unique(Drug))))
 
 # are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.9166
-for (m in mpnst) {
- cat(m, "# of drugs correlated at 8h vs. 24h\n")
-  t.test(nDrugs[nDrugs$MPNST==m & nDrugs$Time=="8h",]$N, 
-         nDrugs[nDrugs$MPNST==m & nDrugs$Time=="24h",]$N) 
-}
-cat("Overall", "# of drugs correlated at 8h vs. 24h\n")
-t.test(nDrugs.overall[nDrugs.overall$Time=="8h",]$N, 
-       nDrugs.overall[nDrugs.overall$Time=="24h",]$N)
+# for (m in mpnst) {
+#  cat(m, "# of drugs correlated at 8h vs. 24h\n")
+#   t.test(nDrugs[nDrugs$MPNST==m & nDrugs$Time=="8h",]$N, 
+#          nDrugs[nDrugs$MPNST==m & nDrugs$Time=="24h",]$N) 
+# }
+# cat("Overall", "# of drugs correlated at 8h vs. 24h\n")
+# t.test(nDrugs.overall[nDrugs.overall$Time=="8h",]$N, 
+#        nDrugs.overall[nDrugs.overall$Time=="24h",]$N)
 
 nDrugs$moa <- NA
 nDrugs.overall$moa <- NA

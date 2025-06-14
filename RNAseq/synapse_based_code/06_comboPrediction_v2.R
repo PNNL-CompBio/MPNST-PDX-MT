@@ -72,6 +72,7 @@ diffexp$Timepoint <- factor(diffexp$Timepoint, levels=c("8h", "24h"))
 diffexp$feature <- diffexp$hgnc_symbol
 diffexp$minusLogFDR <- -log10(diffexp$padj)
 diffexp <- diffexp[!is.na(diffexp$hgnc_symbol) & diffexp$hgnc_symbol != "",]
+diffexp[diffexp$Drug=="Trabectidin",]$Drug <- "Trabectedin"
 
 sens <- read.csv(synapser::synGet("syn65672258")$path)
 sens$sig <- FALSE
@@ -80,6 +81,7 @@ sens$Timepoint <- sens$Time
 sens$Timepoint <- factor(sens$Timepoint, levels=c("8h","24h"))
 sens[sens$FDR_q_value == 0,]$minusLogFDR <- 4
 sens[sens$Drug_set == "Bcr.Abl kinase inhibitor",]$Drug_set <- "Bcr-Abl kinase inhibitor"
+sens[sens$DrugTreatment=="Trabectidin",]$DrugTreatment <- "Trabectedin"
 
 gsea <- read.csv(synapser::synGet("syn65928903")$path)
 gsea$Timepoint <- gsea$Time
@@ -90,10 +92,12 @@ gsea$signif <- gsea$sig
 gsea$feature <- sub("KEGG_","",gsea$Feature_set)
 gsea[gsea$FDR_q_value==0,]$minusLogFDR <- 4
 keepCols2 <- c("Drug_set", "DrugTreatment","NES","minusLogFDR","sig","Ranking","Timepoint")
+gsea[gsea$DrugTreatment=="Trabectidin",]$DrugTreatment <- "Trabectedin"
 
 tf <- read.csv(synapser::synGet("syn64420968")$path)
 tf$feature <- tf$source
 tf$minusLogFDR <- -log10(tf$padj)
+tf[tf$Drug=="Trabectidin",]$Drug <- "Trabectedin"
 
 maxAbsNESVals <- list("Differential Expression" = max(abs(diffexp$log2FoldChange), na.rm=TRUE),
                       "Gene Set Enrichment" = max(abs(gsea$NES), na.rm=TRUE),
@@ -105,7 +109,7 @@ maxLogFDRVals <- list("Differential Expression" = max(diffexp$minusLogFDR, na.rm
 #### find drug targets ####
 # for each drugTreatment MOA
 drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
@@ -114,7 +118,7 @@ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor
                   "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
 # also have version matching PRISM drug moa sets
 drug.info2 <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNA methyltransferase inhibitor", "Vorinostat" = "HDAC inhibitor",
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
@@ -574,6 +578,8 @@ write.csv(mean.centrality, "TF_meanCentrality.csv", row.names=FALSE)
 corr <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code/degCorr.csv")
 rownames(corr) <- corr$X
 corr$X <- NULL
+colnames(corr) <- gsub("Trabectidin","Trabectedin", colnames(corr))
+rownames(corr) <- gsub("Trabectidin","Trabectedin", rownames(corr))
 setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code")
 dir.create("diffexpCorrelations")
 setwd("diffexpCorrelations")
@@ -591,6 +597,7 @@ for (i in unique(unlist(drug.info2))) {
   moa.corr.df <- moa.corr.df %>% tidyr::separate_wider_delim(otherDrug,"_",names=c("MPNST2","Timepoint2","Drug2"))
   moa.corr.df$MPNST <- gsub("[.]","-",moa.corr.df$MPNST)
   moa.corr.df <- moa.corr.df[moa.corr.df$MPNST == moa.corr.df$MPNST2 & moa.corr.df$Timepoint==moa.corr.df$Timepoint2,]
+
   # mean.moa.corr.df <- plyr::ddply(moa.corr.df,.(MPNST, Drug, Drug2), summarize,
   #                                 meanPearsonEst = mean(value, na.rm=TRUE),
   #                                 medianPearsonEst = median(value,na.rm=TRUE),
@@ -653,19 +660,20 @@ if (any(corr$Pearson.q == 0)) {
 }
 for (i in unique(unlist(drug.info2))) {
   temp.drugs <- names(drug.info2[drug.info2 == i])
-  moa.corr <- corr[corr$drugInput %in% temp.drugs,]
-  moa.corr.df <- reshape2::melt(moa.corr[,c("MPNST","Drug","Pearson.est","Pearson.q","minusLogFDR","drugInput")])
+  moa.corr.df <- corr[corr$drugInput %in% temp.drugs,]
+  #moa.corr.df <- reshape2::melt(moa.corr[,c("MPNST","Drug","Pearson.est","Pearson.q","minusLogFDR","drugInput")])
   #moa.corr.df$Timepoint <- factor(moa.corr.df$Timepoint, levels=c("8h","24h"))
-  moa.corr.plot <- ggplot(moa.corr.df, aes(x=Drug, y=value, size=minusLogFDR)) + geom_violin(alpha=0) +
+  moa.corr.plot <- ggplot(moa.corr.df, aes(x=Drug, y=Pearson.est#, size=minusLogFDR
+                                           )) + geom_violin(alpha=0) +
     geom_point(aes(color=Timepoint, shape=drugInput)) + labs(shape="Drug") +
-    scale_size_manual(limits=c(0,maxLogFDR)) + 
+    #scale_size_continuous(limits=c(0,maxLogFDR)) + 
     geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
     scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
     theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
           plot.title=element_text(face="bold", hjust=0.5)) +
     ggtitle(i) + scale_y_continuous(limits=c(minVal, maxVal))
   ggsave(paste0(i,"_diffexp_correlations_withStatsMPNSTTime.pdf"),moa.corr.plot,width=7,height=2)
-  moa.corr.plot <- ggplot(moa.corr.df[moa.corr.df$Pearson.q <= 0.05,], aes(x=Drug2, y=value)) + geom_violin(alpha=0) +
+  moa.corr.plot <- ggplot(moa.corr.df[moa.corr.df$Pearson.q <= 0.05,], aes(x=Drug, y=Pearson.est)) + geom_violin(alpha=0) +
     geom_point(aes(color=Timepoint, shape=drugInput)) + labs(shape="Drug") +
     geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
     scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
@@ -677,18 +685,36 @@ for (i in unique(unlist(drug.info2))) {
 
 # does number of degs correlate with drug sensitivity (AUC)?
 nDEGs <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code/nSigDEGs.csv")
+nDEGs[nDEGs$Drug=="Trabectidin",]$Drug <- "Trabectedin"
 viability <- read.table(synapser::synGet("syn65941820")$path, sep="\t", header = TRUE)
 auc <- viability[viability$dose_response_metric=="fit_auc",c("improve_sample_id","improve_drug_id","time","dose_response_value")]
 colnames(auc) <- c("individualID","Drug","viabilityTime","AUC")
 auc$Drug <- tolower(auc$Drug)
 nDEGs$Drug <- tolower(nDEGs$Drug)
 nAUC <- merge(nDEGs, auc)
-nauc.corr <- cor.test(nAUC$n,nAUC$AUC) # no correlation (p=0.6912685)
-nauc.corr.sp <- cor.test(nAUC$n,nAUC$AUC,method="spearman") # p=0.4870584
-ggplot(nAUC,aes(x=n,y=AUC,shape=individualID,color=Drug))+geom_point()+ 
-  scale_x_continuous(trans="log10") + theme_minimal()+
+nauc.corr <- cor.test(nAUC$n,nAUC$AUC) # no correlation (r=-0.2706204, p = 0.05233)
+nauc.corr.sp <- cor.test(nAUC$n,nAUC$AUC,method="spearman") # -0.2935921, p = 0.03465
+ggplot(nAUC,aes(x=n,y=AUC))+geom_point(aes(shape=individualID,color=Drug))+ 
+  scale_x_continuous(trans="log10") + theme_minimal()+ geom_smooth(method="lm", linetype="dashed", colour="black")+
   scale_color_manual(values=cols,breaks=tolower(names(drugCol)))+
   labs(x="# of Differentially\nExpressed Genes",y="Sensitivity Score (AUC)",
-       shape="MPNST")
+       shape="MPNST") + geom_text(aes(x=1000, y=0.8), label="r=-0.27, p=0.052", size=4
+                                  )
 ggsave("N_DEGs_vs_AUC.pdf",width=5,height=5)
+
+stats_spearman <- substitute(
+  rho == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(nauc.corr.sp$estimate), digits = 2),
+    p = format(nauc.corr.sp$p.value, digits = 2)
+  )
+)
+ggplot(nAUC,aes(x=n,y=AUC))+geom_point(aes(shape=individualID,color=Drug))+ 
+  scale_x_continuous(trans="log10") + theme_minimal()+ geom_smooth(method="lm", linetype="dashed", colour="black")+
+  scale_color_manual(values=cols,breaks=tolower(names(drugCol)))+
+  labs(x="# of Differentially\nExpressed Genes",y="Sensitivity Score (AUC)",
+       shape="MPNST") + geom_text(aes(x=1000, y=0.8), parse = TRUE,
+                                  label = as.character(as.expression(stats_spearman)), size=4
+       )
+ggsave("N_DEGs_vs_AUC_spearman.pdf",width=5,height=5)
 

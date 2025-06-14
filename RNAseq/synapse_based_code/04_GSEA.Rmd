@@ -98,7 +98,7 @@ synapser::synStore(synapser::File("GSEA_results.csv", parent=synapse_id))
 ```{r plot # of results, echo = FALSE}
 # prep data
 drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
@@ -108,7 +108,10 @@ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor
 base.path <- getwd()
 gsea.path <- file.path(base.path, "GSEA")
 setwd(gsea.path)
-#gsea.df <- read.csv("GSEA_results.csv")
+gsea.df <- read.csv("GSEA_results.csv")
+if (any(gsea.df$DrugTreatment == "Trabectidin")) {
+  gsea.df[gsea.df$DrugTreatment == "Trabectidin",]$DrugTreatment <- "Trabectedin"
+}
 gsea.df$DrugTreatment <- factor(gsea.df$DrugTreatment, levels=names(drug.info))
 gsea.df$Time <- factor(gsea.df$Time, levels=timepoints)
 all.drugs <- levels(gsea.df$DrugTreatment)
@@ -124,14 +127,14 @@ npathways.overall <- plyr::ddply(sig.gsea, .(DrugTreatment, Time), dplyr::summar
                     N = length(na.omit(unique(Gene_set))))
 
 # are there more/less enriched pathways at 8h vs. 24h? No: p-value = 0.7363
-for (m in mpnst) {
- cat(m, "# of pathways enriched at 8h vs. 24h\n")
-  t.test(npathways[npathways$MPNST==m & npathways$Time=="8h",]$N, 
-         npathways[npathways$MPNST==m & npathways$Time=="24h",]$N) 
-}
-cat("Overall", "# of pathways enriched at 8h vs. 24h\n")
-t.test(npathways.overall[npathways.overall$Time=="8h",]$N, 
-       npathways.overall[npathways.overall$Time=="24h",]$N)
+# for (m in mpnst) {
+#  cat(m, "# of pathways enriched at 8h vs. 24h\n")
+#   t.test(npathways[npathways$MPNST==m & npathways$Time=="8h",]$N, 
+#          npathways[npathways$MPNST==m & npathways$Time=="24h",]$N) 
+# }
+# cat("Overall", "# of pathways enriched at 8h vs. 24h\n")
+# t.test(npathways.overall[npathways.overall$Time=="8h",]$N, 
+#        npathways.overall[npathways.overall$Time=="24h",]$N)
 
 npathways$pathway <- NA
 npathways.overall$pathway <- NA
@@ -267,6 +270,7 @@ for (n.top in n.top.list) {
     facet_grid(Time~MPNST)
   dot.plot
   ggplot2::ggsave(paste0(n.top,"_topEnrichedpathways_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top<2,4,2*n.top))
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedpathways_dotPlot_Wider.pdf"), dot.plot, width=12, height=ifelse(n.top<2,4,2*n.top))
 }
 
 ```
