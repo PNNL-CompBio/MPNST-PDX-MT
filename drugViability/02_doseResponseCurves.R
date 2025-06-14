@@ -553,6 +553,15 @@ ggsave("MOA_results_musyc_vs_dmea_noLabels.pdf", width=7, height=4)
 ggplot(shared.moa.res2, aes(y=mean_log_alpha, x=NES)) + 
   geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
   geom_smooth(method="lm",se=FALSE,formula = y ~ x + I(x^2), color="darkgrey", linetype="dashed") +
+  theme_minimal() + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") +
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE))
+ggsave("MOA_results_musyc_vs_dmea_noLabels_wQuadraticFit.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2, aes(y=mean_log_alpha, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  geom_smooth(method="lm",se=FALSE,formula = y ~ x + I(x^2), color="darkgrey", linetype="dashed") +
   theme_minimal() + ggrepel::geom_text_repel(data=subset(shared.moa.res2,sig),
                                              aes(label=paste(as.character(Time), "RNA,\n",as.character(timeD),"viability"))) + 
   labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
@@ -579,6 +588,15 @@ ggplot(shared.moa.res2[shared.moa.res2$mean_log_alpha>0,], aes(y=mean_log_alpha,
        x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") +
   scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE))
 ggsave("MOA_results_musyc_vs_dmea_wQuadraticFit_positiveAlpha.pdf", width=7, height=4)
+
+ggplot(shared.moa.res2[shared.moa.res2$mean_log_alpha>0,], aes(y=mean_log_alpha, x=NES)) + 
+  geom_point(aes(shape=moaComboShort, color=sig), size=3) + 
+  geom_smooth(method="lm",se=FALSE,formula = y ~ x + I(x^2), color="darkgrey", linetype="dashed") +
+  theme_minimal() + 
+  labs(y="MuSyC Synergy Score", shape = "Drug Combination", 
+       x="DMEA Sensitivity Score", color = "Significant\nDMEA Result") +
+  scale_color_manual(values=c("red","grey"), breaks=c(TRUE, FALSE))
+ggsave("MOA_results_musyc_vs_dmea_wQuadraticFit_positiveAlpha_noLabels.pdf", width=7, height=4)
 
 # are mean_log_alpha values higher in significant DMEA results?
 b.test <- t.test(shared.moa.res2[shared.moa.res2$sig,]$mean_log_alpha, shared.moa.res2[!shared.moa.res2$sig,]$mean_log_alpha, alternative="greater")
