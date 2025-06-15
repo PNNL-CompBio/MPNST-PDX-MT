@@ -28,7 +28,7 @@ JH-2
 knitr::opts_chunk$set(echo = TRUE)
 
 library(synapser)
-library(dplyr); library(tidyr); library(stringr)
+library(dplyr); library(tidyr); library(stringr); library(RColorBrewer)
 synLogin()
 ```
 
@@ -334,25 +334,25 @@ ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom
  ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,shape=individualID))+geom_point()+
    scale_color_discrete() + labs(shape="MPNST") + theme_minimal() + facet_wrap(.~Timepoint) +
    scale_color_manual(values=drugCol, breaks=names(drugCol))
- ggsave('batchCorrected_pca_noFacet_noDates_facetTime_diffColors.png',width=10,height=8)
+ ggsave('batchCorrected_pca_noFacet_noDates_facetTime_diffColors.pdf',width=10,height=8)
  
  ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
    scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
    scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
    scale_y_continuous(limits=c(-40,40))
- ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors.png',width=8,height=8)
+ ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors.pdf',width=8,height=8)
  
  ggplot(pca.df[pca.df$Timepoint=="0h",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
    scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
    scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
    scale_y_continuous(limits=c(-40,40))
- ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0.png',width=8,height=8)
+ ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0.pdf',width=8,height=8)
  
  ggplot(pca.df[pca.df$Timepoint!="24h",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
    scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
    scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
    scale_y_continuous(limits=c(-40,40))
- ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0or8.png',width=8,height=8)
+ ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0or8.pdf',width=8,height=8)
  
  # ggplot(pca.df[pca.df$time=="0h",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
  #   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
