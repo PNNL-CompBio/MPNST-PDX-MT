@@ -1,5 +1,5 @@
 # analyzing IncuCyte results
-library(plyr); library(dplyr); library(tidyr);library(ggplot2)
+library(plyr); library(dplyr); library(tidyr);library(ggplot2);library(colorspace)
 setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
 dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
 
@@ -218,9 +218,6 @@ results$textFace <- "plain"
 results[results$potentialSynergy,]$textFace <- "bold"
 
 rel.conf$drugCombo <- paste0(rel.conf$drug1,"+",rel.conf$drug2)
-
-# find max log alpha (negative if both negative, positive otherwise)
-library(colorspace)
 
 all.p.df <- data.frame()
 combos <- unique(results$drugCombo) # 17
