@@ -43,6 +43,7 @@ for (i in 1:length(drugs)) {
   }
 }
 write.csv(musyc.scores, "Deconvolved_musyc_20250605.csv", row.names=FALSE)
+musyc.scores <- read.csv("Deconvolved_musyc_20250605.csv")
 
 # find max log alpha
 musyc.scores[,c("mean_log_alpha","min_log_alpha","max_log_alpha")] <- NA
@@ -72,7 +73,7 @@ library(drc) # curve source: answer by greenjune: https://stackoverflow.com/ques
 # Sara shared these 2 links: https://stackoverflow.com/questions/68209998/plot-drc-using-ggplot; https://forum.posit.co/t/extract-out-points-in-dose-response-curve-produced-by-drc/159433
 results$timeD <- paste0(results$time,"d")
 library(RColorBrewer)
-cols=c("black",brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'),"mediumorchid1", "cornflowerblue")
+cols1=c("#000000",brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'),"mediumorchid1", "cornflowerblue")
 drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor",
                   "trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "decitabine" = "DNMT inhibitor", "vorinostat" = "HDAC inhibitor",
@@ -82,10 +83,12 @@ drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor
                   "TNO155" = "SHP2 inhibitor", "doxorubicin" = "TOP inhibitor",
                   "irinotecan" = "TOP inhibitor", "verteporfin" = "YAP inhibitor",
                   "pexidartinib" = "KIT inhibitor")
-names(cols) <- c("DMSO", names(drug.info))
-scales::show_col(cols[drugs])
+names(cols1) <- c("DMSO", names(drug.info))
+scales::show_col(cols1[drugs])
+scales::show_col(cols1)
+drugs[!(drugs %in% names(cols1))] # none missing
+cols <- colorspace::darken(cols1, 0.3)
 scales::show_col(cols)
-drugs[!(drugs %in% names(cols))] # none missing
 
 ##### just plot beta vs. logAlpha with R2
 musyc.scores$Drugs <- paste0(musyc.scores$drug1,"+",musyc.scores$drug2)
@@ -217,7 +220,7 @@ results[results$potentialSynergy,]$textFace <- "bold"
 rel.conf$drugCombo <- paste0(rel.conf$drug1,"+",rel.conf$drug2)
 
 # find max log alpha (negative if both negative, positive otherwise)
-
+library(colorspace)
 
 all.p.df <- data.frame()
 combos <- unique(results$drugCombo) # 17
@@ -304,11 +307,11 @@ for (c in combos) {
                                                       label=paste0("Log|",as.character("\u03b1|=("),
                                                                    signif(log_alpha12,2),",",signif(log_alpha21,2),
                                                                    "),\nR\u00b2=",signif(R2,2),
-                                                                   "\np=",signif(p,2))),
+                                                                   ",\np=",signif(p,2))),
                                           hjust=1, vjust=1, show.legend=FALSE, 
                                           colour=mid.color)
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.svg"),conf.plotB,width=9,height=4, device="svg")
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.png"),conf.plotB,width=9,height=4, device="png")
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.svg"),conf.plotB,width=9,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.png"),conf.plotB,width=9,height=9, device="png") # was height 4
     }
   }
 }
