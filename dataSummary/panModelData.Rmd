@@ -358,21 +358,26 @@ This is too much, let'st ry to focus even more
 
 ```{r mirda}
 
-subset(dmea,DrugTreatment=='Mirdametinib')|>
-  subset(FDR_q_value<0.1)|>
-  subset(NES<0)|>
-  ggplot(aes(x=reorder(Drug_set,NES),y=NES,fill=MPNST))+
-  facet_grid(Time~.)+geom_bar(position='dodge',stat='identity')+
+subset(dmea,DrugTreatment == 'Mirdametinib') |>
+  subset(Time == '24h') |>
+  subset(FDR_q_value < 0.1) |>
+  subset(NES < 0) |>
+  ggplot(aes(x = reorder(Drug_set,NES),y = NES,fill=MPNST))+
+  #facet_grid(Time~.)+
+  geom_bar(position='dodge',stat='identity')+
   coord_flip()+
   scale_fill_manual(values=pcols)+
   ggtitle("Mirdametinib based predictions")
 
 ggsave('mirdaPreds.pdf')
+
 subset(dmea,DrugTreatment=='TNO155')|>
+  subset(Time=='24h') |>
   subset(FDR_q_value<0.25)|>
   subset(NES<0)|>
   ggplot(aes(x=reorder(Drug_set,NES),y=NES,fill=MPNST))+
-  facet_grid(Time~.)+geom_bar(position='dodge',stat='identity')+
+  #facet_grid(Time~.)+
+  geom_bar(position='dodge',stat='identity')+
   coord_flip()+
   scale_fill_manual(values=pcols)+
   ggtitle("TNO155 based predictions")
@@ -381,9 +386,11 @@ ggsave('tnoPreds.pdf')
 
 subset(dmea,DrugTreatment=='Doxorubicin')|>
   subset(FDR_q_value<0.25)|>
+  subset(Time=='24h') |>
   subset(NES<0)|>
   ggplot(aes(x=reorder(Drug_set,NES),y=NES,fill=MPNST))+
-  facet_grid(Time~.)+geom_bar(position='dodge',stat='identity')+
+  #facet_grid(Time~.)+
+  geom_bar(position='dodge',stat='identity')+
   coord_flip()+
   scale_fill_manual(values=pcols)+
   ggtitle("Doxorubicin based predictions")
