@@ -209,7 +209,7 @@ orig_scores <- readr::read_tsv(synGet('syn68384507')$path)
 orig_scores$improve_drug_id[which(orig_scores$improve_drug_id == 'CUDC907C')]<-'CUDC907'
 
 orig_scores |>
-   subset(dose_response_metric  =  =  'auc') |>
+   subset(dose_response_metric  ==  'auc') |>
   ggplot(aes(x  =  as.factor(time),y  =  dose_response_value,fill  =  improve_sample_id)) +
     geom_bar(position  =  'dodge',stat  =  'identity') +
     facet_grid(study~improve_drug_id)+scale_fill_manual(values = pcols)
