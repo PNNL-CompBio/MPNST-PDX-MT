@@ -45,6 +45,38 @@ for (i in 1:length(drugs)) {
 write.csv(musyc.scores, "Deconvolved_musyc_20250605.csv", row.names=FALSE)
 musyc.scores <- read.csv("Deconvolved_musyc_20250605.csv")
 
+# make scatter plot of a12 vs a21
+musyc.scores$drugCombo <- paste0(musyc.scores$drug1,"+",musyc.scores$drug2)
+ggplot(musyc.scores, aes(x=log_alpha21, y=log_alpha12, shape=sample, color=drugCombo, size=R2)) +
+  geom_point()+theme_minimal() + 
+  #ggrepel::geom_text_repel(aes(label=paste0(time,"d"))) + 
+  labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1")
+
+ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0,], 
+       aes(x=log_alpha21, y=log_alpha12, shape=sample, color=drugCombo, size=R2)) +
+  geom_point()+theme_minimal() + 
+  #ggrepel::geom_text_repel(aes(label=paste0(time,"d"))) + 
+  labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1")
+
+musyc.scores$shortCombo <- paste0(tolower(substr(musyc.scores$drug1, 1,1)), "+",
+                                  tolower(substr(musyc.scores$drug2, 1,1)))
+ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0,], 
+       aes(x=log_alpha21, y=log_alpha12, shape=as.factor(time), color=drugCombo, size=R2)) +
+  geom_point()+theme_classic() + facet_wrap(.~sample)+ scale_size_continuous(breaks=c(0.3,0.5,0.7)) +
+  ggrepel::geom_text_repel(aes(label=shortCombo), box.padding = 0.5) + 
+  labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1", shape="Time (d)")
+ggsave("musyc_potentCombos.pdf",width=12, height=6)
+ggsave("musyc_potentCombos_classicTheme.pdf",width=12, height=6)
+
+ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0 & musyc.scores$R2>=0.7,], 
+       aes(x=log_alpha21, y=log_alpha12, shape=as.factor(time), color=drugCombo, size=R2)) +
+  geom_point()+theme_minimal() + facet_wrap(.~sample)+
+  ggrepel::geom_text_repel(aes(label=shortCombo), box.padding = 0.5) +
+  labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1") +
+  theme(legend.position="bottom"#, legend.direction="horizontal"
+        )
+ggsave("musyc_potentCombos_R20.7min.pdf",width=10, height=4)
+
 # find max log alpha
 musyc.scores[,c("mean_log_alpha","min_log_alpha","max_log_alpha")] <- NA
 for (i in 1:nrow(musyc.scores)) {
