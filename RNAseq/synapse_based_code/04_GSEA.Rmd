@@ -31,12 +31,36 @@ diffexp <- na.omit(diffexp[diffexp$hgnc_symbol!="",
                            c("hgnc_symbol", "log2FoldChange", "Drug", 
                              "Timepoint", "individualID")])
 diffexp$log2FoldChange <- as.numeric(diffexp$log2FoldChange)
+if (any(diffexp$Drug=="Ribociblib")) {
+  diffexp[diffexp$Drug=="Ribociblib",]$Drug <- "Ribociclib"
+}
+if (any(diffexp$Drug=="Trabectidin")) {
+  diffexp[diffexp$Drug=="Trabectidin",]$Drug <- "Trabectedin"
+}
 
 # get gene sets
-gmt.kegg <- as.data.frame(msigdbr::msigdbr(collection = "C2", subcollection = "CP:KEGG_LEGACY"))
-gmt.kegg <- DMEA::as_gmt(gmt.kegg, element.names="gene_symbol", set.names="gs_name")
+#gmt.kegg <- as.data.frame(msigdbr::msigdbr(collection = "C2", subcollection = "CP:KEGG_LEGACY"))
+#gmt.kegg <- DMEA::as_gmt(gmt.kegg, element.names="gene_symbol", set.names="gs_name")
+# cgp <- as.data.frame(msigdbr::msigdbr(collection = "C2", subcollection = "CGP")) # 427,853
+# cgp2 <- cgp[cgp$gene_symbol %in% diffexp$hgnc_symbol,] # 392,356 (91.70%)
+# gmt.cgp <- DMEA::as_gmt(cgp, element.names="gene_symbol", set.names="gs_name")
+# Set <- names(gmt.cgp$genesets)
+# cgp.info <- data.frame(Set)
+# saveRDS(gmt.cgp,"gmt_CGP.rds") # 3435 gene sets
 #gmt.hallmark <- as.data.frame(msigdbr::msigdbr(collection = "H"))
 #gmt.hallmark <- DMEA::as_gmt(gmt.hallmark, element.names="gene_symbol", set.names="gs_name")
+#gmt.bc <- as.data.frame(msigdbr::msigdbr(collection = "C2", subcollection="CP:BIOCARTA"))
+#gmt.bc <- DMEA::as_gmt(gmt.bc, element.names="gene_symbol", set.names="gs_name") # 281 gene sets
+#saveRDS(gmt.bc,"gmt_BIOCARTA.rds")
+
+gmt.onc <- as.data.frame(msigdbr::msigdbr(collection = "C6"))
+gmt.onc <- DMEA::as_gmt(gmt.onc, element.names="gene_symbol", set.names="gs_name") # 189 gene sets
+saveRDS(gmt.onc,"gmt_oncogenic.rds")
+
+# # could also do PID (C2, CP:PID)
+# gmt.pid <- as.data.frame(msigdbr::msigdbr(collection = "C2", subcollection="CP:PID"))
+# gmt.pid <- DMEA::as_gmt(gmt.pid, element.names="gene_symbol", set.names="gs_name") # 196 gene sets
+# saveRDS(gmt.pid,"gmt_PID.rds")
 ```
 
 ## run GSEA
@@ -72,24 +96,24 @@ for (i in timepoints) {
                                 Log2FC = mean(Log2FC))
       }
       drug.diffexp[[j]] <- temp.deg
-      kegg.gmts[[j]] <- gmt.kegg
+      kegg.gmts[[j]] <- gmt.onc
     }
     
     # also run analysis for each drug
     keggResults <- panSEA::mGSEA(drug.diffexp, gmt=kegg.gmts,
                                  types = names(drug.diffexp))
     temp.gsea.kegg <- keggResults$compiled.results$result
-    temp.gsea.kegg$Collection <- "KEGG"
-    temp.gsea.kegg$Gene_set <- sub("KEGG_", "", temp.gsea.kegg$Feature_set)
+    temp.gsea.kegg$Collection <- "Oncogenic"
+    #temp.gsea.kegg$Gene_set <- sub("BIOCARTA_", "", temp.gsea.kegg$Feature_set)
     temp.gsea[[m]] <- temp.gsea.kegg
   }  
   temp.gsea.df <- data.table::rbindlist(temp.gsea, use.names=TRUE, idcol="MPNST")
   colnames(temp.gsea.df)[2] <- "DrugTreatment"
-  temp.gsea.df[temp.gsea.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
   gsea[[as.character(i)]] <- temp.gsea.df
 }
 setwd(gsea.path)
 gsea.df <- data.table::rbindlist(gsea, use.names=TRUE, idcol="Time")
+#gsea.df$Gene_set <- sub("_PATHWAY", "", gsea.df$Gene_set)
 write.csv(gsea.df,"GSEA_results.csv", row.names = FALSE)
 synapser::synStore(synapser::File("GSEA_results.csv", parent=synapse_id))
 ```
@@ -109,6 +133,7 @@ base.path <- getwd()
 gsea.path <- file.path(base.path, "GSEA")
 setwd(gsea.path)
 gsea.df <- read.csv("GSEA_results.csv")
+gsea.df$Gene_set <- gsea.df$Feature_set
 if (any(gsea.df$DrugTreatment == "Trabectidin")) {
   gsea.df[gsea.df$DrugTreatment == "Trabectidin",]$DrugTreatment <- "Trabectedin"
 }
@@ -270,6 +295,7 @@ for (n.top in n.top.list) {
     facet_grid(Time~MPNST)
   dot.plot
   ggplot2::ggsave(paste0(n.top,"_topEnrichedpathways_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top<2,4,2*n.top))
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedpathways_dotPlot_taller.pdf"), dot.plot, width=10, height=ifelse(n.top<2,8,4*n.top))
   ggplot2::ggsave(paste0(n.top,"_topEnrichedpathways_dotPlot_Wider.pdf"), dot.plot, width=12, height=ifelse(n.top<2,4,2*n.top))
 }
 
