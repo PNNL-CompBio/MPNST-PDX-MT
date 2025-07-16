@@ -58,24 +58,100 @@ ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0,],
   #ggrepel::geom_text_repel(aes(label=paste0(time,"d"))) + 
   labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1")
 
-musyc.scores$shortCombo <- paste0(tolower(substr(musyc.scores$drug1, 1,1)), "+",
-                                  tolower(substr(musyc.scores$drug2, 1,1)))
+musyc.scores$shortCombo <- paste0(tolower(substr(musyc.scores$drug1, 1,2)), "+",
+                                  tolower(substr(musyc.scores$drug2, 1,2)))
 ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0,], 
        aes(x=log_alpha21, y=log_alpha12, shape=as.factor(time), color=drugCombo, size=R2)) +
   geom_point()+theme_classic() + facet_wrap(.~sample)+ scale_size_continuous(breaks=c(0.3,0.5,0.7)) +
   ggrepel::geom_text_repel(aes(label=shortCombo), box.padding = 0.5) + 
   labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1", shape="Time (d)")
-ggsave("musyc_potentCombos.pdf",width=12, height=6)
-ggsave("musyc_potentCombos_classicTheme.pdf",width=12, height=6)
+ggsave("musyc_potentCombos_v2.pdf",width=12, height=6)
+#ggsave("musyc_potentCombos_classicTheme.pdf",width=12, height=6)
+
+musyc.scores$meanLogAlpha <- NA
+for (i in 1:nrow(musyc.scores)) {
+  musyc.scores$meanLogAlpha[i] <- mean(c(musyc.scores$log_alpha12[i], musyc.scores$log_alpha21[i])) 
+}
+maxLogAlpha <- max(musyc.scores$meanLogAlpha)
+ggplot(musyc.scores, aes(x=sample, y=reorder(drugCombo, meanLogAlpha), fill=meanLogAlpha)) + geom_tile(stat="identity") + 
+  facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(0,8)) + 
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Mean\nLog|Alpha|")
+ggsave("musyc_meanLogAlpha_heatmap_positive.pdf", width=4,height=4)
+
+ggplot(musyc.scores, aes(x=sample, y=reorder(drugCombo, meanLogAlpha), fill=meanLogAlpha)) + geom_tile(stat="identity") + 
+  facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(-8,8)) + 
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Mean\nLog|Alpha|")
+ggsave("musyc_meanLogAlpha_heatmap.pdf", width=4,height=4)
+
+# try looking at Bliss scores
+bliss <- data.frame()
+
+dir.create("bliss")
+blissFiles <- synapser::syncFromSynapse(entity='syn68639935', path='bliss')
+blissSyn <- c("syn68685534","syn68685535", "syn68685536", "syn68685537","syn68685538","syn68685541")
+for (i in blissSyn){
+  test.bliss <- read.csv(synapser::synGet(i)$path)
+  bliss <- rbind(bliss, test.bliss)
+}
+bliss$drugCombo <- paste0(bliss$drug1, "+", bliss$drug2)
+bliss$sample <- bliss$PDX
+bliss$time <- bliss$timePoint..hr./24
+bliss.musyc <- merge(bliss, musyc.scores, by=c("drugCombo","sample","time"))
+max.bliss <- plyr::ddply(bliss, .(drugCombo, sample, time), summarize,
+                         maxBliss = max(Bliss_synergy))
+
+ggplot(bliss.musyc, aes(x=meanLogAlpha, y=Bliss_synergy, shape=sample, color=drugCombo)) + #, size=R2)) +
+  geom_point()+theme_minimal() + 
+  #ggrepel::geom_text_repel(aes(label=paste0(time,"d"))) + 
+  labs(x="MuSyC Potency", y="Bliss Synergy")
+ggsave("musyc_meanLogAlpha_vs_bliss_synergy.pdf", width=6, height=6)
+
+ggplot(bliss.musyc, aes(x=meanLogAlpha, y=Bliss_synergy, shape=sample, color=drugCombo)) + #, size=R2)) +
+  geom_point()+theme_minimal() + facet_grid(paste0(time,"d")~sample)+
+  #ggrepel::geom_text_repel(aes(label=paste0(time,"d"))) + 
+  labs(x="MuSyC Potency", y="Bliss Synergy")
+ggsave("musyc_meanLogAlpha_vs_bliss_synergy_Faceted.pdf", width=6, height=6)
+
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$Bliss_synergy)
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$Bliss_synergy, method="spearman")
+
+bliss.musyc <- merge(max.bliss, musyc.scores, by=c("drugCombo","sample","time"))
+ggplot(bliss.musyc, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=drugCombo)) + #, size=R2)) +
+  geom_point()+theme_minimal() + 
+  #ggrepel::geom_text_repel(aes(label=paste0(time,"d"))) + 
+  labs(x="Mean MuSyC Potency", y="Max Bliss Synergy")
+ggsave("musyc_meanLogAlpha_vs_max_bliss_synergy.pdf", width=6, height=6)
+
+ggplot(bliss.musyc, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=drugCombo)) + #, size=R2)) +
+  geom_point()+theme_minimal() + facet_grid(paste0(time,"d")~sample)+
+  #ggrepel::geom_text_repel(aes(label=paste0(time,"d"))) + 
+  labs(x="Mean MuSyC Potency", y="Max Bliss Synergy")
+ggsave("musyc_meanLogAlpha_vs_max_bliss_synergy_Faceted.pdf", width=6, height=6)
+
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss)
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss, method="spearman")
+
+# musyc.scores$universalCombo <- ""
+# sampleCombos <- plyr::ddply(musyc.scores, .(drugCombo), summarize,
+#                             samplesPos = sample[log_alpha12>0 & log_alpha21>0],
+#                             )
+
+ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0,], 
+       aes(x=log_alpha21, y=log_alpha12, shape=as.factor(time), color=drugCombo, size=R2)) +
+  geom_point()+theme_classic() + facet_wrap(.~sample)+ scale_size_continuous(breaks=c(0.3,0.5,0.7)) +
+  ggrepel::geom_text_repel(aes(label=shortCombo), box.padding = 0.5) + 
+  labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1", shape="Time (d)")
+ggsave("musyc_potentCombos_v2.pdf",width=12, height=6)
 
 ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0 & musyc.scores$R2>=0.7,], 
        aes(x=log_alpha21, y=log_alpha12, shape=as.factor(time), color=drugCombo, size=R2)) +
   geom_point()+theme_minimal() + facet_wrap(.~sample)+
   ggrepel::geom_text_repel(aes(label=shortCombo), box.padding = 0.5) +
-  labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1") +
-  theme(legend.position="bottom"#, legend.direction="horizontal"
-        )
-ggsave("musyc_potentCombos_R20.7min.pdf",width=10, height=4)
+  labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1", shape="Time (d)") #+
+  #theme(legend.position="bottom"#, legend.direction="horizontal"
+        #)
+#ggsave("musyc_potentCombos_R20.7min_v3.pdf",width=10, height=4)
+ggsave("musyc_potentCombos_R20.7min_v3.pdf",width=12, height=6)
 
 # find max log alpha
 musyc.scores[,c("mean_log_alpha","min_log_alpha","max_log_alpha")] <- NA
