@@ -27,26 +27,27 @@ for index,row in filelist.iterrows():
       dfile = dfile.reset_index()
       
       ##get counts of drugs to only keep drugs with >1 dose for curve fitting
-      dcounts = dfile.groupby("drugName").count().reset_index()
-      #print(dcounts)
-      if any(dcounts['concentration']>1):
-          #print("multi")
-          more = dcounts[dcounts['concentration']>1]['drugName']
-          #print(list(set(more)))
-          tempMulti = dfile[dfile['drugName'].isin(list(set(more)))]
-          #print(tempMulti)
-          multidose.append(tempMulti)
-          #print(len(multidose))
-      
-      ## also get single data points
-      if any(dcounts['concentration']==1):
-          #print("single")
-          sings = dcounts[dcounts['concentration']==1]['drugName']
-          #print(list(set(sings)))
-          tempSingle = dfile[dfile['drugName'].isin(list(set(sings)))]
-          #print(tempSingle)
-          singledose.append(tempSingle)
-          #print(len(singledose))
+      if "drugName" in dfile.columns:
+          dcounts = dfile.groupby("drugName").count().reset_index()
+          #print(dcounts)
+          if any(dcounts['concentration']>1):
+              #print("multi")
+              more = dcounts[dcounts['concentration']>1]['drugName']
+              #print(list(set(more)))
+              tempMulti = dfile[dfile['drugName'].isin(list(set(more)))]
+              #print(tempMulti)
+              multidose.append(tempMulti)
+              #print(len(multidose))
+          
+          ## also get single data points
+          if any(dcounts['concentration']==1):
+              #print("single")
+              sings = dcounts[dcounts['concentration']==1]['drugName']
+              #print(list(set(sings)))
+              tempSingle = dfile[dfile['drugName'].isin(list(set(sings)))]
+              #print(tempSingle)
+              singledose.append(tempSingle)
+              #print(len(singledose))
           
 comboMulti = []
 for index,row in comboFiles.iterrows():
