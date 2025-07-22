@@ -57,10 +57,14 @@ if (any(diffexp$Drug=="Trabectidin")) {
 # gmt.onc <- DMEA::as_gmt(gmt.onc, element.names="gene_symbol", set.names="gs_name") # 189 gene sets
 # saveRDS(gmt.onc,"gmt_oncogenic.rds")
 
-# could also do Hallmark (H)
-gmt.Hallmark <- as.data.frame(msigdbr::msigdbr(collection = "H"))
-gmt.Hallmark <- DMEA::as_gmt(gmt.Hallmark, element.names="gene_symbol", set.names="gs_name") # 196 gene sets
-saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
+# # could also do Hallmark (H)
+# gmt.Hallmark <- as.data.frame(msigdbr::msigdbr(collection = "H"))
+# gmt.Hallmark <- DMEA::as_gmt(gmt.Hallmark, element.names="gene_symbol", set.names="gs_name") # 196 gene sets
+# saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
+
+gmt.GOBP <- as.data.frame(msigdbr::msigdbr(collection = "C5", subcollection= "GO:BP"))
+gmt.GOBP <- DMEA::as_gmt(gmt.GOBP, element.names="gene_symbol", set.names="gs_name") # 196 gene sets
+saveRDS(gmt.GOBP,"gmt_GOBP.rds")
 ```
 
 ## run GSEA
@@ -70,8 +74,8 @@ synapse_id <- "syn65916546"
 timepoints <- na.omit(unique(diffexp$Timepoint))
 mpnst <- na.omit(unique(diffexp$individualID))
 base.path <- getwd()
-gsea.path <- file.path(base.path, "GSEA_Hallmark")
-dir.create("GSEA_Hallmark")
+gsea.path <- file.path(base.path, "GSEA_GOBP")
+dir.create("GSEA_GOBP")
 
 gsea <- list()
 for (i in timepoints) {
@@ -96,16 +100,15 @@ for (i in timepoints) {
                                 Log2FC = mean(Log2FC))
       }
       drug.diffexp[[j]] <- temp.deg
-      kegg.gmts[[j]] <- gmt.Hallmark
+      kegg.gmts[[j]] <- gmt.GOBP
     }
     
     # also run analysis for each drug
     keggResults <- panSEA::mGSEA(drug.diffexp, gmt=kegg.gmts,
                                  types = names(drug.diffexp))
     temp.gsea.kegg <- keggResults$compiled.results$result
-    temp.gsea.kegg$Collection <- "Hallmark"
-    #temp.gsea.kegg$Collection <- "Oncogenic"
-    #temp.gsea.kegg$Gene_set <- sub("BIOCARTA_", "", temp.gsea.kegg$Feature_set)
+    temp.gsea.kegg$Collection <- "GOBP"
+    temp.gsea.kegg$Gene_set <- sub("GOBP_", "", temp.gsea.kegg$Feature_set)
     temp.gsea[[m]] <- temp.gsea.kegg
   }  
   temp.gsea.df <- data.table::rbindlist(temp.gsea, use.names=TRUE, idcol="MPNST")
@@ -114,9 +117,8 @@ for (i in timepoints) {
 }
 setwd(gsea.path)
 gsea.df <- data.table::rbindlist(gsea, use.names=TRUE, idcol="Time")
-#gsea.df$Gene_set <- sub("_PATHWAY", "", gsea.df$Gene_set)
-write.csv(gsea.df,"GSEA_results_Hallmark.csv", row.names = FALSE)
-synapser::synStore(synapser::File("GSEA_results_Hallmark.csv", parent=synapse_id))
+write.csv(gsea.df,"GSEA_results_GOBP.csv", row.names = FALSE)
+synapser::synStore(synapser::File("GSEA_results_GOBP.csv", parent=synapse_id))
 ```
 
 ### plot number of enriched pathways
@@ -131,10 +133,9 @@ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
                   "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
 base.path <- getwd()
-gsea.path <- file.path(base.path, "GSEA_Hallmark")
+gsea.path <- file.path(base.path, "GSEA_GOBP")
 setwd(gsea.path)
-gsea.df <- read.csv("GSEA_results_Hallmark.csv")
-gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)
+gsea.df <- read.csv("GSEA_results_GOBP.csv")
 if (any(gsea.df$DrugTreatment == "Trabectidin")) {
   gsea.df[gsea.df$DrugTreatment == "Trabectidin",]$DrugTreatment <- "Trabectedin"
 }
@@ -198,7 +199,7 @@ ggplot2::ggsave("N_enrichedDrugMechanisms_overall.pdf", npathway.plot.overall, w
 
 ### plot all enriched pathways
 ```{r plot all results, echo = FALSE}
-gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+gsea.path <- file.path(getwd(),"GSEA_GOBP")
 setwd(gsea.path)
 topSets <- unique(gsea.df[gsea.df$sig,]$Gene_set)
 mean.results <- plyr::ddply(gsea.df, .(Gene_set), summarize,
@@ -240,7 +241,7 @@ ggplot2::ggsave("enrichedPathways_dotPlot.pdf", dot.plot, width=12, height=49)
 ### plot top enriched pathways
 ```{r plot top results, echo = FALSE}
 library(plyr);library(dplyr);library(ggplot2)
-gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+gsea.path <- file.path(getwd(),"GSEA_GOBP")
 setwd(gsea.path)
 
 pathway.info2 <- dplyr::distinct(npathways[,c("DrugTreatment","pathway")])
@@ -305,7 +306,7 @@ for (n.top in n.top.list) {
 ### plot top enriched pathways for each drug MOA
 ```{r plot top results per MOA, echo = FALSE}
 library(plyr);library(dplyr);library(ggplot2)
-gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+gsea.path <- file.path(getwd(),"GSEA_GOBP")
 setwd(gsea.path)
 
 n.top.list <- c(1, 2, 3, 5)
@@ -373,7 +374,7 @@ for (moa in all.pathways) {
 
 ### upset plots to see overlap across drug treatments
 ```{r plot overlap of results, echo = FALSE}
-gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+gsea.path <- file.path(getwd(),"GSEA_GOBP")
 setwd(gsea.path)
 for (m in mpnst) {
   # generate list of significant results
