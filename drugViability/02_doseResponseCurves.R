@@ -484,7 +484,8 @@ resultsMinBelow50$textFace <- "plain"
 resultsMinBelow50[resultsMinBelow50$potentialSynergyMuSyC | resultsMinBelow50$potentialSynergyBliss,]$textFace <- "bold"
 all.p.df <- data.frame()
 combos <- unique(resultsMinBelow50$drugCombo) # 21
-# concentrations are not equal across treatments - need to impute and compare paired concentrations
+# concentrations are not equal across treatments - need to impute and compare paired concentrations OR
+# calculate p for each drug single vs. combo and do Fisher's combined p
 for (c in combos) {
   combo.res <- resultsMinBelow50[resultsMinBelow50$drugCombo == c,]
   d1 <- unique(combo.res$drug1)
