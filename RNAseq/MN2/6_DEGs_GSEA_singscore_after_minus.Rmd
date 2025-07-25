@@ -1,0 +1,708 @@
+---
+title: "6_DEGs_mining_samples"
+author: "`r config::get(file = 'config.yml')$document$author`"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    keep_tex: true
+    latex_engine: pdflatex
+    fig_caption: yes
+    highlight: haddock
+    number_sections: yes
+
+knit: (
+  function(inputFile, encoding) {
+    config=config::get(file = 'config.yml') 
+    
+    pSubTitle <- paste0(config$PT_ID, "6_DEGs_mining_samples.pdf")
+    
+    base_output_dir <- paste0(config$Path,"/","Report")
+    
+    DIR=file.path(base_output_dir)
+    
+    rmarkdown::render( 
+      input       = inputFile, 
+      encoding    = encoding, 
+      output_file = pSubTitle,
+      output_dir =DIR )}
+    )
+---
+
+
+
+```{r,include=F}
+rm(list=ls())
+```
+
+```{r,include=F}
+library(dplyr)
+library(ggplot2)
+library(synapser)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(DESeq2)
+library(grid)
+library("tidyverse")
+#library(SummarizedExperiment)
+
+# install config
+#BiocManager::install("SummarizedExperiment")
+
+
+```
+
+
+
+
+```{r}
+source(file.path(getwd(),"Data_input.R"))
+
+```
+
+
+
+```{r}
+# v3.9
+#BiocManager::install("SummarizedExperiment") solve the error "names' slot must be set to null at all time"
+```
+
+
+```{r}
+#install summaryexperiment version 1.3
+#BiocManager::install("SummarizedExperiment",version = "1.3")
+```
+
+```{r}
+dir(Reference_path)
+GMT_files=list.files(file.path(Reference_path,"Human_GSEA"),pattern="v7.5.1.symbols.gmt.txt",full.names = T)%>%.[grepl("c2|c5|h",.)]
+
+```
+
+
+```{r}
+# Define annotation for pheatmap
+All_anno=rbind(Annotation_b1, Annotation_b2[, colnames(Annotation_b1)])
+All_TPM=cbind(TPM_b1_2, TPM_b2_2)
+new_anno <- All_anno %>%
+    mutate(Sample_name = specimenID) %>%dplyr::filter(Timepoint != "0h") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+
+rownames(new_anno) <- new_anno$specimenID
+new_anno$Group <- factor(new_anno$Group, levels = unique(new_anno$Group))
+tpm=All_TPM[,new_anno$specimenID]
+
+# group_anno <- data.frame(Group = new_anno$Group,Timepoint=new_anno$Timepoint,Drug=new_anno$Drug)
+# rownames(group_anno) <- rownames(new_anno)
+# group_levels <-levels(new_anno$Group)
+# group_colors <- c(
+#   "#999999",  # Light gray
+#   "#000000",  # Black
+#   "#1B9E77",  # Teal green (Dark2)
+#   "#D95F02",  # Orange (Dark2)
+#   "#7570B3",  # Purple (Dark2)
+#   "#E7298A",  # Pink (Dark2)
+#   "#66A61E",  # Olive green (Dark2)
+#   "#E6AB02",  # Mustard yellow (Dark2)
+#   "#A6761D",  # Brown (Dark2)
+#   "#1F78B4",  # Blue (Set1)
+#   "#FB9A99",  # Light red/pink (Set1)
+#   "#B2DF8A",  # Light green (Set3)
+#   "#FDBF6F",
+#   "#CAB2D6" # Peach/orange (Set3)
+# )
+# 
+# names(group_colors) <- group_levels
+group_anno <- data.frame(Timepoint=new_anno$Timepoint,Drug=new_anno$Drug)
+rownames(group_anno) <- rownames(new_anno)
+Timepoint_colors <- c(
+  "0h" = "#E69F00",  # Orange
+  "8h" = "#56B4E9",  # Light blue
+  "24h" = "#009E73"  # Teal
+)
+# list colors in breww Dark2
+names(Timepoint_colors) <- levels(new_anno$Timepoint)
+
+anno_colors <- list( Timepoint = Timepoint_colors,Drug=drug_colors)
+
+
+neg_colors <- colorRampPalette(c("blue", "white"))(50)  # For -1 to 0
+pos_colors <- colorRampPalette(c("white", "#990000"))(50)
+custom_colors <- c(neg_colors, pos_colors)
+
+# Define symmetric breaks
+breaks_list <- seq(-1, 1, length.out = 101)
+
+
+
+
+```
+
+
+
+# first experiment on date 10172023 (Drug and DMSO are seperated)
+
+
+```{r,fig.width=12,fig.height=16,include=T}
+Annotation_file_pickup <- All_anno %>%
+  dplyr::filter(Date == "10172023") 
+Drug_list <- unique(Annotation_file_pickup$Drug)
+Drug_list <- Drug_list[!grepl("DMSO", Drug_list)]
+new_anno2 <- Annotation_file_pickup %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug)
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+# label b2_12 and b2_52 WITH RED IN PHEATMAP
+
+P=pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+
+
+```
+
+
+# Mir,TRAB and 12192024 DMSO group (TRAB is in the same batch in 12192024 DMSO)
+
+```{r,fig.width=12,fig.height=16,include=T}
+Annotation_file_pickup <- new_anno 
+Drug_list <- c("MIR","TRAB")
+Drug_list <- Drug_list[!grepl("DMSO", Drug_list)]
+Drug_data <- Annotation_file_pickup %>%
+    mutate(Sample_name = specimenID) %>%dplyr::filter(Drug%in%c(Drug_list)) %>%
+    filter(Timepoint != "0h") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+
+DMSO_data <- new_anno %>% dplyr::filter(Drug %in% c("DMSO"))  %>%
+    filter(Timepoint != "0h"&Date!="12272024") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+
+new_anno2=rbind(Drug_data, DMSO_data) 
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug, Exp_date=as.character(new_anno2$Date))
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+# label b2_12 and b2_52 WITH RED IN PHEATMAP
+
+P=pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+
+
+```
+
+# Mir,TRAB and 12272024 DMSO group (TRAB is NOT in the  batch in 12272024 DMSO)
+
+```{r,fig.width=12,fig.height=16,include=T}
+Annotation_file_pickup <- new_anno 
+Drug_list <- c("MIR","TRAB")
+Drug_list <- Drug_list[!grepl("DMSO", Drug_list)]
+Drug_data <- Annotation_file_pickup %>%
+    mutate(Sample_name = specimenID) %>%dplyr::filter(Drug%in%c(Drug_list)) %>%
+    filter(Timepoint != "0h") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+
+DMSO_data <- new_anno %>% dplyr::filter(Drug %in% c("DMSO"))  %>%
+    filter(Timepoint != "0h"&Date!="12192024") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+
+new_anno2=rbind(Drug_data, DMSO_data) 
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug, Exp_date=as.character(new_anno2$Date))
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+# label b2_12 and b2_52 WITH RED IN PHEATMAP
+
+P=pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+
+
+```
+
+
+# DMSO in 12192024 and 12272024 (batch effect in DMSO groups from different experiments)
+```{r,fig.width=12,fig.height=10,include=F}
+Exp_date=c("12192024","12272024")
+Annotation_file_pickup <- All_anno %>%
+  dplyr::filter(Date %in% Exp_date) 
+Drug_list <- unique(Annotation_file_pickup$Drug)
+Drug_list <- Drug_list[!grepl("DMSO", Drug_list)]
+new_anno2 <- Annotation_file_pickup %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h"&Drug=="DMSO") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug,Exp_date=as.character(new_anno2$Date))
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+anno_color2$Exp_date <- c("12192024" = "#E69F00", "12272024" = "#56B4E9")  # Custom colors for Exp_date
+cor_mat <- cor(tpm, method = "pearson")
+
+P=pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+```
+
+
+```{r,fig.width=12,fig.height=10,include=T}
+# You can confirm it with: names(P$gtable$grobs)
+col_labels_grob <- P$gtable$grobs[[5]]
+
+# Extract original column names (ensure the order matches)
+col_labels <- col_labels_grob$label
+
+# Create a color vector: red if label matches, else black
+label_colors <- ifelse(col_labels %in% c("b2_12", "b2_52"), "red", "black")
+
+# Modify the text color
+col_labels_grob$gp <- gpar(col = label_colors)
+
+# Assign back the modified grob
+P$gtable$grobs[[5]] <- col_labels_grob
+
+### ===== Modify Row Name Colors =====
+# Access by name, not index (more reliable)
+row_labels_grob <- P$gtable$grobs[[6]]
+
+# Safely extract row labels
+if (!is.null(row_labels_grob$label)) {
+  row_labels <- row_labels_grob$label
+
+  # Assign red to selected row names
+  row_colors <- ifelse(row_labels %in% c("b2_12", "b2_52"), "red", "black")
+
+  # Apply text colors
+  row_labels_grob$gp <- gpar(col = row_colors)
+
+  # Put modified grob back
+  P$gtable$grobs[[6]] <- row_labels_grob
+}
+
+# Draw updated plot
+grid.newpage()
+grid.draw(P$gtable)
+
+```
+
+# experiment on date 12192024 
+
+```{r,fig.width=12,fig.height=16,include=F}
+Exp_date="12192024"
+Annotation_file_pickup <- All_anno %>%
+  dplyr::filter(Date == Exp_date) 
+Drug_list <- unique(Annotation_file_pickup$Drug)
+Drug_list <- Drug_list[!grepl("DMSO", Drug_list)]
+new_anno2 <- Annotation_file_pickup %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug)
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+P=pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors,
+
+)
+```
+
+
+```{r,fig.width=12,fig.height=16,include=T}
+# You can confirm it with: names(P$gtable$grobs)
+col_labels_grob <- P$gtable$grobs[[5]]
+
+# Extract original column names (ensure the order matches)
+col_labels <- col_labels_grob$label
+
+# Create a color vector: red if label matches, else black
+label_colors <- ifelse(col_labels %in% c("b2_12", "b2_52"), "red", "black")
+
+# Modify the text color
+col_labels_grob$gp <- gpar(col = label_colors)
+
+# Assign back the modified grob
+P$gtable$grobs[[5]] <- col_labels_grob
+
+### ===== Modify Row Name Colors =====
+# Access by name, not index (more reliable)
+row_labels_grob <- P$gtable$grobs[[6]]
+
+# Safely extract row labels
+if (!is.null(row_labels_grob$label)) {
+  row_labels <- row_labels_grob$label
+
+  # Assign red to selected row names
+  row_colors <- ifelse(row_labels %in% c("b2_12", "b2_52"), "red", "black")
+
+  # Apply text colors
+  row_labels_grob$gp <- gpar(col = row_colors)
+
+  # Put modified grob back
+  P$gtable$grobs[[6]] <- row_labels_grob
+}
+
+# Draw updated plot
+grid.newpage()
+grid.draw(P$gtable)
+
+
+```
+
+```{r,fig.width=12,fig.height=12,include=T}
+Exp_date="12192024"
+Annotation_file_pickup <- All_anno %>%
+  dplyr::filter(Date == Exp_date) 
+Drug_list <- unique(Annotation_file_pickup$Drug)
+Drug_list <- Drug_list[!grepl("DMSO", Drug_list)]
+
+for (i in Drug_list) {
+  new_anno2 <- Annotation_file_pickup%>%dplyr::filter(Drug%in%c("DMSO",i)) %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug)
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+P=pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors,
+  silent = TRUE
+)
+
+# You can confirm it with: names(P$gtable$grobs)
+col_labels_grob <- P$gtable$grobs[[5]]
+
+# Extract original column names (ensure the order matches)
+col_labels <- col_labels_grob$label
+
+# Create a color vector: red if label matches, else black
+label_colors <- ifelse(col_labels %in% c("b2_12", "b2_52"), "red", "black")
+
+# Modify the text color
+col_labels_grob$gp <- gpar(col = label_colors)
+
+# Assign back the modified grob
+P$gtable$grobs[[5]] <- col_labels_grob
+
+### ===== Modify Row Name Colors =====
+# Access by name, not index (more reliable)
+row_labels_grob <- P$gtable$grobs[[6]]
+
+# Safely extract row labels
+if (!is.null(row_labels_grob$label)) {
+  row_labels <- row_labels_grob$label
+
+  # Assign red to selected row names
+  row_colors <- ifelse(row_labels %in% c("b2_12", "b2_52"), "red", "black")
+
+  # Apply text colors
+  row_labels_grob$gp <- gpar(col = row_colors)
+
+  # Put modified grob back
+  P$gtable$grobs[[6]] <- row_labels_grob
+}
+
+# Draw updated plot
+grid.newpage()
+grid.draw(P$gtable)
+
+}
+```
+
+# experiment on date 12272024 (rm RIB and NOR)
+
+```{r,fig.width=12,fig.height=16,include=T}
+Exp_date="12272024"
+Annotation_file_pickup <- All_anno %>%
+  dplyr::filter(Date == Exp_date) 
+Drug_list <- unique(Annotation_file_pickup$Drug)
+Drug_list <- Drug_list[!grepl("DMSO", Drug_list)]
+new_anno2 <- Annotation_file_pickup %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug)
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+P=pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+
+
+
+```
+
+```{r,fig.width=12,fig.height=12,include=T}
+Drug_list=Drug_list[!Drug_list %in% c("RIB", "VOR")]
+for (i in Drug_list) {
+  new_anno2 <- Annotation_file_pickup%>%dplyr::filter(Drug%in%c("DMSO",i)) %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h")  %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug)
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+ 
+}
+```
+
+# RIB and VOR
+```{r,fig.width=12,fig.height=8,include=T}
+Annotation_file_pickup <- All_anno %>%
+  dplyr::filter(Date == Exp_date) 
+ Drug_list=c("RIB", "VOR")
+for (i in Drug_list) {
+  new_anno2 <- Annotation_file_pickup%>%dplyr::filter(Drug%in%c("DMSO",i)) %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h")  %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug)
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+ 
+}
+```
+
+# RIB and VOR, USing DMSO in 12192024 as control
+```{r,fig.width=12,fig.height=8,include=T}
+
+Drug_list=c("RIB", "VOR")
+for (i in Drug_list) {
+  Drug_data=Annotation_file_pickup%>%dplyr::filter(Drug%in%c(i)) %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h")  %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+  
+  DMSO_data=new_anno%>%dplyr::filter(Drug%in%c("DMSO")) %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h"&Date=="12192024")  %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+  new_anno2 <- rbind(Drug_data, DMSO_data) 
+  rownames(new_anno2) <- new_anno2$specimenID
+
+  tpm=All_TPM[,new_anno2$specimenID]
+
+  Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug,Exp_date=as.character(new_anno2$Date))
+  rownames(Group_anno_2) <- rownames(new_anno2)
+  anno_color2=anno_colors
+  anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+  
+  cor_mat <- cor(tpm, method = "pearson")
+
+ pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+ 
+}
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+
+```{r,fig.width=12,fig.height=16,include=T}
+new_anno2 <- Annotation_file_pickup %>%
+    mutate(Sample_name = specimenID) %>%
+    filter(Timepoint != "0h") %>%
+    mutate(Group = paste0(Drug, "_", Timepoint))%>%select(specimenID, Group, Sample_name, Timepoint, Drug, Date)%>%as.data.frame()%>%arrange(Drug,Timepoint)
+rownames(new_anno2) <- new_anno2$specimenID
+
+tpm=All_TPM[,new_anno2$specimenID]
+
+Group_anno_2= data.frame(Timepoint=new_anno2$Timepoint,Drug=new_anno2$Drug)
+rownames(Group_anno_2) <- rownames(new_anno2)
+anno_color2=anno_colors
+anno_color2$Drug <- anno_color2$Drug[as.character(unique(new_anno2$Drug))]
+cor_mat <- cor(tpm, method = "pearson")
+
+
+
+pheatmap::pheatmap(
+  cor_mat,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = Group_anno_2,
+  annotation_row = Group_anno_2,
+  annotation_colors = anno_color2,
+  color = pos_colors 
+)
+
+
+
+```
+
+
+```{r}
+# Choose DMSO samples from cor_mat
+DMSO_samples <- new_anno %>% filter(Drug == "DMSO") %>% pull(specimenID)
+# Extract the correlation values for DMSO samples
+cor_DMSO <- cor_mat[DMSO_samples, DMSO_samples]
+
+pheatmap::pheatmap(
+  cor_DMSO,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  display_numbers = TRUE,
+  main = "Sample Correlation Heatmap (TPM)",
+  annotation_col = group_anno,
+  annotation_row = group_anno,
+  annotation_colors = anno_colors,
+  color = pos_colors 
+)
+```
+
+
+
+```{r}
+knitr::knit_exit()
+```
+

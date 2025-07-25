@@ -68,8 +68,6 @@ dir(Reference_path)
 getwd()
 # load function
 source(file.path("/Volumes/lyu.yang/MAC_1/Github/MPNST-PDX-MT/RNAseq","Rfunction.R" ))
-
- 
 ```
 
 
@@ -133,11 +131,7 @@ synapser::synGet(Drug_table_syID,downloadLocation = Rawdata_path,ifcollision="ke
 GMT_folder_id="syn63828408"
 GSEA_path=file.path(Reference_path,"Human_GSEA")
 
- children <-synapser:: synGetChildren(GMT_folder_id)
-out=children$asList()
- 
-    
-download_synapse_folder(folder_id=GMT_folder_id, download_path=GSEA_path)
+download_synapse_folder(folder_id=GMT_folder_id, destination_path=GSEA_path)
 
 ```
 
@@ -333,8 +327,6 @@ fig_title=paste0(Drug_name,"_",Select_pathway)
 p2=TPM_heatmap(TPM_b1_2_arrange,Gene_list,Annotation_col=anno_2,Annotation_color=Color_list,gap_set = c(3,3+number,3+number) ,Title=fig_title)
 
 ```
-
-
 ```{r}
 knitr::knit_exit()
 ```

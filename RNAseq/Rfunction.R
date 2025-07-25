@@ -1553,4 +1553,68 @@ download_synapse_folder <- function(folder_id, destination_path = ".") {
   message("Download complete. Files saved to: ", normalizePath(destination_path))
 }
 
+
+perform_drug_vs_DMSO_tests <- function(singscore_data, annotation_table) {
   
+  # Ensure singscore_data is a data frame
+  singscore_data <- as.data.frame(singscore_data)
+  
+  # Add sample name column for merging
+  singscore_data <- singscore_data |>
+    mutate(specimenID = rownames(singscore_data))
+  
+  # Merge annotation info
+  merged_data <- singscore_data |>
+    left_join(annotation_table, by = "specimenID") |>
+    filter(!is.na(Drug))
+  
+  # Initialize output list
+  output <- list()
+  
+  # Identify analysis variables
+  timepoints <- unique(merged_data$Timepoint)
+  drugs <- setdiff(unique(merged_data$Drug), "DMSO")
+  pathways <- setdiff(names(singscore_data), "specimenID")
+  
+  # Loop over dates
+  for (current_date in unique(merged_data$Date)) {
+    date_data <- merged_data |>
+      filter(Date == current_date)
+    
+    for (tp in timepoints) {
+      for (drug_name in drugs) {
+        
+        subset_data <- date_data |>
+          filter(Timepoint == tp, Drug %in% c("DMSO", drug_name))
+        
+        if (nrow(subset_data) < 3) next
+        
+        # Perform t-tests for all pathways using sapply
+        p_values <- sapply(pathways, function(pathway) {
+          x <- subset_data[[pathway]]
+          group <- subset_data$Drug
+          if (length(unique(group)) == 2) {
+            tryCatch(t.test(x ~ group)$p.value, error = function(e) NA_real_)
+          } else {
+            NA_real_
+          }
+        })
+        
+        # Convert result to tibble and add to output
+        test_results <- tibble(
+          date = current_date,
+          timepoint = tp,
+          drug = drug_name,
+          pathway = names(p_values),
+          p_value = as.numeric(p_values)
+        )
+        
+        output[[length(output) + 1]] <- test_results
+      }
+    }
+  }
+  
+  # Combine all results into a single data frame
+  Output2=bind_rows(output)%>%mutate(Group=paste(drug,timepoint,sep="_"))
+  return(Output2)
+}
