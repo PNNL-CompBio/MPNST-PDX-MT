@@ -96,15 +96,24 @@ for (i in 1:length(blissFiles)){
 bliss$drugCombo <- paste0(bliss$drug1, "+", bliss$drug2)
 bliss$sample <- bliss$PDX
 bliss$time <- bliss$timePoint..hr./24
+write.csv(bliss, "bliss_results.csv", row.names=FALSE)
 bliss.musyc <- merge(bliss, musyc.scores, by=c("drugCombo","sample","time"))
 max.bliss <- plyr::ddply(bliss, .(drugCombo, sample, time), summarize,
                          maxBliss = max(Bliss_synergy)) # 125
+write.csv(max.bliss,"maxBliss.csv", row.names=FALSE)
 
 mean.conf$conc1 <- mean.conf$drug1.conc
 mean.conf$conc2 <- mean.conf$drug2.conc
 bliss.tested <- merge(bliss, mean.conf, by=c("sample","time","drug1","drug2","conc1","conc2")) # 2529 down from 10287 bliss
 max.bliss.tested <- plyr::ddply(bliss.tested, .(drugCombo, sample, time), summarize,
                          maxBliss = max(Bliss_synergy)) # 111
+write.csv(max.bliss.tested,"maxBlissTested.csv", row.names=FALSE)
+
+mean.confMinBelow50 <- mean.conf[mean.conf$meanGROWTH<0.5,] # 1328/2848
+bliss.testedMinBelow50 <- merge(bliss, mean.confMinBelow50, by=c("sample","time","drug1","drug2","conc1","conc2")) # 1204 down from 10287 bliss
+max.bliss.testedMinBelow50 <- plyr::ddply(bliss.testedMinBelow50, .(drugCombo, sample, time), summarize,
+                                maxBliss = max(Bliss_synergy)) # 111
+write.csv(max.bliss.testedMinBelow50,"maxBlissTested_minMeanViabilityBelow50Percent.csv", row.names=FALSE)
 
 ggplot(bliss.musyc, aes(x=meanLogAlpha, y=Bliss_synergy, shape=sample, color=drugCombo)) + #, size=R2)) +
   geom_point()+theme_minimal() + 
@@ -196,6 +205,8 @@ cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss, method="s
 
 
 results <- merge(mean.conf, musyc.scores, by=c("sample","time","drug1","drug2"), all.x=TRUE)
+
+resultsMinBelow50 <- merge(results, max.bliss.testedMinBelow50, by=c("sample","time","drugCombo"), all.x=TRUE)
 results <- merge(results, max.bliss.tested, by=c("sample","time","drugCombo"), all.x=TRUE)
 
 dir.create(paste0("curves_",Sys.Date()))
@@ -203,6 +214,7 @@ setwd(paste0("curves_",Sys.Date()))
 library(drc) # curve source: answer by greenjune: https://stackoverflow.com/questions/36780357/plotting-dose-response-curves-with-ggplot2-and-drc
 # Sara shared these 2 links: https://stackoverflow.com/questions/68209998/plot-drc-using-ggplot; https://forum.posit.co/t/extract-out-points-in-dose-response-curve-produced-by-drc/159433
 results$timeD <- paste0(results$time,"d")
+resultsMinBelow50$timeD <- paste0(resultsMinBelow50$time,"d")
 library(RColorBrewer)
 cols1=c("#000000",brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'),"mediumorchid1", "cornflowerblue", "#004B4B", "#4B0026")
 drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor",
@@ -456,6 +468,125 @@ for (c in combos) {
   }
 }
 write.csv(all.p.df, "tTests_viability_combo_lessThan_single.csv", row.names=FALSE)
+
+## try just calculating p-values and bliss synergy for sections where mean viability is below 50 for any treatment
+resultsMinBelow50$conc12.ratio <- signif(as.numeric(resultsMinBelow50$drug1.conc/resultsMinBelow50$drug2.conc),3)
+resultsMinBelow50$conc21.ratio <- signif(as.numeric(resultsMinBelow50$drug2.conc/resultsMinBelow50$drug1.conc),3)
+resultsMinBelow50$combo.conc <- resultsMinBelow50$drug1.conc + resultsMinBelow50$drug2.conc
+resultsMinBelow50$drugCombo <- paste0(resultsMinBelow50$drug1,"+",resultsMinBelow50$drug2)
+library(plyr);library(dplyr);library(tidyr)
+resultsMinBelow50$potentialSynergyMuSyC <- FALSE
+resultsMinBelow50[!is.na(resultsMinBelow50$meanLogAlpha) & resultsMinBelow50$log_alpha12>0 & 
+          resultsMinBelow50$log_alpha21>0,]$potentialSynergyMuSyC <- TRUE
+resultsMinBelow50$potentialSynergyBliss <- FALSE
+resultsMinBelow50[!is.na(resultsMinBelow50$maxBliss) & resultsMinBelow50$maxBliss>0,]$potentialSynergyBliss <- TRUE
+resultsMinBelow50$textFace <- "plain"
+resultsMinBelow50[resultsMinBelow50$potentialSynergyMuSyC | resultsMinBelow50$potentialSynergyBliss,]$textFace <- "bold"
+all.p.df <- data.frame()
+combos <- unique(resultsMinBelow50$drugCombo) # 21
+# concentrations are not equal across treatments - need to impute and compare paired concentrations
+for (c in combos) {
+  combo.res <- resultsMinBelow50[resultsMinBelow50$drugCombo == c,]
+  d1 <- unique(combo.res$drug1)
+  d2 <- unique(combo.res$drug2)
+  minConc <- min(combo.res$combo.conc)
+  if (nrow(combo.res) > 0) {
+    # generate plots
+    temp.cols <- colorRampPalette(c(cols[[d2]], cols[[d1]]))(length(unique(combo.res$conc12.ratio)))
+    mid.color <- temp.cols[ceiling(length(temp.cols)/2)]
+    
+    # t-test: if viability lower with combo vs. single agents?
+    combo.conf <- rel.conf[rel.conf$drugCombo == c,]
+    sample <- c(unique(combo.conf$sample),"Overall")
+    p.df <- data.frame(drugCombo = c, sample, comboMean = NA, singleMean = NA, 
+                       N_combo = NA, N_single = NA, p = NA, t = NA)
+    combo.df <- combo.conf[combo.conf$drug1.conc!=0 &
+                             combo.conf$drug2.conc!=0,]
+    sing.df <- combo.conf[combo.conf$drug1.conc==0 |
+                            combo.conf$drug2.conc==0 & 
+                            !(combo.conf$drug1.conc==0 &
+                                combo.conf$drug2.conc==0),]
+    
+    if (nrow(combo.df) > 0 & nrow(sing.df) > 0) {
+      combo.test <- t.test(combo.df$effect, sing.df$effect, "less")
+      p.df[p.df$sample=="Overall",]$comboMean <- combo.test$estimate[["mean of x"]]
+      p.df[p.df$sample=="Overall",]$singleMean <- combo.test$estimate[["mean of y"]]
+      p.df[p.df$sample=="Overall",]$N_combo <- length(combo.df$effect)
+      p.df[p.df$sample=="Overall",]$N_single <- length(sing.df$effect)
+      p.df[p.df$sample=="Overall",]$p <- combo.test$p.value
+      p.df[p.df$sample=="Overall",]$t <- combo.test$statistic[["t"]]
+      for (s in unique(combo.conf$sample)) {
+        scombo.df <- combo.df[combo.df$sample == s,]
+        ssing.df <- sing.df[sing.df$sample == s,]
+        if (nrow(scombo.df) > 0 & nrow(ssing.df) > 0) {
+          combo.test <- t.test(scombo.df$effect, ssing.df$effect, "less") 
+          p.df[p.df$sample==s,]$comboMean <- combo.test$estimate[["mean of x"]]
+          p.df[p.df$sample==s,]$singleMean <- combo.test$estimate[["mean of y"]]
+          p.df[p.df$sample==s,]$N_combo <- length(scombo.df$effect)
+          p.df[p.df$sample==s,]$N_single <- length(ssing.df$effect)
+          p.df[p.df$sample==s,]$p <- combo.test$p.value
+          p.df[p.df$sample==s,]$t <- combo.test$statistic[["t"]]
+        }
+      }
+      all.p.df <- rbind(all.p.df, p.df)
+      p.df <- p.df[p.df$sample != "Overall",] %>% 
+        tidyr::separate_wider_delim(sample, "_", names=c("sample", "time"))
+      p.df$time <- as.numeric(sub("hours","",p.df$time))/24
+      
+      combo.resp <- merge(combo.res, p.df, by=c("drugCombo","sample","time"), all.x=TRUE) 
+    } else {
+      combo.resp <- data.frame()
+    }
+    
+    if (nrow(combo.resp) > 0) {
+      if (any(combo.resp$p > 0.05)) {combo.resp[combo.resp$p > 0.05,]$textFace <- "plain"}
+      conf.plot <- ggplot(combo.resp, aes(x=combo.conc, y=100*meanGROWTH, color=as.factor(conc12.ratio))) +
+        facet_grid(timeD ~ sample) +
+        geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
+        #scale_color_manual(values=c(scales::hue_pal()(2))) + 
+        #scale_shape_manual(values=1:length(all.mpnst), breaks=all.mpnst)+
+        scale_x_continuous(transform="log10") + geom_point() + 
+        geom_errorbar(aes(ymin=100*(meanGROWTH-sdGROWTH), ymax=100*(meanGROWTH+sdGROWTH))) +
+        #ggrepel::geom_text_repel(combo.res, aes(x=0,y=0,label=title))+
+        ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols) +
+        theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability",
+                                           color = paste("Ratio of",d1,"\nto",d2)) +
+        theme(plot.title=element_text(hjust=0.5,face="bold"), 
+              axis.text.x=element_text(angle=45, hjust=1, vjust=1))
+      # conf.plotB <- conf.plot + geom_text(data=combo.resp, 
+      #                                     mapping=aes(x=Inf, y=Inf, fontface=textFace,
+      #                                                 label=paste0("Log|",as.character("\u03b1|=("),
+      #                                                              signif(log_alpha12,2),",",signif(log_alpha21,2),
+      #                                                              ")\n[",signif(min_log_alpha,2),",",signif(max_log_alpha,2),
+      #                                                              "],\nR\u00b2=",signif(R2,2),
+      #                                                              "\np=",signif(p,2))),
+      #                                     hjust=1, vjust=1, show.legend=FALSE, 
+      #                                     colour=mid.color)
+      
+      conf.plotB <- conf.plot + geom_text(data=combo.resp, 
+                                          mapping=aes(x=Inf, y=Inf, fontface=textFace,
+                                                      label=paste0("Log|",as.character("\u03b1|=("),
+                                                                   signif(log_alpha12,2),",",signif(log_alpha21,2),
+                                                                   "),\nR\u00b2=",signif(R2,2),
+                                                                   ",\np=",signif(p,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour=mid.color)
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.svg"),conf.plotB,width=9,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.png"),conf.plotB,width=9,height=9, device="png") # was height 4
+      
+      conf.plotC <- conf.plot + geom_text(data=combo.resp, 
+                                          mapping=aes(x=Inf, y=Inf, fontface=textFace,
+                                                      label=paste0("Max Bliss=",
+                                                                   signif(maxBliss,2),
+                                                                   ",\np=",signif(p,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour=mid.color)
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxTestedBliss_p.svg"),conf.plotC,width=9,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxTestedBliss_p.png"),conf.plotC,width=9,height=9, device="png") # was height 4
+    }
+  }
+}
+write.csv(all.p.df, "tTests_viabilityBelow50Percent_combo_lessThan_single.csv", row.names=FALSE)
 
 #### compare musyc alpha to DMEA ####
 ##### drug corr #####
@@ -1083,3 +1214,96 @@ ggplot(max.bliss[max.bliss$maxBliss != 0,], aes(x=sample, y=reorder(drugCombo, m
   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(log10(minNonZeroBliss),log10(maxAbsBliss))) + 
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Log|Max Bliss|")
 ggsave("bliss_maxSynergy_log10_heatmap.pdf", width=4,height=4)
+
+#### does synergy score correlate with -log(p_viability) ####
+# load musyc scores
+musyc.scores <- read.csv("Deconvolved_musyc_20250719.csv")
+musyc.scores$drugCombo <- paste0(musyc.scores$drug1,"+",musyc.scores$drug2)
+musyc.scores$mpnst <- musyc.scores$sample
+musyc.scores$sample <- paste0(musyc.scores$mpnst,'_',musyc.scores$time*24,"hours")
+musyc.scores$meanLogAlpha <- NA
+for (i in 1:nrow(musyc.scores)) {
+  musyc.scores$meanLogAlpha[i] <- mean(c(musyc.scores$log_alpha12[i], musyc.scores$log_alpha21[i])) 
+}
+musyc.scores$shortCombo <- paste0(tolower(substr(musyc.scores$drug1, 1,4)), "+",
+                                  tolower(substr(musyc.scores$drug2, 1,4)))
+
+# load bliss scores
+max.bliss.tested <- read.csv("maxBlissTested.csv")
+max.bliss.tested$mpnst <- max.bliss.tested$sample
+max.bliss.tested$sample <- paste0(max.bliss.tested$mpnst,'_',max.bliss.tested$time*24,"hours")
+max.bliss.tested$drug1 <- sub("[+].*","",max.bliss.tested$drugCombo)
+max.bliss.tested$drug2 <- sub(".*[+]","",max.bliss.tested$drugCombo)
+max.bliss.tested$shortCombo <- paste0(tolower(substr(max.bliss.tested$drug1, 1,4)), "+",
+                                  tolower(substr(max.bliss.tested$drug2, 1,4)))
+
+# load p-values for single vs. combo
+p.df <- read.csv("curves_2025-07-21/tTests_viability_combo_lessThan_single.csv")
+
+# merge
+p.musyc <- merge(p.df, musyc.scores, by=c("drugCombo","sample")) # 116 rows
+p.bliss <- merge(p.df, max.bliss.tested, by=c("drugCombo","sample")) # 111 rows
+
+# correlations: bliss
+pb.corr <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss) # r=0.3694444, p=6.596E-5
+pb.corr
+pb.corr.sp <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss, method="spearman") # r=0.2289942, p=0.01563
+pb.corr.sp
+ggplot(p.bliss,aes(x=-log10(p),y=maxBliss))+geom_point(aes(#shape=sample,
+                                                           color=drugCombo))+ 
+  theme_minimal()+ geom_smooth(method="lm", linetype="dashed", colour="black")+
+  ggrepel::geom_text_repel(data=subset(p.bliss, p<=0.05), aes(label=shortCombo), box.padding = 0.5) + 
+  #scale_color_manual(values=cols,breaks=tolower(names(drug.info)))+
+  labs(x="-Log(P-value)",y="Maximum Bliss Synergy",
+       shape="MPNST") + geom_text(aes(x=4, y=60), label="r=0.37, p=6.6E-5", size=4)
+ggsave("viability_-log10P_vs_maxBlissTested_noShape_sigComboLabel.pdf",width=7,height=5)
+
+stats_spearman <- substitute(
+  rho == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(pb.corr.sp$estimate), digits = 2),
+    p = format(pb.corr.sp$p.value, digits = 2)
+  )
+)
+ggplot(p.bliss,aes(x=-log10(p),y=maxBliss))+geom_point(aes(#shape=sample,
+  color=drugCombo)
+                                                           )+ 
+  theme_minimal()+ geom_smooth(method="lm", linetype="dashed", colour="black")+
+  ggrepel::geom_text_repel(data=subset(p.bliss, p<=0.05), aes(label=shortCombo), box.padding = 0.5) + 
+  #scale_color_manual(values=cols,breaks=tolower(names(drug.info)))+
+  labs(x="-Log(P-value)",y="Maximum Bliss Synergy",
+       shape="MPNST") + geom_text(aes(x=4, y=60), parse=TRUE, label=as.character(as.expression(stats_spearman)), size=4)
+ggsave("viability_-log10P_vs_maxBlissTested_spearman_noShape_sigComboLabel.pdf",width=7,height=5)
+write.csv(p.bliss,"p_Bliss.csv", row.names=FALSE)
+
+# correlations: musyc
+pm.corr <- cor.test(-log10(p.musyc$p),p.musyc$meanLogAlpha) # r=0.1952715, p=0.03567
+pm.corr
+pm.corr.sp <- cor.test(-log10(p.musyc$p),p.musyc$meanLogAlpha, method="spearman") # r=0.1743897, p = 0.06125
+pm.corr.sp
+ggplot(p.musyc,aes(x=-log10(p),y=meanLogAlpha))+geom_point(aes(#shape=sample,
+  color=drugCombo))+ 
+  theme_minimal()+ geom_smooth(method="lm", linetype="dashed", colour="black")+
+  ggrepel::geom_text_repel(data=subset(p.musyc, p<=0.05), aes(label=shortCombo), box.padding = 0.5) + 
+  #scale_color_manual(values=cols,breaks=tolower(names(drug.info)))+
+  labs(x="-Log(P-value)",y="Mean MuSyC Potency",
+       shape="MPNST") + geom_text(aes(x=4, y=10), label="r=0.195, p=3.57E-2", size=4)
+ggsave("viability_-log10P_vs_musycMeanLogAlpha_noShape_sigComboLabel.pdf",width=7,height=5)
+
+stats_spearman <- substitute(
+  rho == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(pm.corr.sp$estimate), digits = 2),
+    p = format(pm.corr.sp$p.value, digits = 2)
+  )
+)
+ggplot(p.musyc,aes(x=-log10(p),y=meanLogAlpha))+geom_point(aes(#shape=sample,
+  color=drugCombo)
+)+ 
+  theme_minimal()+ geom_smooth(method="lm", linetype="dashed", colour="black")+
+  #scale_color_manual(values=cols,breaks=tolower(names(drug.info)))+
+  ggrepel::geom_text_repel(data=subset(p.musyc, p<=0.05), aes(label=shortCombo), box.padding = 0.5) + 
+  labs(x="-Log(P-value)",y="Mean MuSyC Potency",
+       shape="MPNST") + geom_text(aes(x=4, y=10), parse=TRUE, label=as.character(as.expression(stats_spearman)), size=4)
+ggsave("viability_-log10P_vs_musycMeanLogAlpha_spearman_noShape_sigComboLabel.pdf",width=7,height=5)
+write.csv(p.musyc, "p_musyc.csv", row.names=FALSE)
