@@ -6,20 +6,40 @@ import pandas as pd
 import synapseclient as sc
 import os
 import subprocess
+from datetime import date
+#import runpy
 syn = sc.login()
 ##this is a pain, need to move to file
 
-filelist = syn.tableQuery("select entityId,individualID,specimenID from syn65473033 where dataType='drug screen' AND dataSubtype='processed' AND assay='cell viability assay'").asDataFrame()
+comboFilelist = syn.tableQuery("select entityId,individualID,specimenID from syn65473033 where dataType='drug screen' AND dataSubtype='processed' AND assay='cell viability assay'").asDataFrame()
 # raw files are mistakenly marked as 'processed' so check 'dataSubtype' within file
 
-comboFiles = pd.read_csv(syn.get("syn66330284").path)
-comboFiles = comboFiles[comboFiles['dataSubtype']=="processed"]
+singleFiles = pd.read_csv(syn.get("syn65473034").path) # previous: syn66330284 but points to combo
+singleFiles = singleFiles[singleFiles['dataSubtype']=="processed"]
+# remove data from 2025-01-22 due to different method where media was refreshed
+singleFiles = singleFiles[~singleFiles.Filename.str.contains("250122.csv")]
 
 ###pull files
 
 singledose = []
 multidose = []
-for index,row in filelist.iterrows():
+comboMulti = []
+for index,row in comboFilelist.iterrows():
+  #print(row['id'])
+  dfile = pd.read_csv(syn.get(row['entityId']).path)
+  if all(dfile['dataSubtype'] == 'processed'):
+      dfile['improve_sample_id'] = row['specimenID']
+      dfile = dfile.reset_index()
+      
+      # replace nan with drug 1 or 2 names as appropriate
+      drug1 = dfile['drugOneName'].dropna().unique()[0]
+      dfile['drugOneName'].fillna(drug1, inplace=True)
+      drug2 = dfile['drugTwoName'].dropna().unique()[0]
+      dfile['drugTwoName'].fillna(drug2, inplace=True)
+      if all(dfile['drugOneName'] == drug1) & all(dfile['drugTwoName'] == drug2):
+          comboMulti.append(dfile)
+              
+for index,row in singleFiles.iterrows():
   #print(row['id'])
   dfile = pd.read_csv(syn.get(row['entityId']).path)
   if all(dfile['dataSubtype'] == 'processed'):
@@ -48,21 +68,6 @@ for index,row in filelist.iterrows():
               #print(tempSingle)
               singledose.append(tempSingle)
               #print(len(singledose))
-          
-comboMulti = []
-for index,row in comboFiles.iterrows():
-  #print(row['id'])
-  dfile = pd.read_csv(syn.get(row['entityId']).path)
-  if all(dfile['dataSubtype'] == 'processed'):
-      dfile = dfile.reset_index()
-      
-      # replace nan with drug 1 or 2 names as appropriate
-      drug1 = dfile['drugOneName'].dropna().unique()[0]
-      dfile['drugOneName'].fillna(drug1, inplace=True)
-      drug2 = dfile['drugTwoName'].dropna().unique()[0]
-      dfile['drugTwoName'].fillna(drug2, inplace=True)
-      if all(dfile['drugOneName'] == drug1) & all(dfile['drugTwoName'] == drug2):
-          comboMulti.append(dfile)
 
 ####first fit multidose curves...
 if len(multidose) > 0:
@@ -78,17 +83,20 @@ if len(multidose) > 0:
     ncols=['DOSE','GROWTH','study','source','improve_sample_id','Drug','time','time_unit']
     fulltab = fulltab[ncols]
     # there was a percentViability == "147.128*" - seems like it might be 147.1288 but double check
-    if any(fulltab['GROWTH'].str.contains("\*")):
-        print("replacing asterisk")
-        fulltab["GROWTH"] = fulltab["GROWTH"].replace(r'\*','', regex=True)
+    # if any(fulltab['GROWTH'].str.contains("\*")):
+    #     print("replacing asterisk")
+    #     fulltab["GROWTH"] = fulltab["GROWTH"].replace(r'\*','', regex=True)
     fulltab['GROWTH'] = pd.to_numeric(fulltab['GROWTH'])
     ##change file headers to DOSE/RESPONSE values needed by other script
     fulltab.to_csv('mpnst_drug_response.tsv',sep='\t')
     
     ##fit curve
-    script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/build/utils/fit_curve.py'
-    subprocess.run(['wget',script])
-    subprocess.run(['python','fit_curve.py','--input','mpnst_drug_response.tsv','--output','mpnstDrugOutput'])
+    if not os.path.exists("fit_curve.py"):
+        script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/build/utils/fit_curve.py'
+        subprocess.run(['wget',script])
+    #subprocess.run(['python3','-m','pip','install','matplotlib']) # due to matplotlib error
+    subprocess.run(['python3','fit_curve.py','--input','mpnst_drug_response.tsv','--output','mpnstDrugOutput'])
+    #runpy.run_path("fit_curve.py") # replaces subprocess call
     otab = pd.read_csv('mpnstDrugOutput.0',sep='\t')
 else:
     otab = pd.DataFrame()
@@ -146,7 +154,7 @@ if len(comboMulti) > 0:
     #     fulltab["effect"] = fulltab["effect"].replace(r'\*','', regex=True)
     fulltab['effect'] = pd.to_numeric(fulltab['effect'])/100.00 # convert to fraction e.g., 0.9 instead of 90%
     ##change file headers to DOSE/RESPONSE values needed by other script
-    fulltab['expt.date'] = "2025-06-05"
+    fulltab['expt.date'] = date.today()
     ncols=['expt.date','drug1.conc','drug2.conc','effect','sample','drug1','drug2','drug1.units','drug2.units']
     fulltab2 = fulltab[ncols]
     fulltab2.to_csv('mpnst_combo_drug_response.csv', index=False)
