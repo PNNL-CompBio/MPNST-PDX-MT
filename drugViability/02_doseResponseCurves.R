@@ -97,6 +97,7 @@ bliss$drugCombo <- paste0(bliss$drug1, "+", bliss$drug2)
 bliss$sample <- bliss$PDX
 bliss$time <- bliss$timePoint..hr./24
 write.csv(bliss, "bliss_results.csv", row.names=FALSE)
+bliss <- read.csv("bliss_results.csv")
 bliss.musyc <- merge(bliss, musyc.scores, by=c("drugCombo","sample","time"))
 max.bliss <- plyr::ddply(bliss, .(drugCombo, sample, time), summarize,
                          maxBliss = max(Bliss_synergy)) # 125
@@ -143,8 +144,8 @@ ggplot(bliss.musyc, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=drugComb
   labs(x="Mean MuSyC Potency", y="Max Bliss Synergy")
 ggsave("musyc_meanLogAlpha_vs_max_bliss_synergy_Faceted.pdf", width=12, height=7)
 
-cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss)
-cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss, method="spearman")
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss) # r = 0.679, p=0.481
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss, method="spearman") # rho = 0.077, p = 0.425
 
 bliss.musyc.tested <- merge(max.bliss.tested, musyc.scores, by=c("drugCombo","sample","time"))
 ggplot(bliss.musyc.tested, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=drugCombo)) + #, size=R2)) +
@@ -159,8 +160,8 @@ ggplot(bliss.musyc.tested, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=d
   labs(x="Mean MuSyC Potency", y="Max Bliss Synergy")
 ggsave("musyc_meanLogAlpha_vs_max_bliss_synergy_tested_Faceted.pdf", width=12, height=7)
 
-cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss)
-cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss, method="spearman")
+cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss) # r=0.073, p=0.4453
+cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss, method="spearman") # rho = 0.0574, p=0.5496
 
 # musyc.scores$universalCombo <- ""
 # sampleCombos <- plyr::ddply(musyc.scores, .(drugCombo), summarize,
@@ -208,7 +209,7 @@ results <- merge(mean.conf, musyc.scores, by=c("sample","time","drug1","drug2"),
 
 resultsMinBelow50 <- merge(results, max.bliss.testedMinBelow50, by=c("sample","time","drugCombo"), all.x=TRUE)
 results <- merge(results, max.bliss.tested, by=c("sample","time","drugCombo"), all.x=TRUE)
-
+write.csv(results,"results_viabilityBlissMusyc.csv", row.names=FALSE)
 dir.create(paste0("curves_",Sys.Date()))
 setwd(paste0("curves_",Sys.Date()))
 library(drc) # curve source: answer by greenjune: https://stackoverflow.com/questions/36780357/plotting-dose-response-curves-with-ggplot2-and-drc
@@ -469,7 +470,7 @@ for (c in combos) {
 }
 write.csv(all.p.df, "tTests_viability_combo_lessThan_single.csv", row.names=FALSE)
 
-## try just calculating p-values and bliss synergy for sections where mean viability is below 50 for any treatment
+##### try just calculating p-values and bliss synergy for sections where mean viability is below 50 for any treatment #####
 resultsMinBelow50$conc12.ratio <- signif(as.numeric(resultsMinBelow50$drug1.conc/resultsMinBelow50$drug2.conc),3)
 resultsMinBelow50$conc21.ratio <- signif(as.numeric(resultsMinBelow50$drug2.conc/resultsMinBelow50$drug1.conc),3)
 resultsMinBelow50$combo.conc <- resultsMinBelow50$drug1.conc + resultsMinBelow50$drug2.conc
@@ -1193,13 +1194,13 @@ minMaxBliss <- min(max.bliss.tested$maxBliss) # 0
 ggplot(max.bliss.tested, aes(x=sample, y=reorder(drugCombo, maxBliss), fill=maxBliss)) + geom_tile(stat="identity") + 
   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) + 
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Max Bliss")
-ggsave("bliss_maxSynergyTested_heatmap.pdf", width=4,height=4)
+ggsave("bliss_maxSynergyTested_heatmap.pdf", width=4.5,height=4)
 
 minNonZeroBliss <- min(max.bliss.tested[max.bliss.tested$maxBliss != 0,]$maxBliss) # 0
 ggplot(max.bliss.tested[max.bliss.tested$maxBliss != 0,], aes(x=sample, y=reorder(drugCombo, maxBliss), fill=log10(maxBliss))) + geom_tile(stat="identity") + 
   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(log10(minNonZeroBliss),log10(maxAbsBliss))) + 
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Log|Max Bliss|")
-ggsave("bliss_maxSynergyTested_log10_heatmap.pdf", width=4,height=4)
+ggsave("bliss_maxSynergyTested_log10_heatmap.pdf", width=4.5,height=4)
 
 max.bliss$maxBliss <- as.numeric(max.bliss$maxBliss)
 max.bliss <- max.bliss[!is.na(max.bliss$maxBliss),]
@@ -1208,13 +1209,13 @@ minMaxBliss <- min(max.bliss$maxBliss) # 0
 ggplot(max.bliss, aes(x=sample, y=reorder(drugCombo, maxBliss), fill=maxBliss)) + geom_tile(stat="identity") + 
   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) + 
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Max Bliss")
-ggsave("bliss_maxSynergy_heatmap.pdf", width=4,height=4)
+ggsave("bliss_maxSynergy_heatmap.pdf", width=4.5,height=4)
 
 minNonZeroBliss <- min(max.bliss[max.bliss$maxBliss != 0,]$maxBliss) # 0
 ggplot(max.bliss[max.bliss$maxBliss != 0,], aes(x=sample, y=reorder(drugCombo, maxBliss), fill=log10(maxBliss))) + geom_tile(stat="identity") + 
   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(log10(minNonZeroBliss),log10(maxAbsBliss))) + 
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Log|Max Bliss|")
-ggsave("bliss_maxSynergy_log10_heatmap.pdf", width=4,height=4)
+ggsave("bliss_maxSynergy_log10_heatmap.pdf", width=4.5,height=4)
 
 #### does synergy score correlate with -log(p_viability) ####
 # load musyc scores
