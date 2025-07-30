@@ -5,7 +5,22 @@ setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugVi
 dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
 
 rel.conf <- read.csv("mpnst_combo_drug_response.csv")
-musyc.scores <- read.csv("musyc_20250719.csv")
+musyc.scores <- read.csv("musyc_20250729.csv")
+
+# try looking at Bliss scores
+bliss <- data.frame()
+
+dir.create("bliss")
+blissFiles <- synapser::as.list(synapser::synGetChildren('syn68639935', list("file"), sortBy = 'NAME'))
+for (i in 1:length(blissFiles)){
+  test.bliss <- read.csv(synapser::synGet(blissFiles[[i]]$id)$path)
+  bliss <- rbind(bliss, test.bliss)
+}
+bliss$drugCombo <- paste0(bliss$drug1, "+", bliss$drug2)
+bliss$sample <- bliss$PDX
+bliss$time <- bliss$timePoint..hr./24
+write.csv(bliss, "bliss_results.csv", row.names=FALSE)
+bliss <- read.csv("bliss_results.csv")
 
 # calculate mean and sd for each drug & dose combo, mpnst, time combo; also preserve sample and chr8q columns
 mean.conf <- plyr::ddply(rel.conf, .(sample, drug1, drug1.conc, drug2, drug2.conc), summarize,
@@ -20,13 +35,13 @@ musyc.scores$time <- sub("hours","",musyc.scores$time)
 musyc.scores$time <- as.numeric(musyc.scores$time)/24
 
 # fix sample names
-full.names <- c("MN-4","JH-2-079c", "JH-2-002", "WU-225")
-short.names <- c("N-4","79c", "002", "225")
+full.names <- c("MN-4","JH-2-079c", "JH-2-002", "WU-225"," WU-356")
+short.names <- c("N-4","79c", "002", "225", "356")
 for (i in 1:length(short.names)) {
   mean.conf[grepl(short.names[[i]],mean.conf$sample),]$sample <- full.names[[i]]
   musyc.scores[grepl(short.names[[i]],musyc.scores$sample),]$sample <- full.names[[i]]
 }
-prc2.loss <- c("JH-2-079c", "JH-2-002", "WU-225")
+prc2.loss <- c("JH-2-079c", "JH-2-002", "WU-225", "WU-365")
 prc2.wt <- c("MN-4")
 mean.conf$PRC2 <- "Deficient"
 mean.conf[mean.conf$sample %in% prc2.wt,]$PRC2 <- "Intact"
@@ -43,10 +58,12 @@ for (i in 1:length(drugs)) {
     musyc.scores[musyc.scores$drug2 == short.drugs[[i]],]$drug2 <- drugs[[i]] 
   }
 }
-write.csv(musyc.scores, "Deconvolved_musyc_20250719.csv", row.names=FALSE)
-musyc.scores <- read.csv("Deconvolved_musyc_20250719.csv")
+write.csv(musyc.scores, "Deconvolved_musyc_20250729.csv", row.names=FALSE) # duplicated and changed name to musyc.csv for synapse
+musyc.scores <- read.csv("Deconvolved_musyc_20250729.csv")
 
 # make scatter plot of a12 vs a21
+dir.create(paste0("curves_",Sys.Date()))
+setwd(paste0("curves_",Sys.Date()))
 musyc.scores$drugCombo <- paste0(musyc.scores$drug1,"+",musyc.scores$drug2)
 ggplot(musyc.scores, aes(x=log_alpha21, y=log_alpha12, shape=sample, color=drugCombo, size=R2)) +
   geom_point()+theme_minimal() + 
@@ -59,8 +76,8 @@ ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0,],
   #ggrepel::geom_text_repel(aes(label=paste0(time,"d"))) + 
   labs(x="Drug 2's Effect on Potency of Drug 1", y="Drug 2's Effect on Potency of Drug 1")
 
-musyc.scores$shortCombo <- paste0(tolower(substr(musyc.scores$drug1, 1,2)), "+",
-                                  tolower(substr(musyc.scores$drug2, 1,2)))
+musyc.scores$shortCombo <- paste0(tolower(substr(musyc.scores$drug1, 1,4)), "+",
+                                  tolower(substr(musyc.scores$drug2, 1,4)))
 ggplot(musyc.scores[musyc.scores$log_alpha12>0 & musyc.scores$log_alpha21>0,], 
        aes(x=log_alpha21, y=log_alpha12, shape=as.factor(time), color=drugCombo, size=R2)) +
   geom_point()+theme_classic() + facet_wrap(.~sample)+ scale_size_continuous(breaks=c(0.3,0.5,0.7)) +
@@ -84,20 +101,7 @@ ggplot(musyc.scores, aes(x=sample, y=reorder(drugCombo, meanLogAlpha), fill=mean
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Mean\nLog|Alpha|")
 ggsave("musyc_meanLogAlpha_heatmap.pdf", width=4,height=4)
 
-# try looking at Bliss scores
-bliss <- data.frame()
 
-dir.create("bliss")
-blissFiles <- synapser::as.list(synapser::synGetChildren('syn68639935', list("file"), sortBy = 'NAME'))
-for (i in 1:length(blissFiles)){
-  test.bliss <- read.csv(synapser::synGet(blissFiles[[i]]$id)$path)
-  bliss <- rbind(bliss, test.bliss)
-}
-bliss$drugCombo <- paste0(bliss$drug1, "+", bliss$drug2)
-bliss$sample <- bliss$PDX
-bliss$time <- bliss$timePoint..hr./24
-write.csv(bliss, "bliss_results.csv", row.names=FALSE)
-bliss <- read.csv("bliss_results.csv")
 bliss.musyc <- merge(bliss, musyc.scores, by=c("drugCombo","sample","time"))
 max.bliss <- plyr::ddply(bliss, .(drugCombo, sample, time), summarize,
                          maxBliss = max(Bliss_synergy)) # 125
@@ -210,8 +214,6 @@ results <- merge(mean.conf, musyc.scores, by=c("sample","time","drug1","drug2"),
 resultsMinBelow50 <- merge(results, max.bliss.testedMinBelow50, by=c("sample","time","drugCombo"), all.x=TRUE)
 results <- merge(results, max.bliss.tested, by=c("sample","time","drugCombo"), all.x=TRUE)
 write.csv(results,"results_viabilityBlissMusyc.csv", row.names=FALSE)
-dir.create(paste0("curves_",Sys.Date()))
-setwd(paste0("curves_",Sys.Date()))
 library(drc) # curve source: answer by greenjune: https://stackoverflow.com/questions/36780357/plotting-dose-response-curves-with-ggplot2-and-drc
 # Sara shared these 2 links: https://stackoverflow.com/questions/68209998/plot-drc-using-ggplot; https://forum.posit.co/t/extract-out-points-in-dose-response-curve-produced-by-drc/159433
 results$timeD <- paste0(results$time,"d")
@@ -415,7 +417,7 @@ for (c in combos) {
         tidyr::separate_wider_delim(sample, "_", names=c("sample", "time"))
       p.df$time <- as.numeric(sub("hours","",p.df$time))/24
       
-      combo.resp <- merge(combo.res, p.df, by=c("drugCombo","sample","time"), all.x=TRUE) 
+      combo.resp <- na.omit(merge(combo.res, p.df, by=c("drugCombo","sample","time"), all.x=TRUE)) 
     } else {
       combo.resp <- data.frame()
     }
@@ -535,7 +537,7 @@ for (c in combos) {
         tidyr::separate_wider_delim(sample, "_", names=c("sample", "time"))
       p.df$time <- as.numeric(sub("hours","",p.df$time))/24
       
-      combo.resp <- merge(combo.res, p.df, by=c("drugCombo","sample","time"), all.x=TRUE) 
+      combo.resp <- na.omit(merge(combo.res, p.df, by=c("drugCombo","sample","time"), all.x=TRUE)) 
     } else {
       combo.resp <- data.frame()
     }
@@ -1219,7 +1221,8 @@ ggsave("bliss_maxSynergy_log10_heatmap.pdf", width=4.5,height=4)
 
 #### does synergy score correlate with -log(p_viability) ####
 # load musyc scores
-musyc.scores <- read.csv("Deconvolved_musyc_20250719.csv")
+setwd(dataPath)
+musyc.scores <- read.csv("Deconvolved_musyc_20250729.csv")
 musyc.scores$drugCombo <- paste0(musyc.scores$drug1,"+",musyc.scores$drug2)
 musyc.scores$mpnst <- musyc.scores$sample
 musyc.scores$sample <- paste0(musyc.scores$mpnst,'_',musyc.scores$time*24,"hours")
@@ -1231,6 +1234,7 @@ musyc.scores$shortCombo <- paste0(tolower(substr(musyc.scores$drug1, 1,4)), "+",
                                   tolower(substr(musyc.scores$drug2, 1,4)))
 
 # load bliss scores
+setwd(paste0("curves_",Sys.Date()))
 max.bliss.tested <- read.csv("maxBlissTested.csv")
 max.bliss.tested$mpnst <- max.bliss.tested$sample
 max.bliss.tested$sample <- paste0(max.bliss.tested$mpnst,'_',max.bliss.tested$time*24,"hours")
@@ -1240,7 +1244,7 @@ max.bliss.tested$shortCombo <- paste0(tolower(substr(max.bliss.tested$drug1, 1,4
                                   tolower(substr(max.bliss.tested$drug2, 1,4)))
 
 # load p-values for single vs. combo
-p.df <- read.csv("curves_2025-07-21/tTests_viability_combo_lessThan_single.csv")
+p.df <- read.csv("tTests_viability_combo_lessThan_single.csv")
 
 # merge
 p.musyc <- merge(p.df, musyc.scores, by=c("drugCombo","sample")) # 116 rows
@@ -1309,3 +1313,16 @@ ggplot(p.musyc,aes(x=-log10(p),y=meanLogAlpha))+geom_point(aes(#shape=sample,
        shape="MPNST") + geom_text(aes(x=4, y=10), parse=TRUE, label=as.character(as.expression(stats_spearman)), size=4)
 ggsave("viability_-log10P_vs_musycMeanLogAlpha_spearman_noShape_sigComboLabel.pdf",width=7,height=5)
 write.csv(p.musyc, "p_musyc.csv", row.names=FALSE)
+
+# musyc is better correlated
+# what are the top musyc results
+top.musyc <- musyc.scores[musyc.scores$meanLogAlpha > 0 & 
+                            musyc.scores$log_alpha12 > 0 & musyc.scores$log_alpha21 > 0,
+                          c("drugCombo","sample","meanLogAlpha","log_alpha12","log_alpha21")] # 130 rows
+length(unique(top.musyc$drugCombo)) # 17 unique drug combos out of 21 tested
+top.musyc$absDeltaMeanLogAlpha <- abs(top.musyc$log_alpha12 - top.musyc$log_alpha21)
+top.musyc$fracAbsDelta <- top.musyc$absDeltaMeanLogAlpha / top.musyc$meanLogAlpha
+best.musyc <- top.musyc[top.musyc$fracAbsDelta <= 0.25,] # 9 rows
+length(unique(best.musyc$drugCombo)) # 8 unique drug combos out of 21 tested
+write.csv(top.musyc,"positive_musyc.csv", row.names=FALSE)
+write.csv(best.musyc,"positive_musyc_fracMax0.25.csv")
