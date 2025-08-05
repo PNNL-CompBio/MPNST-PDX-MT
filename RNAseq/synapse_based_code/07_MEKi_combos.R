@@ -26,6 +26,9 @@ DMEAdotPlots <- function(dot.df,  title="", fname, min.width = 5, min.height = 4
   ggplot2::ggsave(paste0(fname,".pdf"), dot.plot, width=min.width, height=customHeight)
   ggplot2::ggsave(paste0(fname,"_taller.pdf"), dot.plot, width=min.width, height=(customHeight+1))
   ggplot2::ggsave(paste0(fname,"_widerTaller.pdf"), dot.plot, width=(min.width+2), height=(customHeight+2))
+  ggplot2::ggsave(paste0(fname,"_evenWiderTaller.pdf"), dot.plot, width=(min.width+3), height=(customHeight+3))
+  ggplot2::ggsave(paste0(fname,"_evenTaller.pdf"), dot.plot, width=min.width, height=(customHeight+3))
+  ggplot2::ggsave(paste0(fname,"_evenWider.pdf"), dot.plot, width=(min.width+3), height=(customHeight+2))
   
   if (all(grepl(" inhibitor", unique(dot.df$Drug_set)))) {
     dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
@@ -198,8 +201,50 @@ DMEAdotPlots(dot.df,
                        names(doi[doi=="SHP2 inhibitor"])))
 
 # diffexp
-dot.df <- diffexp[diffexp$Drug %in% names(doi2),]
-rep.genes <- unique(dot.df$hgnc_symbol[duplicated(dot.df$hgnc_symbol)]) # 20143 genes - too many to plot so just focus on targets
+dot.df <- diffexp[diffexp$Drug %in% names(doi2) & diffexp$signif,]
+dot.df$moa <- ""
+moi <- paste(c("MEK","HDAC","CDK","SHP2"),"inhibitor")
+for (i in moi) {
+  dot.df[dot.df$Drug %in% names(doi[doi==i]),]$moa <- i
+}
+rep.genes <- na.omit(unique(dot.df$hgnc_symbol[duplicated(dot.df$hgnc_symbol)])) # 4149 genes - too many to plot so just focus on targets
+mean.dot.df <- plyr::ddply(dot.df, .(hgnc_symbol, Timepoint, individualID), summarize,
+                           N_moa_up = length(na.omit(unique(moa[log2FoldChange>0]))),
+                           moas_up = paste0(na.omit(unique(moa[log2FoldChange>0])), collapse=", "),
+                           N_moa_dn = length(na.omit(unique(moa[log2FoldChange<0]))),
+                           moas_dn = paste0(na.omit(unique(moa[log2FoldChange<0])), collapse=", "),
+                           N_moa = length(na.omit(unique(moa))),
+                           moas = paste0(na.omit(unique(moa),), collapse=", "),
+                           all_up = all(log2FoldChange > 0),
+                           all_dn = all(log2FoldChange < 0))
+mean.dot.df$all_same <- mean.dot.df$all_dn | mean.dot.df$all_up
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1,]$hgnc_symbol)) # 1608 - too many
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1 & mean.dot.df$all_same,]$hgnc_symbol)) # 890 - too many
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$hgnc_symbol)) # 131 - too many
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2 & mean.dot.df$all_same,]$hgnc_symbol)) # 60 - too many
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3,]$hgnc_symbol)) # 6
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3 & mean.dot.df$all_same,]$hgnc_symbol)) # 2 too few
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3,]$hgnc_symbol)) # 6
+dot.df <- diffexp[diffexp$Drug %in% names(doi2) & diffexp$hgnc_symbol %in% rep.genes,]
+dot.df$Time <- dot.df$Timepoint
+dot.df$Drug_set <- dot.df$hgnc_symbol
+dot.df$MPNST <- dot.df$individualID
+dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
+dot.df$sig <- dot.df$signif
+dot.df$DrugTreatment <- dot.df$Drug
+dot.df$NES <- dot.df$log2FoldChange
+maxAbsNES <- ceiling(max(abs(na.omit(dot.df$NES)))) # 8
+maxAbsP <- ceiling(max(na.omit(dot.df$minusLogFDR))) # 209
+DMEAdotPlots(dot.df, 
+             fname = paste0("MEK-HDAC-CDK-SHP2","_diffexpMin4SigMOAs_dotPlot"), 
+             maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP, 
+             x.order=c(names(doi[doi=="MEK inhibitor"]), 
+                       names(doi[doi=="HDAC inhibitor"]),
+                       names(doi[doi=="CDK inhibitor"]),
+                       names(doi[doi=="SHP2 inhibitor"])),
+             colorLab="Log2FC")
+
+# target diffexp
 target.genes.of.interest <- target.diffexp[target.diffexp$Drug %in% names(doi2),]$hgnc_symbol
 dot.df <- diffexp[diffexp$Drug %in% names(doi2) & diffexp$hgnc_symbol %in% target.genes.of.interest,]
 dot.df$Time <- dot.df$Timepoint
@@ -222,7 +267,28 @@ DMEAdotPlots(dot.df,
 
 # TF
 dot.df <- tf[tf$Drug %in% names(doi2) & tf$signif,]
-rep.genes <- unique(dot.df$source[duplicated(dot.df$source)]) # 86 genes
+dot.df$moa <- ""
+moi <- paste(c("MEK","HDAC","CDK","SHP2"),"inhibitor")
+for (i in moi) {
+  dot.df[dot.df$Drug %in% names(doi[doi==i]),]$moa <- i
+}
+rep.genes <- na.omit(unique(dot.df$source[duplicated(dot.df$source)])) # 86
+mean.dot.df <- plyr::ddply(dot.df, .(source, Timepoint, individualID), summarize,
+                           N_moa_up = length(na.omit(unique(moa[score>0]))),
+                           moas_up = paste0(na.omit(unique(moa[score>0])), collapse=", "),
+                           N_moa_dn = length(na.omit(unique(moa[score<0]))),
+                           moas_dn = paste0(na.omit(unique(moa[score<0])), collapse=", "),
+                           N_moa = length(na.omit(unique(moa))),
+                           moas = paste0(na.omit(unique(moa),), collapse=", "),
+                           all_up = all(score > 0),
+                           all_dn = all(score < 0))
+mean.dot.df$all_same <- mean.dot.df$all_dn | mean.dot.df$all_up
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1,]$source)) # 56
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1 & mean.dot.df$all_same,]$source)) # 49
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$source)) # 25
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2 & mean.dot.df$all_same,]$source)) # 25
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3,]$source)) # 0
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$source)) # 25
 dot.df <- tf[tf$Drug %in% names(doi2) & tf$source %in% rep.genes,]
 dot.df$Time <- dot.df$Timepoint
 dot.df$Drug_set <- dot.df$source
@@ -235,16 +301,7 @@ dot.df$minusLogFDR <- -log10(dot.df$padj)
 maxAbsNES <- ceiling(max(abs(na.omit(dot.df$NES)))) # 16
 maxAbsP <- ceiling(max(na.omit(dot.df$minusLogFDR))) # 51
 DMEAdotPlots(dot.df, 
-             fname = paste0("MEK-HDAC-CDK-SHP2","_TF_dotPlot"), 
-             maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP, 
-             x.order=c(names(doi[doi=="MEK inhibitor"]), 
-                       names(doi[doi=="HDAC inhibitor"]),
-                       names(doi[doi=="CDK inhibitor"]),
-                       names(doi[doi=="SHP2 inhibitor"])),
-             colorLab="Score")
-
-DMEAdotPlots(dot.df[dot.df$Time == "8h",], 
-             fname = paste0("MEK-HDAC-CDK-SHP2","_TF_8h_dotPlot"), 
+             fname = paste0("MEK-HDAC-CDK-SHP2","_TFmin3SigMOAs_dotPlot"), 
              maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP, 
              x.order=c(names(doi[doi=="MEK inhibitor"]), 
                        names(doi[doi=="HDAC inhibitor"]),
@@ -254,478 +311,40 @@ DMEAdotPlots(dot.df[dot.df$Time == "8h",],
 
 # GSEA
 dot.df <- gsea[gsea$DrugTreatment %in% names(doi2) & gsea$sig,]
-rep.genes <- unique(dot.df$Gene_set[duplicated(dot.df$Gene_set)]) # 38
+dot.df$moa <- ""
+moi <- paste(c("MEK","HDAC","CDK","SHP2"),"inhibitor")
+for (i in moi) {
+  dot.df[dot.df$DrugTreatment %in% names(doi[doi==i]),]$moa <- i
+}
+rep.genes <- na.omit(unique(dot.df$Gene_set[duplicated(dot.df$Gene_set)])) # 38
+mean.dot.df <- plyr::ddply(dot.df, .(Gene_set, Time, MPNST), summarize,
+                           N_moa_up = length(na.omit(unique(moa[NES>0]))),
+                           moas_up = paste0(na.omit(unique(moa[NES>0])), collapse=", "),
+                           N_moa_dn = length(na.omit(unique(moa[NES<0]))),
+                           moas_dn = paste0(na.omit(unique(moa[NES<0])), collapse=", "),
+                           N_moa = length(na.omit(unique(moa))),
+                           moas = paste0(na.omit(unique(moa),), collapse=", "),
+                           all_up = all(NES > 0),
+                           all_dn = all(NES < 0))
+mean.dot.df$all_same <- mean.dot.df$all_dn | mean.dot.df$all_up
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1,]$Gene_set)) # 28
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1 & mean.dot.df$all_same,]$Gene_set)) # 23
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$Gene_set)) # 11
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2 & mean.dot.df$all_same,]$Gene_set)) # 9
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3,]$Gene_set)) # 2
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3 & mean.dot.df$all_same,]$Gene_set)) # 0
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$Gene_set)) # 11
+
 dot.df <- gsea[gsea$DrugTreatment %in% names(doi2) & gsea$Gene_set %in% rep.genes,]
 dot.df$Drug_set <- dot.df$Gene_set
 dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
-maxAbsNES <- max(abs(dot.df$NES)) # 4.52
-maxLogFDR <- max(dot.df$minusLogFDR) # 4
+maxAbsNES <- max(abs(dot.df$NES)) # 4.52; 8
+maxLogFDR <- max(dot.df$minusLogFDR) # 4; 4
 DMEAdotPlots(dot.df, 
-             fname = paste0("MEK-HDAC-CDK-SHP2","_GSEA_dotPlot"), 
+             fname = paste0("MEK-HDAC-CDK-SHP2","_GSEAmin3SigMOAs_dotPlot"), 
              maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR, 
              x.order=c(names(doi[doi=="MEK inhibitor"]), 
                        names(doi[doi=="HDAC inhibitor"]),
                        names(doi[doi=="CDK inhibitor"]),
                        names(doi[doi=="SHP2 inhibitor"])))
 
-#### use results to predict synergy ####
-# make plots for each moa
-inputs <- list("Differential Expression" = diffexp, 
-               "Gene Set Enrichment" = gsea,
-               "Transcription Factor Enrichment" = tf)
-
-for (i in unique(unlist(drug.info2))) {
-  # if samples are resistant to treatment, filter for sensitivity
-  # else filter for resistance if they are still sensitive to the given treatment
-  
-  # likewise, if drug is similar to given MOA, filter for similarity
-  # else filter for opposite behavior
-  temp.drugs <- names(drug.info2[drug.info2 == i])
-  mpnst <- na.omit(unique(sens$MPNST))
-  timepoints <- levels(sens$Timepoint)
-  keepCols <- c("MPNST", "Timepoint", "DrugTreatment", 
-                "Drug_set", "NES", "minusLogFDR", "sig", "Ranking")
-  for (m in mpnst) {
-    venn.times <- list()
-    venn.sens <- list()
-    venn.plot.times <- NULL
-    dmea.df <- data.frame()
-    
-    strict.venn.times <- list()
-    strict.venn.sens <- list()
-    strict.venn.plot.times <- NULL
-    strict.dmea.df <- data.frame()
-    for (t in timepoints) {
-      venn.list <- list()
-      strict.venn.list <- list()
-      for (j in temp.drugs) {
-        # get sig sensitivity
-        temp.sens <- na.omit(sens[sens$MPNST == m & sens$Timepoint==t &
-                                    sens$DrugTreatment == j,])
-        given.sens <- mean(temp.sens[temp.sens$Drug_set == i & temp.sens$sig,]$NES, na.rm=TRUE)
-        sens.dot.df <- na.omit(temp.sens[temp.sens$Drug_set %in% 
-                                           unique(na.omit(temp.sens[temp.sens$sig,]$Drug_set)),])
-        if (is.numeric(given.sens) & given.sens != "NaN") {
-          strict.sens <- na.omit(sens[sens$MPNST == m & sens$Timepoint==t &
-                                      sens$DrugTreatment == j & 
-                                        sens$NES/given.sens < 0,])
-          venn.color <- ifelse(given.sens < 0, "blue", "red")
-        } else {
-          strict.sens <- na.omit(sens[sens$MPNST == m & sens$Timepoint==t &
-                                        sens$DrugTreatment == j & 
-                                        sens$NES < 0,])
-          venn.color <- "blue"
-        }
-        strict.sens.dot.df <- na.omit(temp.sens[temp.sens$Drug_set %in% 
-                                                  unique(na.omit(strict.sens[strict.sens$sig,]$Drug_set)),])
-        
-        if (nrow(sens.dot.df) > 0) {
-          if (any(sens.dot.df$minusLogFDR == "Inf")) {
-            sens.dot.df[sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4
-          }
-          sens.dot.df$Ranking <- "Sensitivity"
-          dmea.df <- rbind(dmea.df, sens.dot.df[,keepCols])
-          venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(sens.dot.df[sens.dot.df$sig,]$Drug_set))
-        }
-        
-        if (nrow(strict.sens.dot.df) > 0) {
-          if (any(strict.sens.dot.df$minusLogFDR == "Inf")) {
-            strict.sens.dot.df[strict.sens.dot.df$minusLogFDR == "Inf",]$minusLogFDR <- 4
-          }
-          strict.sens.dot.df$Ranking <- "Sensitivity"
-          strict.dmea.df <- rbind(strict.dmea.df, strict.sens.dot.df[,keepCols])
-          strict.venn.list[[paste0("Sensitivity:\n",j)]] <- unique(na.omit(strict.sens.dot.df[strict.sens.dot.df$sig,]$Drug_set))
-        }
-      }
-        
-      if (nrow(dmea.df) > 0) {
-        # venn diagrams
-        venn.list <- venn.list[sort(names(venn.list))]
-        if (length(venn.list) > 1 & 
-            length(venn.list) < 5) {
-          venn.plot <- wrap_elements(
-            ggvenn::ggvenn(venn.list, show_percentage = FALSE, 
-                           set_name_size = 1, text_size = 4) + 
-              plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
-        } else {venn.plot <- list()}
-        venn.sens[[t]] <- venn.list[grepl("Sensitivity",names(venn.list))]
-        venn.times[[t]] <- venn.list
-        
-        if (is.null(venn.plot.times) & length(venn.plot) > 0) {
-          venn.plot.times <- venn.plot
-        } else if (length(venn.plot) > 0) {
-          venn.plot.times <- venn.plot.times / venn.plot
-        }
-      }
-      
-      if (nrow(strict.dmea.df) > 0) {
-        # venn diagrams
-        strict.venn.list <- strict.venn.list[sort(names(strict.venn.list))]
-        if (length(strict.venn.list) > 1 & 
-            length(strict.venn.list) < 5) {
-          strict.venn.plot <- wrap_elements(
-            ggvenn::ggvenn(strict.venn.list, show_percentage = FALSE, 
-                           fill_color = rep(venn.color,length(strict.venn.list)),
-                           set_name_size = 1, text_size = 4) + 
-              plot_annotation(title=t, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
-        } else {strict.venn.plot <- list()}
-        strict.venn.sens[[t]] <- strict.venn.list[grepl("Sensitivity",names(venn.list))]
-        strict.venn.times[[t]] <- strict.venn.list
-        
-        if (is.null(strict.venn.plot.times) & length(strict.venn.plot) > 0) {
-          strict.venn.plot.times <- strict.venn.plot
-        } else if (length(strict.venn.plot) > 0) {
-          strict.venn.plot.times <- strict.venn.plot.times / strict.venn.plot
-        }
-      }
-    } 
-    if (length(venn.list) > 0) {
-      ggplot2::ggsave(paste0(m,"_",i,"_MOA_vennDiagram.pdf"), venn.plot.times, width=3, height=5) 
-    }
-    if (length(strict.venn.list) > 0) {
-      ggplot2::ggsave(paste0(m,"_",i,"_oppNES_MOA_vennDiagram.pdf"), strict.venn.plot.times, width=3, height=5) 
-    }
-    
-    # dot plots
-    sigMOAs <- unique(unlist(venn.sens))
-    if (length(sigMOAs) > 0) {
-      mean.dmea.df <- plyr::ddply(dmea.df, .(Drug_set), summarize,
-                                  absNES = mean(abs(NES), na.rm=TRUE))
-      sigOrder <- mean.dmea.df[order(mean.dmea.df$absNES),]$Drug_set
-      sigOrder <- sigOrder[sigOrder %in% sigMOAs]
-      dot.df <- na.omit(dmea.df)
-      DMEAdotPlots(dot.df, y.order = sigOrder, title=m, 
-                   fname = paste0(m,"_",i,"_DMEA_dotPlot"), 
-                   maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR)
-      
-      # also filter for opposite of given MOA sensitivity OR NES < 0 if NA
-      if (is.numeric(given.sens) & given.sens !="NaN") {
-        sig.dot.df <- dot.df[dot.df$NES/given.sens < 0 & dot.df$sig,]
-      } else {
-        sig.dot.df <- dot.df[dot.df$NES<0 & dot.df$sig,]
-      }
-      sigOrder <- sigOrder[sigOrder %in% sig.dot.df$Drug_set]
-      dot.df <- dot.df[dot.df$Drug_set %in% sigOrder,]
-      DMEAdotPlots(dot.df, y.order = sigOrder, title=m, 
-                    fname = paste0(m,"_",i,"_oppNES_DMEA_dotPlot"), 
-                    maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR)
-      
-      # also filter for shared opposite of given MOA sensitivity OR NES < 0 if NA
-      strictSigShared <- c()
-      for (t in names(strict.venn.sens)) {
-        strictSigShared <- unique(c(strictSigShared, Reduce(intersect, strict.venn.sens[[t]])))
-      }
-      if (length(strictSigShared) > 0) {
-        sigOrder <- sigOrder[sigOrder %in% strictSigShared]
-        dot.df <- dot.df[dot.df$Drug_set %in% sigOrder,]
-        DMEAdotPlots(dot.df, y.order = sigOrder, title=m, 
-                     fname = paste0(m,"_",i,"_oppNESShared_DMEA_dotPlot"), 
-                     maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR) 
-      }
-      
-      # look at shared diffexp, GSEA, TF enrichment
-      for (otherMOA in sigMOAs[sigMOAs != i]) {
-        other.drugs <- names(drug.info2[drug.info2 == otherMOA])
-        if (length(other.drugs) > 0) {
-          both.drugs <- c(temp.drugs, other.drugs)
-          for (temp.input in names(inputs)) {
-            input <- inputs[[temp.input]]
-            sigList <- list()
-            for (drug in both.drugs) {
-              if (nrow(input[input$Drug == drug & input$individualID == m & input$signif,]) > 0) {
-                sigList[[drug]] <- na.omit(unique(input[input$Drug == drug & input$individualID == m & input$signif,]$feature)) 
-              }
-            }
-            
-            if (length(sigList) > 1) {
-              if (length(sigList) > 4) {
-                # convert to matrix
-                myPlot = ComplexHeatmap::make_comb_mat(sigList)
-                #ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
-                pdf(paste0(m,"_",i,"_",otherMOA,"_sig_",temp.input,"_upsetPlot.pdf"))
-                up <- ComplexHeatmap::UpSet(myPlot)
-                ComplexHeatmap::draw(up)
-                dev.off() 
-              } else if (length(sigList) > 1) {
-                venn.plot <- wrap_elements(
-                  ggvenn::ggvenn(sigList, show_percentage = FALSE, 
-                                 set_name_size = 3, text_size = 4) + 
-                    plot_annotation(title=m, theme=theme(plot.title=element_text(hjust=0.5, face="bold"))))
-                ggplot2::ggsave(paste0(m,"_",i,"_",otherMOA, "_sig_",temp.input,"_vennDiagram.pdf"), venn.plot, width=3, height=5) 
-              }
-              
-              # also make dot plot
-              overlapSig <- unlist(sigList[temp.drugs])[unlist(sigList[temp.drugs]) %in% unlist(sigList[other.drugs])]
-              if (length(overlapSig) > 0) {
-                dot.df <- input[input$Drug %in% both.drugs & input$individualID == m & input$feature %in% overlapSig,]
-                
-                # change colnames so we don't have to make another custom dotPlot function
-                dot.df$DrugTreatment <- dot.df$Drug
-                dot.df$Drug_set <- dot.df$feature
-                if (temp.input == "Differential Expression") {
-                  dot.df$NES <- dot.df$log2FoldChange
-                  dot.df$minusLogFDR <- -log10(dot.df$padj)
-                } else if (temp.input == "Transcription Factor Enrichment") {
-                  dot.df$NES <- dot.df$score
-                  dot.df$minusLogFDR <- -log10(dot.df$padj)
-                }
-                dot.df$Ranking <- temp.input
-                dot.df$sig <- dot.df$signif
-                mean.df <- plyr::ddply(dot.df, .(Drug_set), summarize,
-                                       absNES = mean(abs(NES), na.rm=TRUE))
-                sigOrder <- mean.df[order(mean.df$absNES),]$Drug_set
-                if (length(sigOrder)/5 < 49) {
-                  if (temp.input == "Gene Set Enrichment") {
-                    min.width=7
-                  } else { min.width = 5 }
-                  DMEAdotPlots(dot.df, y.order = sigOrder, title=m, min.width = min.width,
-                               fname = paste0(m,"_",i,"_",otherMOA,"_",temp.input,"_dotPlot"), 
-                               maxAbsNES = maxAbsNESVals[[temp.input]], maxLogFDR = maxLogFDRVals[[temp.input]]) 
-                } 
-                
-                # also run correlation(s)
-                dot.df$NES <- as.numeric(dot.df$NES)
-                corr.input <- na.omit(dot.df[,c("feature","Drug","NES")])
-                Log2FC.df <- reshape2::dcast(corr.input, feature ~ Drug, fun.aggregate=mean,
-                                             value.var = "NES")
-                
-                # convert from data frame to numeric matrix
-                rownames(Log2FC.df) <- Log2FC.df$feature
-                Log2FC.mat <- as.matrix(Log2FC.df[, 2:ncol(Log2FC.df)])
-                
-                # create correlation matrix
-                corr.mat <- stats::cor(Log2FC.mat)
-                write.csv(corr.mat,paste0(m,"_",i,"_",otherMOA,"_sig_",temp.input,"_PearsonCorr.csv"))
-                
-                # plot correlation matrix
-                corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
-                ggsave(paste0(m,"_",i,"_",otherMOA,"_sig_",temp.input,"_PearsonCorr.pdf"), corr.mat.plot, width=4, height=4)
-                
-                # check for known targets
-                temp.targets <- unique(target.diffexp[target.diffexp$Drug %in% temp.drugs,]$hgnc_symbol)
-                if (any(temp.targets %in% overlapSig)) {
-                  dot.df <- input[input$Drug %in% both.drugs & input$feature %in% temp.targets & input$individualID == m,]
-                  # change colnames so we don't have to make another custom dotPlot function
-                  dot.df$DrugTreatment <- dot.df$Drug
-                  dot.df$Drug_set <- dot.df$feature
-                  if (temp.input == "Differential Expression") {
-                    dot.df$NES <- dot.df$log2FoldChange
-                    dot.df$minusLogFDR <- -log10(dot.df$padj)
-                  } else if (temp.input == "Transcription Factor Enrichment") {
-                    dot.df$NES <- dot.df$score
-                    dot.df$minusLogFDR <- -log10(dot.df$padj)
-                  }
-                  dot.df$Ranking <- temp.input
-                  dot.df$sig <- dot.df$signif
-                  mean.df <- plyr::ddply(dot.df, .(Drug_set), summarize,
-                                         absNES = mean(abs(NES), na.rm=TRUE))
-                  sigOrder <- mean.df[order(mean.df$absNES),]$Drug_set
-                  if (length(sigOrder)/5 < 49) {
-                    if (temp.input == "Gene Set Enrichment") {
-                      min.width=7
-                    } else { min.width = 5 }
-                    DMEAdotPlots(dot.df, y.order = sigOrder, title=m, min.width = min.width,
-                                 fname = paste0(m,"_",i,"_",otherMOA,"_",temp.input,"_target_dotPlot"), 
-                                 maxAbsNES = maxAbsNESVals[[temp.input]], maxLogFDR = maxLogFDRVals[[temp.input]]) 
-                  }
-                }
-              }  
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-# plot top DEGs
-dir.create("diffexp_dotPlots")
-setwd("diffexp_dotPlots")
-maxAbsNES <- max(abs(diffexp$log2FoldChange), na.rm=TRUE)
-maxLogFDR <- max(-log10(diffexp$padj), na.rm=TRUE)
-for (m in mpnst) {
-  for (t in timepoints) {
-    for (d in tested.drugs) {
-      dot.df <- diffexp[diffexp$individualID == m & diffexp$Timepoint == t & diffexp$Drug == d,]
-      sig.dot.df <- na.omit(dot.df[dot.df$signif,] %>% slice_max(abs(log2FoldChange),n=10))
-      geneOrder <- unique(sig.dot.df[order(sig.dot.df$log2FoldChange),]$hgnc_symbol)
-      dot.df <- na.omit(dot.df[dot.df$hgnc_symbol %in% sig.dot.df$hgnc_symbol,])
-      if (nrow(sig.dot.df) > 0) {
-        dot.df$DrugTreatment <- dot.df$Drug
-        dot.df$Drug_set <- dot.df$hgnc_symbol
-        dot.df$NES <- dot.df$log2FoldChange
-        dot.df$minusLogFDR <- -log10(dot.df$padj)
-        dot.df$Ranking <- "Differential Expression"
-        dot.df$sig <- dot.df$signif
-        DMEAdotPlots(dot.df, y.order=geneOrder, title=m,
-                     fname=paste0(m,"_",d,"_",t,"_top10diffexp_dotPlot"), 
-                     maxAbsNES=maxAbsNES, maxLogFDR = maxLogFDR) 
-      } else {
-        warning("no DEGs for",m,d,t)
-      }
-    }
-  }
-}
-# Warning messages:
-#   1: no DEGs forMN-2Irinotecan8h 
-# 2: no DEGs forMN-2Decitabine24h 
-# 3: no DEGs forMN-2Ifosfamide24h 
-# 4: no DEGs forMN-2Irinotecan24h 
-# 5: no DEGs forJH-2-002RMC46308h 
-# 6: no DEGs forJH-2-002Decitabine8h 
-# 7: no DEGs forJH-2-002Ifosfamide8h 
-# 8: no DEGs forJH-2-002Ifosfamide24h 
-
-#### TF network centrality ####
-# are CDKs, HDACs, SHP2 in MEK TF network
-mean.centrality <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code/comboPredictions_20250723/TF_meanCentrality.csv")
-
-# #### look at correlations ####
-corr <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code/degCorr.csv")
-rownames(corr) <- corr$X
-corr$X <- NULL
-colnames(corr) <- gsub("Trabectidin","Trabectedin", colnames(corr))
-rownames(corr) <- gsub("Trabectidin","Trabectedin", rownames(corr))
-setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code")
-dir.create("diffexpCorrelations_MEK")
-setwd("diffexpCorrelations_MEK")
-library(plyr);library(dplyr);library(tidyr)
-for (i in unique(unlist(drug.info2))) {
-  temp.drugs <- names(drug.info2[drug.info2 == i])
-  moa.cols <- c()
-  for (d in temp.drugs) {
-    moa.cols <- c(colnames(corr)[grepl(d,colnames(corr))],moa.cols) 
-  }
-  moa.corr <- corr[,moa.cols]
-  if (ncol(moa.corr)>1) {
-    moa.corr$otherDrug <- rownames(moa.corr)
-    moa.corr.df <- reshape2::melt(moa.corr)
-    moa.corr.df <- moa.corr.df %>% tidyr::separate_wider_delim(variable,"_",names=c("MPNST","Timepoint","Drug"))
-    moa.corr.df <- moa.corr.df %>% tidyr::separate_wider_delim(otherDrug,"_",names=c("MPNST2","Timepoint2","Drug2"))
-    moa.corr.df$MPNST <- gsub("[.]","-",moa.corr.df$MPNST)
-    moa.corr.df <- moa.corr.df[moa.corr.df$MPNST == moa.corr.df$MPNST2 & moa.corr.df$Timepoint==moa.corr.df$Timepoint2,]
-    
-    # mean.moa.corr.df <- plyr::ddply(moa.corr.df,.(MPNST, Drug, Drug2), summarize,
-    #                                 meanPearsonEst = mean(value, na.rm=TRUE),
-    #                                 medianPearsonEst = median(value,na.rm=TRUE),
-    #                                 sdPearsonEst = sd(value, na.rm=TRUE))
-    moa.corr.df$Timepoint <- factor(moa.corr.df$Timepoint, levels=c("8h","24h"))
-    moa.corr.plot <- ggplot(moa.corr.df, aes(x=Drug2, y=value)) + geom_violin(alpha=0) +
-      geom_point(aes(color=Timepoint, shape=Drug)) +
-      geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
-      scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
-      theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
-            plot.title=element_text(face="bold", hjust=0.5)) +
-      ggtitle(i) + scale_y_continuous(limits=c(0,1))
-    ggsave(paste0(i,"_diffexp_correlations_v2.pdf"),moa.corr.plot,width=7,height=2)
-    moa.corr.plot <- ggplot(moa.corr.df, aes(x=Drug2, y=value)) + geom_violin(alpha=0) +
-      geom_point(aes(color=Timepoint, shape=Drug)) +
-      geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
-      scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
-      theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
-            plot.title=element_text(face="bold", hjust=0.5)) +
-      ggtitle(i) + scale_y_continuous(limits=c(-1,1))
-    ggsave(paste0(i,"_diffexp_correlations_v2.pdf"),moa.corr.plot,width=7,height=4) 
-  }
-}
-
-# check if vorinostat diffexp is significantly correlated with MEKi diffexp
-de.wide <- reshape2::dcast(diffexp, individualID + Timepoint + hgnc_symbol ~ Drug, mean, value.var="log2FoldChange")
-all.drugs <- colnames(de.wide)[4:ncol(de.wide)]
-corr <- data.frame()
-for (i in 4:ncol(de.wide)) {
-  temp.drug <- colnames(de.wide)[i]
-  other.drugs <- all.drugs[all.drugs != temp.drug]
-  for (t in unique(de.wide$Timepoint)) {
-    for (m in unique(de.wide$individualID)) {
-      temp.de <- de.wide[de.wide$individualID == m & 
-                           de.wide$Timepoint == t &
-                           !is.na(de.wide[,temp.drug]),c("hgnc_symbol", temp.drug, other.drugs)]
-      if (nrow(temp.de) > 2) {
-        temp.corr <- DMEA::rank_corr(temp.de, variable="Drug", value="Log2FC")
-        temp.corr$result$drugInput <- temp.drug
-        temp.corr$result$MPNST <- m
-        temp.corr$result$Timepoint <- t
-        corr <- rbind(corr, temp.corr$result)
-        ggsave(paste0(m, "_", t, "_", temp.drug,"_diffexp_correlations.pdf"),
-               temp.corr$scatter.plots,width=5,height=5)  
-      }
-    } 
-  }
-}
-write.csv(corr, "diffexp_correlations_withStatsMPNSTTime.csv", row.names=FALSE)
-
-setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code")
-dir.create("diffexpCorrelations_MEK")
-setwd("diffexpCorrelations_MEK")
-library(plyr);library(dplyr);library(tidyr)
-maxVal <- max(corr$Pearson.est)
-minVal <- min(corr$Pearson.est)
-corr$minusLogFDR <- -log10(corr$Pearson.q)
-maxLogFDR <- ceiling(max(corr[corr$Pearson.q != 0,]$minusLogFDR, na.rm=TRUE))
-if (any(corr$Pearson.q == 0)) {
-  corr[corr$Pearson.q == 0,]$minusLogFDR <- maxLogFDR
-}
-for (i in unique(unlist(drug.info2))) {
-  temp.drugs <- names(drug.info2[drug.info2 == i])
-  moa.corr.df <- corr[corr$drugInput %in% temp.drugs,]
-  if (nrow(moa.corr.df) > 0) {
-    #moa.corr.df <- reshape2::melt(moa.corr[,c("MPNST","Drug","Pearson.est","Pearson.q","minusLogFDR","drugInput")])
-    #moa.corr.df$Timepoint <- factor(moa.corr.df$Timepoint, levels=c("8h","24h"))
-    moa.corr.plot <- ggplot(moa.corr.df, aes(x=Drug, y=Pearson.est#, size=minusLogFDR
-    )) + geom_violin(alpha=0) +
-      geom_point(aes(color=Timepoint, shape=drugInput)) + labs(shape="Drug") +
-      #scale_size_continuous(limits=c(0,maxLogFDR)) + 
-      geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
-      scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
-      theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
-            plot.title=element_text(face="bold", hjust=0.5)) +
-      ggtitle(i) + scale_y_continuous(limits=c(minVal, maxVal))
-    ggsave(paste0(i,"_diffexp_correlations_withStatsMPNSTTime.pdf"),moa.corr.plot,width=7,height=2)
-    moa.corr.plot <- ggplot(moa.corr.df[moa.corr.df$Pearson.q <= 0.05,], aes(x=Drug, y=Pearson.est)) + geom_violin(alpha=0) +
-      geom_point(aes(color=Timepoint, shape=drugInput)) + labs(shape="Drug") +
-      geom_boxplot(width=0.2, alpha = 0) +facet_wrap(.~MPNST)+theme_classic()+
-      scale_x_discrete(limits=names(drug.info2)) + ylab("Pearson Correlation") +
-      theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=45, hjust=1, vjust=1),
-            plot.title=element_text(face="bold", hjust=0.5)) +
-      ggtitle(i) + scale_y_continuous(limits=c(-1,1))
-    ggsave(paste0(i,"_diffexp_sigCorrelations_withStatsMPNSTTime.pdf"),moa.corr.plot,width=7,height=4) 
-  }
-}
-
-# does number of degs correlate with drug sensitivity (AUC)?
-library(RColorBrewer)
-cols=c(brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
-nDEGs <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code/nSigDEGs.csv")
-#nDEGs[nDEGs$Drug=="Trabectidin",]$Drug <- "Trabectedin"
-viability <- read.table(synapser::synGet("syn65941820")$path, sep="\t", header = TRUE)
-auc <- viability[viability$dose_response_metric=="fit_auc",c("improve_sample_id","improve_drug_id","time","dose_response_value")]
-colnames(auc) <- c("individualID","Drug","viabilityTime","AUC")
-auc$Drug <- tolower(auc$Drug)
-nDEGs$Drug <- tolower(nDEGs$Drug)
-nAUC <- merge(nDEGs, auc)
-nauc.corr <- cor.test(nAUC$n,nAUC$AUC) # no correlation (r=-0.2706204, p = 0.05233)
-nauc.corr.sp <- cor.test(nAUC$n,nAUC$AUC,method="spearman") # was -0.2935921, p = 0.03465, but as of 20250723 is -0.2, p = 0.15
-ggplot(nAUC,aes(x=n,y=AUC))+geom_point(aes(shape=individualID,color=Drug))+ 
-  scale_x_continuous(trans="log10") + theme_minimal()+ geom_smooth(method="lm", linetype="dashed", colour="black")+
-  scale_color_manual(values=cols,breaks=tolower(names(drug.info)))+
-  labs(x="# of Differentially\nExpressed Genes",y="Sensitivity Score (AUC)",
-       shape="MPNST") + geom_text(aes(x=1000, y=0.8), label="r=-0.27, p=0.052", size=4
-                                  )
-ggsave("N_DEGs_vs_AUC.pdf",width=5,height=5)
-
-stats_spearman <- substitute(
-  rho == est * "," ~ ~"p" ~ "=" ~ p,
-  list(
-    est = format(as.numeric(nauc.corr.sp$estimate), digits = 2),
-    p = format(nauc.corr.sp$p.value, digits = 2)
-  )
-)
-ggplot(nAUC,aes(x=n,y=AUC))+geom_point(aes(shape=individualID,color=Drug))+ 
-  scale_x_continuous(trans="log10") + theme_minimal()+ geom_smooth(method="lm", linetype="dashed", colour="black")+
-  scale_color_manual(values=cols,breaks=tolower(names(drug.info)))+
-  labs(x="# of Differentially\nExpressed Genes",y="Sensitivity Score (AUC)",
-       shape="MPNST") + geom_text(aes(x=1000, y=0.8), parse = TRUE,
-                                  label = as.character(as.expression(stats_spearman)), size=4
-       )
-ggsave("N_DEGs_vs_AUC_spearman.pdf",width=5,height=5)
