@@ -240,20 +240,53 @@ for (c in combos) {
         tidyr::separate_wider_delim(sample, "_", names=c("sample", "time"))
       p.df$time <- as.numeric(sub("hours","",p.df$time))/24
       
-      combo.resp <- na.omit(merge(combo.res, p.df, by=c("drugCombo","sample","time"), all.x=TRUE)) 
-      if (mean(combo.resp$log_alpha12) < mean(combo.resp$log_alpha21)) {
-        combo.resp$combo.conc <- combo.resp$drug2.conc
-      } else {
-        combo.resp$combo.conc <- combo.resp$drug1.conc
+      combo.resp <- merge(combo.res, p.df, by=c("drugCombo","sample","time"), all.x=TRUE)
+      combo.resp <- combo.resp[,c("drugCombo","sample","timeD","drug1","drug2",
+                                  "drug1.conc","drug2.conc","meanGROWTH",
+                                  "sdGROWTH","log_alpha12","log_alpha21","R2",
+                                  "maxBliss","p","textFace","conc12.ratio")]
+      drug1.df <- combo.resp[combo.resp$drug2.conc==0,]
+      drug1.df$drug2.conc <- NULL
+      drug1.df$drug2 <- NULL
+      drug1.df$drugCombo <- NULL
+      colnames(drug1.df) <- c("sample","timeD","drug", "conc","meanGROWTH",
+                              "sdGROWTH","log_alpha12","log_alpha21","R2",
+                              "maxBliss","p","textFace","conc12.ratio")
+      
+      drug2.df <- combo.resp[combo.resp$drug1.conc==0,]
+      drug2.df$drug1.conc <- NULL
+      drug2.df$drug1 <- NULL
+      drug2.df$drugCombo <- NULL
+      colnames(drug2.df) <- c("sample","timeD","drug", "conc","meanGROWTH",
+                              "sdGROWTH","log_alpha12","log_alpha21","R2",
+                              "maxBliss","p","textFace","conc12.ratio")
+      
+      combo.resp2 <- rbind(drug1.df, drug2.df)
+      combo.ratios <- unique(combo.resp$conc12.ratio[combo.resp$conc12.ratio != 0 &
+                                                        combo.resp$conc12.ratio != "Inf"])
+      for (combo.ratio in combo.ratios) {
+        drug12.df <- combo.resp[combo.resp$conc12.ratio == combo.ratio,]
+        if (mean(drug1.df$meanGROWTH) < mean(drug2.df$meanGROWTH)) {
+          drug12.df$combo.conc <- drug12.df$drug1.conc
+        } else {
+          drug12.df$combo.conc <- drug12.df$drug2.conc
+        }
+        drug12.df$drug1.conc <- NULL
+        drug12.df$drug1 <- NULL
+        drug12.df$drug2.conc <- NULL
+        drug12.df$drug2 <- NULL
+        colnames(drug12.df) <- c("drug","sample","timeD","meanGROWTH",
+                                 "sdGROWTH","log_alpha12","log_alpha21","R2",
+                                 "maxBliss","p","textFace","conc12.ratio","conc")
+        combo.resp2 <- rbind(combo.resp2, drug12.df[,colnames(combo.resp2)])
       }
-      #combo.resp <- combo.resp[combo.resp$combo.conc != 0,]
     } else {
-      combo.resp <- data.frame()
+      combo.resp2 <- data.frame()
     }
     
-    if (nrow(combo.resp) > 0) {
-      if (any(combo.resp$p > 0.05)) {combo.resp[combo.resp$p > 0.05,]$textFace <- "plain"}
-      conf.plot <- ggplot(combo.resp, aes(x=combo.conc, y=100*meanGROWTH, color=as.factor(conc12.ratio))) +
+    if (nrow(combo.resp2) > 0) {
+      if (any(combo.resp2$p > 0.05)) {combo.resp2[combo.resp2$p > 0.05,]$textFace <- "plain"}
+      conf.plot <- ggplot(combo.resp2, aes(x=conc, y=100*meanGROWTH, color=as.factor(conc12.ratio))) +
         facet_grid(timeD ~ sample) +
         geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
         #scale_color_manual(values=c(scales::hue_pal()(2))) + 
@@ -266,7 +299,7 @@ for (c in combos) {
                                            color = paste("Ratio of",d1,"\nto",d2)) +
         theme(plot.title=element_text(hjust=0.5,face="bold"), 
               axis.text.x=element_text(angle=45, hjust=1, vjust=1))
-      # conf.plotB <- conf.plot + geom_text(data=combo.resp, 
+      # conf.plotB <- conf.plot + geom_text(data=combo.resp2, 
       #                                     mapping=aes(x=Inf, y=Inf, fontface=textFace,
       #                                                 label=paste0("Log|",as.character("\u03b1|=("),
       #                                                              signif(log_alpha12,2),",",signif(log_alpha21,2),
@@ -276,7 +309,7 @@ for (c in combos) {
       #                                     hjust=1, vjust=1, show.legend=FALSE, 
       #                                     colour=mid.color)
                                           
-      conf.plotB <- conf.plot + geom_text(data=combo.resp, 
+      conf.plotB <- conf.plot + geom_text(data=combo.resp2, 
                                           mapping=aes(x=Inf, y=Inf, fontface=textFace,
                                                       label=paste0("Log|",as.character("\u03b1|=("),
                                                                    signif(log_alpha12,2),",",signif(log_alpha21,2),
@@ -284,20 +317,20 @@ for (c in combos) {
                                                                    ",\np=",signif(p,2))),
                                           hjust=1, vjust=1, show.legend=FALSE, 
                                           colour=mid.color)
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.svg"),conf.plotB,width=9,height=9, device="svg") # was height 4
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.png"),conf.plotB,width=9,height=9, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.svg"),conf.plotB,width=12,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p.png"),conf.plotB,width=12,height=9, device="png") # was height 4
       
-      conf.plotC <- conf.plot + geom_text(data=combo.resp, 
+      conf.plotC <- conf.plot + geom_text(data=combo.resp2, 
                                           mapping=aes(x=Inf, y=Inf, fontface=textFace,
                                                       label=paste0("Max Bliss=",
                                                                    signif(maxBliss,2),
                                                                    ",\np=",signif(p,2))),
                                           hjust=1, vjust=1, show.legend=FALSE, 
                                           colour=mid.color)
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxTestedBliss_p.svg"),conf.plotC,width=9,height=9, device="svg") # was height 4
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxTestedBliss_p.png"),conf.plotC,width=9,height=9, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxTestedBliss_p.svg"),conf.plotC,width=12,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxTestedBliss_p.png"),conf.plotC,width=12,height=9, device="png") # was height 4
       
-      conf.plot <- ggplot(combo.resp, aes(x=combo.conc, y=100*meanGROWTH, color=as.factor(conc12.ratio))) +
+      conf.plot <- ggplot(combo.resp2, aes(x=conc, y=100*meanGROWTH, color=as.factor(conc12.ratio))) +
         facet_grid(timeD ~ sample) +
         geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
         scale_x_continuous(transform="log10") + geom_point() + 
@@ -308,7 +341,7 @@ for (c in combos) {
         theme(plot.title=element_text(hjust=0.5,face="bold"), 
               axis.text.x=element_text(angle=45, hjust=1, vjust=1))
       
-      conf.plotB <- conf.plot + geom_text(data=combo.resp, 
+      conf.plotB <- conf.plot + geom_text(data=combo.resp2, 
                                           mapping=aes(x=Inf, y=Inf, fontface=textFace,
                                                       label=paste0("Log|",as.character("\u03b1|=("),
                                                                    signif(log_alpha12,2),",",signif(log_alpha21,2),
@@ -316,8 +349,18 @@ for (c in combos) {
                                                                    ",\np=",signif(p,2))),
                                           hjust=1, vjust=1, show.legend=FALSE, 
                                           colour=mid.color2)
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed.svg"),conf.plotB,width=9,height=9, device="svg") # was height 4
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed.png"),conf.plotB,width=9,height=9, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed.svg"),conf.plotB,width=12,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed.png"),conf.plotB,width=12,height=9, device="png") # was height 4
+      
+      conf.plotC <- conf.plot + geom_text(data=combo.resp2, 
+                                          mapping=aes(x=Inf, y=Inf, fontface=textFace,
+                                                      label=paste0("Max Bliss=",
+                                                                   signif(maxBliss,2),
+                                                                   ",\np=",signif(p,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour=mid.color2)
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed.svg"),conf.plotB,width=12,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed.png"),conf.plotB,width=12,height=9, device="png") # was height 4
     }
   }
 }
@@ -334,7 +377,7 @@ shared.combos <- tidyr::expand_grid(shared.drugs, shared.drugs)
 shared.combos$drugCombo <- paste0(shared.combos$shared.drugs...1,"+",shared.combos$shared.drugs...2)
 shared.combos$drugCombo2 <- paste0(shared.combos$shared.drugs...2,"+",shared.combos$shared.drugs...1)
 shared.combos <- unique(c(shared.combos$drugCombo, shared.combos$drugCombo2))
-shared.combos <- shared.combos[shared.combos %in% combos] # 17 / 21 tested combos
+shared.combos <- shared.combos[shared.combos %in% combos] # 23 / 27 tested combos
 
 shared.corr <- drug.corr[tolower(drug.corr$Drug) %in% tolower(drugs) & 
                            tolower(drug.corr$DrugTreatment) %in% tolower(drugs),]
@@ -613,7 +656,7 @@ results3 <- results2[results2$moa1 %in% shared.moas2 &
                        results2$moa2 %in% shared.moas2,]
 results3$moaCombo <- paste0(results3$moa1,"+",results3$moa2)
 #results3 <- results3[results3$moaCombo %in% moa.combos,]
-moa.combos <- unique(results3$moaCombo) # 4
+moa.combos <- unique(results3$moaCombo) # 7
 
 shared.moa.df$moaCombo <- NA
 for (c in moa.combos) {
@@ -625,7 +668,7 @@ shared.moa.df2 <- na.omit(shared.moa.df)
 colnames(shared.moa.df2)[2] <- "sample"
 shared.moa.res <- merge(shared.moa.df2, results3, by=c("sample","moaCombo"))
 shared.moa.res$moaComboShort <- gsub(" inhibitor","i",shared.moa.res$moaCombo)
-shared.moa.res <- dplyr::distinct(shared.moa.res) # 24
+shared.moa.res <- dplyr::distinct(shared.moa.res) # 40 rows
 write.csv(shared.moa.res, "moa_dmea_vs_synergy.csv", row.names = FALSE)
 
 syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", "Mean MuSyC Potency Score" = "meanLogAlpha")
@@ -813,7 +856,7 @@ for (i in names(syn.scores)) {
   ggsave(paste0("moaResults_",i,"_vs_dmea_absSigNES_spearman.pdf"),width=5,height=5)
 }
 
-# top is MEK+HDAC 8h
+# top is MEK+HDAC 8h in MN-2 for DMEA, MEK+CDK for MuSyC
 
 
 # ggplot(shared.moa.res, aes(x=meanLogAlpha, y=NES, #shape=sample, # only sample is JH-2-002
@@ -965,7 +1008,7 @@ musyc.scores$shortCombo <- paste0(tolower(substr(musyc.scores$drug1, 1,4)), "+",
                                   tolower(substr(musyc.scores$drug2, 1,4)))
 
 # load bliss scores
-setwd(paste0("curves_",Sys.Date()))
+setwd(paste0("curves_",Sys.Date()-1))
 max.bliss.tested <- read.csv("maxBlissTested.csv")
 max.bliss.tested$mpnst <- max.bliss.tested$sample
 max.bliss.tested$sample <- paste0(max.bliss.tested$mpnst,'_',max.bliss.tested$time*24,"hours")
@@ -982,9 +1025,9 @@ p.musyc <- merge(p.df, musyc.scores, by=c("drugCombo","sample")) # 116 rows
 p.bliss <- merge(p.df, max.bliss.tested, by=c("drugCombo","sample")) # 111 rows
 
 # correlations: bliss
-pb.corr <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss) # r=0.3694444, p=6.596E-5
+pb.corr <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss) # r=0.1915699, p=0.03234
 pb.corr
-pb.corr.sp <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss, method="spearman") # r=0.2289942, p=0.01563
+pb.corr.sp <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss, method="spearman") # r=0.2041993, p=0.02236
 pb.corr.sp
 ggplot(p.bliss,aes(x=-log10(p),y=maxBliss))+geom_point(aes(#shape=sample,
                                                            color=drugCombo))+ 
@@ -1014,9 +1057,9 @@ ggsave("viability_-log10P_vs_maxBlissTested_spearman_noShape_sigComboLabel.pdf",
 write.csv(p.bliss,"p_Bliss.csv", row.names=FALSE)
 
 # correlations: musyc
-pm.corr <- cor.test(-log10(p.musyc$p),p.musyc$meanLogAlpha) # r=0.1952715, p=0.03567
+pm.corr <- cor.test(-log10(p.musyc$p),p.musyc$meanLogAlpha) # r=0.1250346, p=0.1199
 pm.corr
-pm.corr.sp <- cor.test(-log10(p.musyc$p),p.musyc$meanLogAlpha, method="spearman") # r=0.1743897, p = 0.06125
+pm.corr.sp <- cor.test(-log10(p.musyc$p),p.musyc$meanLogAlpha, method="spearman") # r=0.1607403, p = 0.0451
 pm.corr.sp
 ggplot(p.musyc,aes(x=-log10(p),y=meanLogAlpha))+geom_point(aes(#shape=sample,
   color=drugCombo))+ 
@@ -1050,11 +1093,11 @@ write.csv(p.musyc, "p_musyc.csv", row.names=FALSE)
 top.musyc <- musyc.scores[musyc.scores$meanLogAlpha > 0 & 
                             musyc.scores$log_alpha12 > 0 & musyc.scores$log_alpha21 > 0,
                           c("drugCombo","sample","meanLogAlpha","log_alpha12","log_alpha21")] # 130 rows
-length(unique(top.musyc$drugCombo)) # 17 unique drug combos out of 21 tested
+length(unique(top.musyc$drugCombo)) # 18 unique drug combos out of 27 tested
 top.musyc$absDeltaMeanLogAlpha <- abs(top.musyc$log_alpha12 - top.musyc$log_alpha21)
 top.musyc$fracAbsDelta <- top.musyc$absDeltaMeanLogAlpha / top.musyc$meanLogAlpha
 best.musyc <- top.musyc[top.musyc$fracAbsDelta <= 0.25,] # 9 rows
-length(unique(best.musyc$drugCombo)) # 8 unique drug combos out of 21 tested
+length(unique(best.musyc$drugCombo)) # 8 unique drug combos out of 27 tested
 write.csv(top.musyc,"positive_musyc.csv", row.names=FALSE)
 write.csv(best.musyc,"positive_musyc_fracMax0.25.csv")
 
