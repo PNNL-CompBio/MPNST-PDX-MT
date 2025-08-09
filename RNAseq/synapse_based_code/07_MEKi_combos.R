@@ -348,3 +348,48 @@ DMEAdotPlots(dot.df,
                        names(doi[doi=="CDK inhibitor"]),
                        names(doi[doi=="SHP2 inhibitor"])))
 
+#### PDX data: MEKi+HDACi ####
+tumor.size <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/Wu225 Mirda + Vorinostat.csv")
+
+# get colors for mirda and vorinostat
+library(RColorBrewer); library(scales)
+cols1=c("#000000",brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'),"mediumorchid1", "cornflowerblue", "#004B4B", "#4B0026")
+drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor",
+                  "trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "decitabine" = "DNMT inhibitor", "vorinostat" = "HDAC inhibitor",
+                  "mirdametinib" = "MEK inhibitor", "selumetinib" = "MEK inhibitor",
+                  "trametinib" = "MEK inhibitor", "capmatinib" = "MET inhibitor",
+                  "olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "doxorubicin" = "TOP inhibitor",
+                  "irinotecan" = "TOP inhibitor", "verteporfin" = "YAP inhibitor",
+                  "pexidartinib" = "KIT inhibitor", "IAG933" = "YAP inhibitor", "SN38" = "TOP inhibitor")
+names(cols1) <- c("DMSO", names(drug.info))
+scales::show_col(cols1[c("DMSO","mirdametinib","vorinostat")]) # black, brown, yellow?
+ggplot(tumor.size,aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) + 
+  geom_point() + geom_errorbar(aes(ymin=`Mean.Size`-SEM, ymax=`Mean.Size`+SEM))+
+  geom_smooth(se=FALSE, linetype="dashed")+
+  theme_classic() + labs(y="Mean Tumor Size", x="Treatment Duration (Days)") +
+  scale_color_manual(values=c("black","red","blue","forestgreen"), breaks=c("Vehicle","Mirda","Vorinostat","Mirda + Vorinostat"))
+setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT")
+ggsave("WU225_mirdaVorinostat_PDX.pdf", width=6, height=3) # was width 4
+
+combo.t <- t.test(tumor.size[tumor.size$Treatment %in% c("Mirda","Vorinostat"),]$`Mean.Size`,
+                  tumor.size[tumor.size$Treatment == "Mirda + Vorinostat",]$`Mean.Size`, "greater")
+combo.t # p = 0.000649
+
+mek.combo.t <- t.test(tumor.size[tumor.size$Treatment == "Mirda",]$`Mean.Size`,
+                  tumor.size[tumor.size$Treatment == "Mirda + Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
+mek.combo.t # p = 0.001507
+
+vor.combo.t <- t.test(tumor.size[tumor.size$Treatment == "Vorinostat",]$`Mean.Size`,
+                      tumor.size[tumor.size$Treatment == "Mirda + Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
+vor.combo.t # p = 0.002504
+
+veh.mek.t <- t.test(tumor.size[tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
+                      tumor.size[tumor.size$Treatment == "Mirda",]$`Mean.Size`, "greater", paired=TRUE)
+veh.mek.t # p = 0.006131
+
+veh.vor.t <- t.test(tumor.size[tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
+                      tumor.size[tumor.size$Treatment == "Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
+veh.vor.t # p = 0.004812
+
