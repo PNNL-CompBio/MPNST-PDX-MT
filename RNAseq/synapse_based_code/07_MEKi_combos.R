@@ -393,3 +393,49 @@ veh.vor.t <- t.test(tumor.size[tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
                       tumor.size[tumor.size$Treatment == "Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
 veh.vor.t # p = 0.004812
 
+#### mirda combos predicted ####
+mirda.sens <- sens[sens$DrugTreatment=="Mirdametinib" & sens$sig & sens$NES < 0,]
+mirda.mean <- plyr::ddply(mirda.sens, .(Drug_set), summarize,
+                          meanNES=mean(NES),
+                          medianNES=median(NES),
+                          sdNES=sd(NES),
+                          N=dplyr::n(),
+                          N_MPNST = length(unique(MPNST)),
+                          MPNST = paste0(sort(unique(MPNST)), collapse=" & "))
+mirda.mean$Tested <- "plain"
+mirda.mean[mirda.mean$Drug_set %in% drug.info2,]$Tested <- "bold"
+ggplot(mirda.mean, aes(y=reorder(Drug_set, -meanNES), x=meanNES, fill=MPNST)) + 
+  geom_bar(stat="identity") + theme_classic() + scale_y_discrete(position="right") +
+  theme(axis.title.y=element_blank(), legend.position="bottom") + labs(x="Mean NES") +
+  scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
+ggsave("Mirda_DMEA_predictions.pdf", width=5, height=5)
+
+ggplot(mirda.mean, aes(x=reorder(Drug_set, meanNES), y=meanNES, fill=MPNST)) + 
+  geom_bar(stat="identity") + theme_classic() + 
+  theme(axis.title.x=element_blank(), legend.position="top", axis.text.x=element_text(angle=45, vjust=1, hjust=1)) + labs(y="Mean NES") +
+  scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
+ggsave("Mirda_DMEA_predictions_horizontal.pdf", width=5, height=5)
+
+mirda.mean[mirda.mean$Drug_set == "protein tyrosine kinase inhibitor",]$Drug_set <- "Protein TKI"
+mirda.mean[mirda.mean$Drug_set == "tyrosine kinase inhibitor",]$Drug_set <- "TKI"
+mirda.mean[grepl("PDGFR", mirda.mean$Drug_set),]$Drug_set <- "PDGFRi"
+mirda.mean[grepl("Aurora", mirda.mean$Drug_set),]$Drug_set <- "AURKi"
+mirda.mean[grepl("bromodomain", mirda.mean$Drug_set),]$Drug_set <- "BRDi"
+mirda.mean[grepl("adenosine", mirda.mean$Drug_set),]$Drug_set <- "P1i"
+mirda.mean[grepl("glutamate", mirda.mean$Drug_set),]$Drug_set <- "GluRi"
+mirda.mean[grepl("src", mirda.mean$Drug_set),]$Drug_set <- "SRCi"
+mirda.mean[grepl("retinoid ", mirda.mean$Drug_set),]$Drug_set <- "RR Agonist"
+mirda.mean[grepl("inhibitor", mirda.mean$Drug_set),]$Drug_set <- sub(" inhibitor","i",mirda.mean[grepl("inhibitor", mirda.mean$Drug_set),]$Drug_set)
+ggplot(mirda.mean, aes(x=reorder(Drug_set, meanNES), y=meanNES, fill=MPNST)) + 
+  geom_bar(stat="identity") + theme_classic() + 
+  theme(axis.title.x=element_blank(), legend.position="top", axis.text.x=element_text(angle=45, vjust=1, hjust=1)) + labs(y="Mean NES") +
+  scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
+ggsave("Mirda_DMEA_predictions_horizontal_shortNames.pdf", width=5, height=3)
+ggsave("Mirda_DMEA_predictions_horizontal_shortNames_lessWide.pdf", width=4, height=3)
+
+ggplot(mirda.mean, aes(y=reorder(Drug_set, -meanNES), x=meanNES, fill=MPNST)) + 
+  geom_bar(stat="identity") + theme_classic() + scale_y_discrete(position="right") +
+  theme(axis.title.y=element_blank(), legend.position="bottom") + labs(x="Mean NES") +
+  scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
+ggsave("Mirda_DMEA_predictions_shortNames.pdf", width=4, height=5)
+ggsave("Mirda_DMEA_predictions_shortNames_smaller.pdf", width=3, height=4)
