@@ -10,7 +10,7 @@ musyc.scores <- read.csv("musyc_20250804.csv")
 # try looking at Bliss scores
 bliss <- data.frame()
 
-dir.create("bliss")
+#dir.create("bliss")
 blissFiles <- synapser::as.list(synapser::synGetChildren('syn68639935', list("file"), sortBy = 'NAME'))
 for (i in 1:length(blissFiles)){
   test.bliss <- read.csv(synapser::synGet(blissFiles[[i]]$id)$path)
@@ -91,6 +91,7 @@ for (i in 1:nrow(musyc.scores)) {
   musyc.scores$meanLogAlpha[i] <- mean(c(musyc.scores$log_alpha12[i], musyc.scores$log_alpha21[i])) 
 }
 maxLogAlpha <- max(musyc.scores$meanLogAlpha)
+musyc.scores$drugCombo <- paste0(musyc.scores$drug1,'+',musyc.scores$drug2)
 ggplot(musyc.scores, aes(x=sample, y=reorder(drugCombo, meanLogAlpha), fill=meanLogAlpha)) + geom_tile(stat="identity") + 
   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(0,8)) + 
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Mean\nLog|Alpha|")
@@ -127,8 +128,8 @@ ggplot(bliss.musyc, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=drugComb
   labs(x="Mean MuSyC Potency", y="Max Bliss Synergy")
 ggsave("musyc_meanLogAlpha_vs_max_bliss_synergy_Faceted.pdf", width=12, height=7)
 
-cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss) # r = 0.013, p=0.8858
-cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss, method="spearman") # rho = 0.043, p = 0.6324
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss) # r = 0.018, p=0.8247
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss, method="spearman") # rho = 0.043, p = 0.5939
 
 bliss.musyc.tested <- merge(max.bliss.tested, musyc.scores, by=c("drugCombo","sample","time"))
 ggplot(bliss.musyc.tested, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=drugCombo)) + #, size=R2)) +
@@ -143,14 +144,15 @@ ggplot(bliss.musyc.tested, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=d
   labs(x="Mean MuSyC Potency", y="Max Bliss Synergy")
 ggsave("musyc_meanLogAlpha_vs_max_bliss_synergy_tested_Faceted.pdf", width=12, height=7)
 
-cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss) # r=0.049, p=0.586
-cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss, method="spearman") # rho = 0.059, p=0.5109
+cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss) # r=0.06, p=0.218
+cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss, method="spearman") # rho = 0.118, p=0.1475
 
 results <- merge(mean.conf, musyc.scores, by=c("sample","time","drug1","drug2"), all.x=TRUE)
 
 resultsMinBelow50 <- merge(results, max.bliss.testedMinBelow50, by=c("sample","time","drugCombo"), all.x=TRUE)
 results <- merge(results, max.bliss.tested, by=c("sample","time","drugCombo"), all.x=TRUE)
 write.csv(results,"results_viabilityBlissMusyc.csv", row.names=FALSE)
+#results <- read.csv(file.path(dataPath,"curves_2025-08-04/results_viabilityBlissMusyc.csv"))
 library(drc) # curve source: answer by greenjune: https://stackoverflow.com/questions/36780357/plotting-dose-response-curves-with-ggplot2-and-drc
 # Sara shared these 2 links: https://stackoverflow.com/questions/68209998/plot-drc-using-ggplot; https://forum.posit.co/t/extract-out-points-in-dose-response-curve-produced-by-drc/159433
 results$timeD <- paste0(results$time,"d")
@@ -174,6 +176,8 @@ cols <- colorspace::darken(cols1, 0.3)
 scales::show_col(cols)
 
 ##### ratio centric #####
+dir.create(paste0("curves_",Sys.Date()))
+setwd(paste0("curves_",Sys.Date()))
 #results$combo.conc <- NULL
 results$conc12.ratio <- signif(as.numeric(results$drug1.conc/results$drug2.conc),3)
 results$drugCombo <- paste0(results$drug1,"+",results$drug2)
@@ -351,6 +355,13 @@ for (c in combos) {
                                           colour=mid.color2)
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed.svg"),conf.plotB,width=12,height=9, device="svg") # was height 4
       ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed.png"),conf.plotB,width=12,height=9, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed_h4w12.svg"),conf.plotB,width=12,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed_h4w12.png"),conf.plotB,width=12,height=4, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed_h4w10.svg"),conf.plotB,width=10,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed_h4w10.png"),conf.plotB,width=10,height=4, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed_h4w5.svg"),conf.plotB,width=5,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_allMusyc_p_blueBlackRed_h4w5.png"),conf.plotB,width=5,height=4, device="png") # was height 4
+      
       
       conf.plotC <- conf.plot + geom_text(data=combo.resp2, 
                                           mapping=aes(x=Inf, y=Inf, fontface=textFace,
@@ -359,8 +370,49 @@ for (c in combos) {
                                                                    ",\np=",signif(p,2))),
                                           hjust=1, vjust=1, show.legend=FALSE, 
                                           colour=mid.color2)
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed.svg"),conf.plotB,width=12,height=9, device="svg") # was height 4
-      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed.png"),conf.plotB,width=12,height=9, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed.svg"),conf.plotC,width=12,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed.png"),conf.plotC,width=12,height=9, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed_h4w12.svg"),conf.plotC,width=12,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed_h4w12.png"),conf.plotC,width=12,height=4, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed_h4w10.svg"),conf.plotC,width=10,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed_h4w10.png"),conf.plotC,width=10,height=4, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed_h4w5.svg"),conf.plotC,width=5,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_maxBlissTested_p_blueBlackRed_h4w5.png"),conf.plotC,width=5,height=4, device="png") # was height 4
+      
+      
+      conf.plotC <- conf.plot + geom_text(data=combo.resp2, 
+                                          mapping=aes(x=Inf, y=Inf, fontface=textFace,
+                                                      label=paste0("Log|",as.character("\u03b1|=("),
+                                                                   signif(log_alpha12,2),",",signif(log_alpha21,2),
+                                                                   "),\nR\u00b2=",signif(R2,2),"\nMax Bliss=",
+                                                                   signif(maxBliss,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour=mid.color2)
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed.svg"),conf.plotC,width=12,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed.png"),conf.plotC,width=12,height=9, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_h4w12.svg"),conf.plotC,width=12,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_h4w12.png"),conf.plotC,width=12,height=4, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_h4w10.svg"),conf.plotC,width=10,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_h4w10.png"),conf.plotC,width=10,height=4, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_h4w5.svg"),conf.plotC,width=5,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_h4w5.png"),conf.plotC,width=5,height=4, device="png") # was height 4
+      
+      conf.plotC <- conf.plot + geom_text(data=combo.resp2, 
+                                          mapping=aes(x=Inf, y=Inf, fontface="plain",
+                                                      label=paste0("Log|",as.character("\u03b1|=("),
+                                                                   signif(log_alpha12,2),",",signif(log_alpha21,2),
+                                                                   "),\nMax Bliss=",
+                                                                   signif(maxBliss,2))),
+                                          hjust=1, vjust=1, show.legend=FALSE, 
+                                          colour=mid.color2)
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.svg"),conf.plotC,width=12,height=9, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.png"),conf.plotC,width=12,height=9, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.svg"),conf.plotC,width=12,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.png"),conf.plotC,width=12,height=4, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.svg"),conf.plotC,width=10,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.png"),conf.plotC,width=10,height=4, device="png") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.svg"),conf.plotC,width=5,height=4, device="svg") # was height 4
+      ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.png"),conf.plotC,width=5,height=4, device="png") # was height 4
     }
   }
 }
@@ -1025,9 +1077,9 @@ p.musyc <- merge(p.df, musyc.scores, by=c("drugCombo","sample")) # 116 rows
 p.bliss <- merge(p.df, max.bliss.tested, by=c("drugCombo","sample")) # 111 rows
 
 # correlations: bliss
-pb.corr <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss) # r=0.1915699, p=0.03234
+pb.corr <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss) # r=0.1866132, p=0.02177
 pb.corr
-pb.corr.sp <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss, method="spearman") # r=0.2041993, p=0.02236
+pb.corr.sp <- cor.test(-log10(p.bliss$p),p.bliss$maxBliss, method="spearman") # r=0.2005121, p=0.01356
 pb.corr.sp
 ggplot(p.bliss,aes(x=-log10(p),y=maxBliss))+geom_point(aes(#shape=sample,
                                                            color=drugCombo))+ 
@@ -1165,3 +1217,37 @@ ggplot(mean.sens,aes(x=medianNES, y=N_drugTreatments)) +
   theme_classic() + labs(x="Median NES", y="# of DrugTreatments", 
                          title="Drug MOAs Predicted to be Toxic")
 ggsave("medianNegativeNES_DMEA_scatterPlot.pdf",width=4, height=4)
+
+#### single agent curves ####
+sing.conf <- read.table(file.path(dataPath,"mpnst_drug_response.tsv"), sep="\t", header=TRUE)
+sing.conf$X <- FALSE
+library(drc) # curve source: answer by greenjune: https://stackoverflow.com/questions/36780357/plotting-dose-response-curves-with-ggplot2-and-drc
+# Sara shared these 2 links: https://stackoverflow.com/questions/68209998/plot-drc-using-ggplot; https://forum.posit.co/t/extract-out-points-in-dose-response-curve-produced-by-drc/159433
+mean.sing <- plyr::ddply(sing.conf, .(DOSE, improve_sample_id, Drug, time), summarize,
+                         meanGROWTH=mean(GROWTH),
+                         sdGROWTH=sd(GROWTH))
+mean.sing$timeD <- paste0(mean.sing$time/24,"d")
+conf.plot <- ggplot(mean.sing, aes(x=DOSE, y=100*meanGROWTH, color=improve_sample_id)) +
+  facet_grid(timeD ~ Drug) +
+  geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
+  scale_x_continuous(transform="log10") + geom_point() + 
+  geom_errorbar(aes(ymin=100*(meanGROWTH-sdGROWTH), ymax=100*(meanGROWTH+sdGROWTH))) +
+  #ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols2) +
+  theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability", color="MPNST") +
+  theme(plot.title=element_text(hjust=0.5,face="bold"), axis.text.x=element_text(angle=45, hjust=1, vjust=1))
+conf.plot # something is off- looks like MN2 isn't relative viability, same for some MN4
+ggsave("relativeViability_singleAgents.pdf", conf.plot, width=18, height=3)
+
+top.sing <- mean.sing[mean.sing$Drug %in% c("TNO155","mirdametinib","vorinostat"),]
+top.sing$Drug <- factor(top.sing$Drug, levels=c("TNO155","mirdametinib","vorinostat"))
+conf.plot <- ggplot(top.sing, 
+                    aes(x=DOSE, y=100*meanGROWTH, color=improve_sample_id)) +
+  facet_grid(Drug ~ timeD) +
+  geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
+  scale_x_continuous(transform="log10") + geom_point() + 
+  geom_errorbar(aes(ymin=100*(meanGROWTH-sdGROWTH), ymax=100*(meanGROWTH+sdGROWTH))) +
+  #ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols2) +
+  theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability", color="MPNST") +
+  theme(plot.title=element_text(hjust=0.5,face="bold"), axis.text.x=element_text(angle=45, hjust=1, vjust=1))
+conf.plot # something is off- looks like MN2 isn't relative viability, same for some MN4
+ggsave("relativeViability_mirdametinibVorinostatTNO155.pdf", conf.plot, width=6, height=8)
