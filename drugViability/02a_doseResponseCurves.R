@@ -1219,7 +1219,7 @@ ggplot(mean.sens,aes(x=medianNES, y=N_drugTreatments)) +
 ggsave("medianNegativeNES_DMEA_scatterPlot.pdf",width=4, height=4)
 
 #### single agent curves ####
-sing.conf <- read.table(file.path(dataPath,"mpnst_drug_response.tsv"), sep="\t", header=TRUE)
+sing.conf <- read.table("mpnst_drug_response.tsv", sep="\t", header=TRUE)
 sing.conf$X <- FALSE
 library(drc) # curve source: answer by greenjune: https://stackoverflow.com/questions/36780357/plotting-dose-response-curves-with-ggplot2-and-drc
 # Sara shared these 2 links: https://stackoverflow.com/questions/68209998/plot-drc-using-ggplot; https://forum.posit.co/t/extract-out-points-in-dose-response-curve-produced-by-drc/159433
@@ -1227,27 +1227,29 @@ mean.sing <- plyr::ddply(sing.conf, .(DOSE, improve_sample_id, Drug, time), summ
                          meanGROWTH=mean(GROWTH),
                          sdGROWTH=sd(GROWTH))
 mean.sing$timeD <- paste0(mean.sing$time/24,"d")
-conf.plot <- ggplot(mean.sing, aes(x=DOSE, y=100*meanGROWTH, color=improve_sample_id)) +
+conf.plot <- ggplot(mean.sing, aes(x=DOSE, y=meanGROWTH, color=improve_sample_id)) +
   facet_grid(timeD ~ Drug) +
   geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
   scale_x_continuous(transform="log10") + geom_point() + 
-  geom_errorbar(aes(ymin=100*(meanGROWTH-sdGROWTH), ymax=100*(meanGROWTH+sdGROWTH))) +
+  geom_errorbar(aes(ymin=(meanGROWTH-sdGROWTH), ymax=(meanGROWTH+sdGROWTH))) +
   #ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols2) +
   theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability", color="MPNST") +
   theme(plot.title=element_text(hjust=0.5,face="bold"), axis.text.x=element_text(angle=45, hjust=1, vjust=1))
 conf.plot # something is off- looks like MN2 isn't relative viability, same for some MN4
 ggsave("relativeViability_singleAgents.pdf", conf.plot, width=18, height=3)
 
-top.sing <- mean.sing[mean.sing$Drug %in% c("TNO155","mirdametinib","vorinostat"),]
-top.sing$Drug <- factor(top.sing$Drug, levels=c("TNO155","mirdametinib","vorinostat"))
+top.sing <- mean.sing[mean.sing$Drug %in% c("vorinostat","mirdametinib","RMC4630"),]
+top.sing$Drug <- factor(top.sing$Drug, levels=c("vorinostat","mirdametinib","RMC4630"))
 conf.plot <- ggplot(top.sing, 
-                    aes(x=DOSE, y=100*meanGROWTH, color=improve_sample_id)) +
+                    aes(x=DOSE, y=meanGROWTH, color=improve_sample_id)) +
   facet_grid(Drug ~ timeD) +
   geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
   scale_x_continuous(transform="log10") + geom_point() + 
-  geom_errorbar(aes(ymin=100*(meanGROWTH-sdGROWTH), ymax=100*(meanGROWTH+sdGROWTH))) +
+  geom_errorbar(aes(ymin=(meanGROWTH-sdGROWTH), ymax=(meanGROWTH+sdGROWTH))) +
   #ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols2) +
   theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability", color="MPNST") +
   theme(plot.title=element_text(hjust=0.5,face="bold"), axis.text.x=element_text(angle=45, hjust=1, vjust=1))
 conf.plot # something is off- looks like MN2 isn't relative viability, same for some MN4
-ggsave("relativeViability_mirdametinibVorinostatTNO155.pdf", conf.plot, width=6, height=8)
+ggsave("relativeViability_top3Drugs.pdf", conf.plot, width=6, height=6)
+ggsave("relativeViability_top3Drugs_w4h4.pdf", conf.plot, width=4, height=4)
+ggsave("relativeViability_top3Drugs_w5h5.pdf", conf.plot, width=5, height=5)
