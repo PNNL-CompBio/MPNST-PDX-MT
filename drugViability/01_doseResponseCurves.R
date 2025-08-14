@@ -128,8 +128,8 @@ ggplot(bliss.musyc, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=drugComb
   labs(x="Mean MuSyC Potency", y="Max Bliss Synergy")
 ggsave("musyc_meanLogAlpha_vs_max_bliss_synergy_Faceted.pdf", width=12, height=7)
 
-cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss) # r = 0.018, p=0.8247
-cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss, method="spearman") # rho = 0.043, p = 0.5939
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss) # r = 0.011, p=0.89
+cor.test(bliss.musyc$meanLogAlpha, bliss.musyc$maxBliss, method="spearman") # rho = 0.039, p = 0.6151
 
 bliss.musyc.tested <- merge(max.bliss.tested, musyc.scores, by=c("drugCombo","sample","time"))
 ggplot(bliss.musyc.tested, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=drugCombo)) + #, size=R2)) +
@@ -144,8 +144,8 @@ ggplot(bliss.musyc.tested, aes(x=meanLogAlpha, y=maxBliss, shape=sample, color=d
   labs(x="Mean MuSyC Potency", y="Max Bliss Synergy")
 ggsave("musyc_meanLogAlpha_vs_max_bliss_synergy_tested_Faceted.pdf", width=12, height=7)
 
-cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss) # r=0.06, p=0.218
-cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss, method="spearman") # rho = 0.118, p=0.1475
+cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss) # r=0.066, p=0.3994
+cor.test(bliss.musyc.tested$meanLogAlpha, bliss.musyc.tested$maxBliss, method="spearman") # rho = 0.1481161, p=0.0561
 
 results <- merge(mean.conf, musyc.scores, by=c("sample","time","drug1","drug2"), all.x=TRUE)
 results <- merge(results, max.bliss.tested, by=c("sample","time","drugCombo"), all.x=TRUE)
@@ -173,8 +173,6 @@ cols <- colorspace::darken(cols1, 0.3)
 scales::show_col(cols)
 
 ##### ratio centric #####
-dir.create(paste0("curves_",Sys.Date()))
-setwd(paste0("curves_",Sys.Date()))
 #results$combo.conc <- NULL
 results$conc12.ratio <- signif(as.numeric(results$drug1.conc/results$drug2.conc),3)
 results$drugCombo <- paste0(results$drug1,"+",results$drug2)
