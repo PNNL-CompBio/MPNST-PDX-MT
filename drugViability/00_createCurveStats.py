@@ -11,8 +11,10 @@ from datetime import date
 syn = sc.login()
 ##this is a pain, need to move to file
 
-comboFilelist = syn.tableQuery("select entityId,individualID,specimenID from syn65473033 where dataType='drug screen' AND dataSubtype='processed' AND assay='cell viability assay'").asDataFrame()
+#comboFilelist = syn.tableQuery("select entityId,individualID,specimenID from syn65473033 where dataType='drug screen' AND dataSubtype='processed' AND assay='cell viability assay'").asDataFrame()
 # raw files are mistakenly marked as 'processed' so check 'dataSubtype' within file
+comboFiles = pd.read_csv(syn.get("syn66330284").path) # previous: syn66330284 but points to combo
+comboFiles = comboFiles[comboFiles['dataSubtype']=="processed"]
 
 singleFiles = pd.read_csv(syn.get("syn65473034").path) # previous: syn66330284 but points to combo
 singleFiles = singleFiles[singleFiles['dataSubtype']=="processed"]
@@ -70,6 +72,7 @@ for index,row in singleFiles.iterrows():
               #print(len(singledose))
 
 ####first fit multidose curves...
+#os.chdir("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability/")
 if len(multidose) > 0:
     print("compiling multi: ", len(multidose))
     fulltab = pd.concat(multidose)
@@ -91,12 +94,13 @@ if len(multidose) > 0:
     fulltab.to_csv('mpnst_drug_response.tsv',sep='\t')
     
     ##fit curve
-    if not os.path.exists("fit_curve.py"):
-        script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/build/utils/fit_curve.py'
-        subprocess.run(['wget',script])
+    #if not os.path.exists("fit_curve.py"):
+    script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/build/utils/fit_curve.py'
+    subprocess.run(['wget',script])
     #subprocess.run(['python3','-m','pip','install','matplotlib']) # due to matplotlib error
     subprocess.run(['python3','fit_curve.py','--input','mpnst_drug_response.tsv','--output','mpnstDrugOutput'])
     #runpy.run_path("fit_curve.py") # replaces subprocess call
+    #os.getcwd()
     otab = pd.read_csv('mpnstDrugOutput.0',sep='\t')
 else:
     otab = pd.DataFrame()
