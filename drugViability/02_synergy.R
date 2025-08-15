@@ -3,7 +3,8 @@
 setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
 dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
 
-rel.conf <- read.csv("mpnst_combo_drug_response.csv")
+#rel.conf <- read.csv("mpnst_combo_drug_response.csv")
+rel.conf <- read.csv(synapser::synGet("syn68156852")$path)
 musyc.scores <- read.csv("musyc_20250812.csv")
 
 # try looking at Bliss scores
@@ -18,8 +19,8 @@ for (i in 1:length(blissFiles)){
 bliss$drugCombo <- paste0(bliss$drug1, "+", bliss$drug2)
 bliss$sample <- bliss$PDX
 bliss$time <- bliss$timePoint..hr./24
-write.csv(bliss, "bliss_results.csv", row.names=FALSE)
-bliss <- read.csv("bliss_results.csv")
+write.csv(bliss, "bliss.csv", row.names=FALSE)
+bliss <- read.csv("bliss.csv")
 
 # calculate mean and sd for each drug & dose combo, mpnst, time combo; also preserve sample and chr8q columns
 mean.conf <- plyr::ddply(rel.conf, .(sample, drug1, drug1.conc, drug2, drug2.conc), summarize,
@@ -58,7 +59,8 @@ for (i in 1:length(drugs)) {
   }
 }
 write.csv(musyc.scores, "Deconvolved_musyc_20250812.csv", row.names=FALSE) # duplicated and changed name to musyc.csv for synapse
-musyc.scores <- read.csv("Deconvolved_musyc_20250812.csv")
+#musyc.scores <- read.csv("Deconvolved_musyc_20250812.csv")
+musyc.scores <- read.csv(synapser::synGet("syn68736713")$path)
 
 # make scatter plot of a12 vs a21
 dir.create(paste0("curves_",Sys.Date()))

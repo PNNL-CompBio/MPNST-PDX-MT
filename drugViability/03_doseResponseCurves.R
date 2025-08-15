@@ -10,7 +10,8 @@ dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/
 #### prep data ####
 rel.conf <- read.csv("mpnst_combo_drug_response.csv") # relative viability
 musyc.scores <- read.csv("Deconvolved_musyc_20250812.csv") # musyc synergy
-bliss <- read.csv("bliss_results.csv") # bliss synergy
+#bliss <- read.csv("bliss.csv") # bliss synergy
+bliss <- read.csv(synapser::synGet("syn68900210")$path)
 
 # calculate mean and sd for each drug & dose combo, mpnst, time combo; also preserve sample and chr8q columns
 mean.conf <- plyr::ddply(rel.conf, .(sample, drug1, drug1.conc, drug2, drug2.conc), summarize,
@@ -42,6 +43,7 @@ bliss.musyc.tested <- merge(max.bliss.tested, musyc.scores, by=c("drugCombo","sa
 results <- merge(mean.conf, musyc.scores, by=c("sample","time","drug1","drug2"), all.x=TRUE)
 results <- merge(results, max.bliss.tested, by=c("sample","time","drugCombo"), all.x=TRUE)
 write.csv(results,"results_viabilityBlissMusyc.csv", row.names=FALSE)
+synapser::synStore(synapser::File("results_viabilityBlissMusyc.csv", parent="syn68258288"))
 results$timeD <- paste0(results$time,"d")
 
 ##### dose response curves #####

@@ -3,7 +3,8 @@
 setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
 dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
 
-results <- read.csv("results_viabilityBlissMusyc.csv")
+#results <- read.csv("results_viabilityBlissMusyc.csv")
+results <- read.csv(synapser::synGet("syn68900322")$path)
 drugs <- unique(c(results$drug1, results$drug2))
 
 #### compare musyc alpha to DMEA ####
@@ -46,6 +47,8 @@ drug.corr.res <- merge(shared.corr, results, by=c("drugCombo","sample")) # no ti
 # note: only mirdametinib+doxorubicin is significantly correlated in MN-2 (Pearson.q<0.05) which has Pearson.est=0.1915
 drug.corr.res <- na.omit(drug.corr.res)
 write.csv(drug.corr.res, "drug_dmea_vs_synergy.csv", row.names = FALSE)
+synapser::synStore(synapser::synFile("drug_dmea_vs_synergy.csv", parent="syn68258288"))
+
 # create colors using color in-between drug colors
 drug.corr.res$color <- NA
 for (i in shared.combos) {
@@ -310,6 +313,7 @@ shared.moa.res <- merge(shared.moa.df2, results3, by=c("sample","moaCombo"))
 shared.moa.res$moaComboShort <- gsub(" inhibitor","i",shared.moa.res$moaCombo)
 shared.moa.res <- dplyr::distinct(shared.moa.res) # 40 rows
 write.csv(shared.moa.res, "moa_dmea_vs_synergy.csv", row.names = FALSE)
+synapser::synStore(synapser::synFile("moa_dmea_vs_synergy.csv", parent="syn68258288"))
 
 syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", "Mean MuSyC Potency Score" = "meanLogAlpha")
 for (i in names(syn.scores)) {
