@@ -37,5 +37,5 @@ MPNST-PDX-MT-RNAseq_data
 
 ### Evidence for MEK inhibitor combos
 05_MEKi_combos.Rmd
-- Pulls: differential expression (syn64397743); transcription factor activity (syn64693461); GSEA (syn68702141); DMEA (syn65672258)
+- Pulls: PDX mirdametinib + vorinostat tumor size (syn68900596); differential expression (syn64397743); transcription factor activity (syn64693461); GSEA (syn68702141); DMEA (syn65672258)
 
