@@ -349,7 +349,8 @@ DMEAdotPlots(dot.df,
                        names(doi[doi=="SHP2 inhibitor"])))
 
 #### PDX data: MEKi+HDACi ####
-tumor.size <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/Wu225 Mirda + Vorinostat.csv")
+#tumor.size <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/Wu225 Mirda + Vorinostat.csv")
+tumor.size <- read.csv(synapser::synGet("syn68900596")$path)
 
 # get colors for mirda and vorinostat
 library(RColorBrewer); library(scales)
