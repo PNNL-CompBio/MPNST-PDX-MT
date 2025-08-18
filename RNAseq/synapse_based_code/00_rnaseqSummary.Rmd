@@ -29,6 +29,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(synapser)
 library(dplyr); library(tidyr); library(stringr); library(RColorBrewer)
+library(readr);library(readxl)
 synLogin()
 ```
 
@@ -59,6 +60,16 @@ rnaSeqTab<-getRNASeq<-function(){
    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
    distinct()
  batch3metadata$specimenID <- sub("-", "_", batch3metadata$specimenID)
+ batch4metadata<-readxl::read_excel(synGet('syn68080392')$path)|>
+   dplyr::select(`Label on Cap`,Drug,Timepoint,`Individual ID`)|>
+   distinct()
+ batch4metadata$individualID <- batch4metadata$`Individual ID`
+ batch4metadata$Timepoint <- sub("HR","h",batch4metadata$Timepoint)
+ batch4metadata$Timepoint <- sub(" h","h",batch4metadata$Timepoint)
+ colnames(batch4metadata)[1] <- "specimenID"
+ batch4metadata$name <- paste0(batch4metadata$specimenID,"_quant.genes.sf")
+ batch4metadata$Date <- "B4"
+ batch4metadata$Full_name <- batch4metadata$Drug
  
  ##METDATA - replace with annotations 
  mn2_b1<-manifest|>#subset(name%in%mnt)|>
@@ -76,9 +87,16 @@ rnaSeqTab<-getRNASeq<-function(){
  jh2002_b3$specimenID <- sub(".quant.genes.sf","",jh2002_b3$name) # filenames used to end in _quant.genes.sf before April 2, 2025
  jh2002_b3 <- merge(jh2002_b3, batch3metadata, by="specimenID", all=TRUE) |> 
    dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
+ 
+ wu225_b4 <- manifest|>
+   dplyr::filter(stringr::str_starts(name, "B4-"))
+ wu225_b4$individualID <- "WU-225"
+ wu225_b4$specimenID <- sub("_quant.genes.sf","",wu225_b4$name)
+ wu225_b4 <- merge(wu225_b4, as.data.frame(batch4metadata), by=c("name","specimenID","individualID"), all=TRUE) |> 
+   dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
    
  
- allmeta<-rbind(mn2_b1,mn2_b2,jh2002_b3)
+ allmeta<-rbind(mn2_b1,mn2_b2,jh2002_b3,wu225_b4)
  if (any(is.na(allmeta$id))) {
    warning("missing synIDs for ", paste(allmeta[is.na(allmeta$id),]$specimenID, collapse=" ")) 
    allmeta <- allmeta[!is.na(allmeta$id),]
@@ -95,7 +113,13 @@ rnaSeqTab<-getRNASeq<-function(){
                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociclib',
                   TNO='TNO155',VIR='Vorinostat',VOR='Vorinostat',
                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',
-                  TRAM='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
+                  TRAM='Trametinib',TRAB='Trabectedin',DOX='Doxorubicin',
+                  untreated='DMSO',Mirdametinib='Mirdametinib',Capmetinib='Capmatinib',
+                  Decitabine='Decitabine',Irinotecan='Irinotecan', Ifosfamide='Ifosfamide',
+                  Olaparib='Olaparib',Palbociclib='Palbociclib',Ribociclib='Ribociclib',
+                  TNO155='TNO155',Vorinostat='Vorinostat',
+                  `RMC-4630`='RMC4630',Selumetinib='Selumetinib',Trametinib='Trametinib',
+                  Trametinib='Trametinib',Trabectedin='Trabectidin',Doxorubicin='Doxorubicin')
    
    mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(drugnames[[x]])))
    
@@ -199,8 +223,8 @@ Open questions:
 
 ```{r plots and normaliztion}
 library(ggplot2)
-rnaseqdata <- read.csv(synapser::synGet("syn64398049")$path)
-rnaseqgenes <- read.csv(synapser::synGet("syn64398051")$path)
+#rnaseqdata <- read.csv(synapser::synGet("syn64398049")$path)
+#rnaseqgenes <- read.csv(synapser::synGet("syn64398051")$path)
 zeroes<-rnaseqdata|>
   subset(TPM==0)|>
   group_by(Name)|>
