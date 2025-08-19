@@ -5,7 +5,7 @@ date: "2024-12-13"
 output: html_document
 ---
 
-Here we take the differential expression and use it to infer transcrition factors
+Here we take the differential expression and use it to infer transcription factors
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -116,7 +116,8 @@ ddesign<-design|>
   tibble::column_to_rownames('id')|>
   mutate(Timepoint=as.factor(Timepoint))
 
-pheatmap(tf_mat,annotation_row = ddesign,labels_row=c())
+#pheatmap(tf_mat,annotation_row = ddesign,labels_row=c())
+# Error in hclust(d, method = method) : must have n >= 2 objects to cluster
 
 
 sample_acts|>
@@ -145,12 +146,14 @@ allcontrast<-do.call(rbind,lapply(unique(diffex$individualID),function(ind){
       dtab<-subset(diffex,Timepoint==ti)|>
         subset(!is.na(stat))|>
         subset(Drug==d)|>
-        subset(individualID==ind)|>
-        dplyr::select(ensembl_gene_id,Drug,Timepoint,individualID,stat)|>
+        subset(individualID==ind)
+      if (nrow(dtab) > 0) {
+       dtab <- dtab |> dplyr::select(ensembl_gene_id,Drug,Timepoint,individualID,stat)|>
         group_by(ensembl_gene_id,Drug,Timepoint,individualID)|>
         summarize(stat=mean(stat,na.rm=TRUE))|>
         tibble::column_to_rownames('ensembl_gene_id')
-      dtab <- na.omit(dtab)
+      dtab <- na.omit(dtab) 
+      }
       if (nrow(dtab)>0) {
        contrast_acts <- decoupleR::run_ulm(mat = dtab[, 'stat', drop = FALSE],
                                     net = enet,
@@ -231,6 +234,7 @@ allcontrast <- read.csv(synapser::synGet("syn64420968")$path)
 if (any(allcontrast$Drug == "Trabectidin")) {
   allcontrast[allcontrast$Drug == "Trabectidin",]$Drug <- "Trabectedin"
 }
+allcontrast <- allcontrast[allcontrast$Drug != "Irinotecan",] # since irinotecan isn't metabolically active
 allcontrast$Drug <- factor(allcontrast$Drug, levels=names(drug.info))
 timepoints <- c("8h", "24h")
 allcontrast$Timepoint <- factor(allcontrast$Timepoint, levels=timepoints)
@@ -333,7 +337,7 @@ tf.path <- file.path(getwd(),"TF")
 setwd(tf.path)
 
 #moa.info2 <- dplyr::distinct(ntfs[,c("Drug","moa")])
-moa.info2 <- as.data.frame(t(as.data.frame(drug.info)))
+moa.info2 <- as.data.frame(t(as.data.frame(drug.info[names(drug.info) %in% unique(allcontrast$Drug)])))
 colnames(moa.info2) <- "moa"
 moa.info2$Drug <- rownames(moa.info2)
 moaPal <- scales::hue_pal()(length(unique(moa.info2$moa)))
@@ -346,10 +350,11 @@ names(moaPal) <- unique(moa.info2$moa)
 ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
 
 n.top.list <- c(1, 2, 3, 5)
+tested.drugs <- all.drugs[all.drugs %in% allcontrast$Drug]
 for (n.top in n.top.list) {
   ### pathway
   topSigpathway <- data.frame()
-  for (i in all.drugs) {
+  for (i in tested.drugs) {
     tempSig <- allcontrast[allcontrast$Drug == i &
                               allcontrast$signif,] %>% slice_max(abs(score), n=n.top)
     topSigpathway <- rbind(topSigpathway, tempSig)
@@ -374,7 +379,7 @@ for (n.top in n.top.list) {
   ) +
     ggplot2::geom_point() +
     ggplot2::scale_y_discrete(limits = setOrder) +
-    ggplot2::scale_x_discrete(limits=all.drugs) +
+    ggplot2::scale_x_discrete(limits=tested.drugs) +
     scale_color_gradient2(low="blue",high="red", mid="grey", 
                           limits=c(-maxAbsscore, maxAbsscore)) +
     #viridis::scale_color_viridis() +
@@ -483,6 +488,7 @@ library(PCSF)
 data("STRINGv12")
 dir.create("TF_networks")
 setwd("TF_networks")
+tf <- allcontrast
 for (m in mpnst) {
   for (t in timepoints) {
     for (d in tested.drugs) {

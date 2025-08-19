@@ -37,6 +37,8 @@ if (any(diffexp$Drug=="Ribociblib")) {
 if (any(diffexp$Drug=="Trabectidin")) {
   diffexp[diffexp$Drug=="Trabectidin",]$Drug <- "Trabectedin"
 }
+diffexp <- diffexp[diffexp$Drug != "Irinotecan",] # since irinotecan isn't metabolically active
+
 
 # get gene sets: Hallmark (H)
 gmt.Hallmark <- as.data.frame(msigdbr::msigdbr(collection = "H"))
@@ -122,7 +124,8 @@ if (any(gsea.df$DrugTreatment == "Trabectidin")) {
 gsea.df$DrugTreatment <- factor(gsea.df$DrugTreatment, levels=names(drug.info))
 gsea.df$Time <- factor(gsea.df$Time, levels=timepoints)
 all.drugs <- levels(gsea.df$DrugTreatment)
-all.pathways <- sort(unique(unlist(drug.info)))
+all.drugs <- all.drugs[all.drugs %in% gsea.df$DrugTreatment]
+all.pathways <- sort(unique(unlist(drug.info[names(drug.info) %in% gsea.df$DrugTreatment])))
 drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
 names(drugCol) <- all.drugs
 

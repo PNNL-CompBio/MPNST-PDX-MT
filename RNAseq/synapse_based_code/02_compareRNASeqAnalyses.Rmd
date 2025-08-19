@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(plyr);library(dplyr);library(tidyverse); library(synapser); library(pheatmap)
+library(plyr);library(dplyr);library(tidyverse); library(synapser); library(pheatmap); library(RColorBrewer)
 drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
                   "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
@@ -48,6 +48,7 @@ diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
 if (any(diffex_genes$Drug=="Trabectidin")) {
   diffex_genes[diffex_genes$Drug=="Trabectidin",]$Drug <- "Trabectedin"
 }
+diffex_genes <- diffex_genes[diffex_genes$Drug != "Irinotecan",] # since irinotecan isn't metabolically active
 
 ##now we have three different ways of comparing the drugs
 genemat<-diffex_genes|>
@@ -70,10 +71,33 @@ annot <- merge(annot, drug.info, by="Drug", all.x=TRUE)
 rownames(annot) <- paste0(annot$MPNST, "_", annot$Timepoint, "_", annot$Drug)
 annot <- annot[rownames(genecor),c('MPNST','Timepoint','Drug','MOA')]
 annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
+annot$MPNST <- factor(annot$MPNST, levels=unique(annot$MPNST))
+annot$MOA <- factor(annot$MOA, levels=unique(annot$MOA))
+annot$Drug <- factor(annot$Drug, levels=unique(annot$Drug))
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor")
+names(cols) <- names(drug.info)
+cols <- cols[levels(annot$Drug)]
+moa.cols <- RColorBrewer::brewer.pal(length(unique(annot$MOA)),"Set3")
+names(moa.cols) <- levels(annot$MOA)
+mpnst.cols <- scales::hue_pal()(length(unique(annot$MPNST)))
+names(mpnst.cols) <- levels(annot$MPNST)
+annot.colors = list(MOA = moa.cols,
+                    Drug = cols,
+                    Timepoint = c("8h" = "#FFFFFF", "24h" = "#000000"),
+                    MPNST = mpnst.cols)
 
 graphics.off()
 pdf("geneCorr.pdf",width=6,height=4.5)
 pheatmap(genecor, annotation_row=annot, annotation_col=annot,
+         annotation_colors=annot.colors,
          show_colnames=FALSE, show_rownames=FALSE)
 dev.off()
 
@@ -87,19 +111,19 @@ genemat<-diffex_genes[diffex_genes$padj < 0.05,]|>
 
 genecor<-cor(genemat,use='pairwise.complete.obs')
 write.csv(genecor,"degCorr.csv")
-annot <- as.data.frame(rownames(genecor)) |> 
-  tidyr::separate('rownames(genecor)',into=c('MPNST','Timepoint','Drug'),sep='_')
-if (any(annot$Drug == "Ribociblib")) {
- annot[annot$Drug == "Ribociblib",]$Drug <- "Ribociclib" 
-}
-annot <- merge(annot, drug.info, by="Drug", all.x=TRUE)
-rownames(annot) <- paste0(annot$MPNST, "_", annot$Timepoint, "_", annot$Drug)
-annot <- annot[rownames(genecor),c('MPNST','Timepoint','Drug','MOA')]
-annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
+# annot <- as.data.frame(rownames(genecor)) |> 
+#   tidyr::separate('rownames(genecor)',into=c('MPNST','Timepoint','Drug'),sep='_')
+# if (any(annot$Drug == "Ribociblib")) {
+#  annot[annot$Drug == "Ribociblib",]$Drug <- "Ribociclib" 
+# }
+# annot <- merge(annot, drug.info, by="Drug", all.x=TRUE)
+# rownames(annot) <- paste0(annot$MPNST, "_", annot$Timepoint, "_", annot$Drug)
+# annot <- annot[rownames(genecor),c('MPNST','Timepoint','Drug','MOA')]
+# annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
 
 graphics.off()
 pdf("degCorr.pdf",width=6,height=4.5)
-pheatmap(genecor, annotation_row=annot, annotation_col=annot,
+pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
          show_colnames=FALSE, show_rownames=FALSE)
 dev.off()
 
@@ -301,7 +325,7 @@ Nbar <- ggplot2::ggplot(na.omit(diffex_genes[diffex_genes$signif,]), aes(x=Drug,
   scale_x_discrete(limits=drugOrder) + theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1),
                                              axis.title.x=element_blank()) + 
   ylab("# of Differentially\nExpressed Genes")
-ggsave("nSigDEGs.pdf", Nbar, width=7, height=2)
+ggsave("nSigDEGs.pdf", Nbar, width=10, height=2)
 
 Ndegs <- plyr::ddply(na.omit(diffex_genes[diffex_genes$signif,]), .(individualID, Timepoint, Drug),summarize,
                      n=length(unique(hgnc_symbol)))
@@ -313,7 +337,7 @@ Nbar <- ggplot2::ggplot(Ndegs, aes(x=Drug, y=n, fill=Timepoint)) +
   theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1),
         axis.title.x=element_blank()) + 
   ylab("# of Differentially\nExpressed Genes")
-ggsave("nSigDEGs_log10.pdf", Nbar, width=7, height=2)
+ggsave("nSigDEGs_log10.pdf", Nbar, width=10, height=2)
 write.csv(Ndegs, "nSigDEGs.csv", row.names=FALSE)
 
 # does JH-2-002 have earlier response than MN-2?
@@ -572,18 +596,18 @@ plotU<-function(umapres){
 geneu<-umap(t(genemat))
 
 
-tfu<-umap(t(tfmat))
-tfpu<-umap(t(tfpmat))
+#tfu<-umap(t(tfmat))
+#tfpu<-umap(t(tfpmat))
 
 ug<-plotU(geneu)
-ut<-plotU(tfu)
-up<-plotU(tfpu)
+#ut<-plotU(tfu)
+#up<-plotU(tfpu)
 
 
 #cowplot::plot_grid(ug,ut,up,nrow=2)
 ug+ggtitle("Gene based UMAP")
-ut+ggtitle("TF based UMAP")
-up+ggtitle("Priori TF based UMAP")
+#ut+ggtitle("TF based UMAP")
+#up+ggtitle("Priori TF based UMAP")
 
 ```
 

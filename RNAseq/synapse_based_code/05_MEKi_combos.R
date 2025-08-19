@@ -93,7 +93,7 @@ keepCols2 <- c("Drug_set", "DrugTreatment","NES","minusLogFDR","sig","Ranking","
 tf <- read.csv(synapser::synGet("syn64420968")$path)
 tf$feature <- tf$source
 tf$minusLogFDR <- -log10(tf$padj)
-tf[tf$Drug=="Trabectidin",]$Drug <- "Trabectedin"
+#tf[tf$Drug=="Trabectidin",]$Drug <- "Trabectedin"
 
 maxAbsNESVals <- list("Differential Expression" = max(abs(diffexp$log2FoldChange), na.rm=TRUE),
                       "Gene Set Enrichment" = max(abs(gsea$NES), na.rm=TRUE),
@@ -113,8 +113,10 @@ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
                   "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
-                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
-doi <- drug.info[grepl("MEK", drug.info) | grepl("CDK", drug.info) | grepl("HDAC", drug.info) | grepl("SHP2", drug.info)]
+                  #"Irinotecan" = "TOP inhibitor", 
+                  "Verteporfin" = "YAP inhibitor")
+doi <- drug.info[grepl("MEK", drug.info) | grepl("CDK", drug.info) |
+                   grepl("TOP", drug.info)| grepl("HDAC", drug.info) | grepl("SHP2", drug.info)]
 # also have version matching PRISM drug moa sets
 drug.info2 <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
                   "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
@@ -123,8 +125,11 @@ drug.info2 <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibito
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
                   "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "Topoisomerase inhibitor",
-                  "Irinotecan" = "Topoisomerase inhibitor", "Verteporfin" = "YAP inhibitor")
-doi2 <- drug.info[grepl("MEK", drug.info) | grepl("CDK", drug.info) | grepl("HDAC", drug.info) | grepl("SHP2", drug.info)]
+                  #"Irinotecan" = "Topoisomerase inhibitor", 
+                  "Verteporfin" = "YAP inhibitor")
+doi2 <- drug.info2[grepl("MEK", drug.info2) | grepl("CDK", drug.info2) |
+                    grepl("Topoisomerase", drug.info2) |
+                    grepl("HDAC", drug.info2) | grepl("SHP2", drug.info2)]
 
 all(tested.drugs %in% names(drug.info)) # TRUE
 
@@ -186,24 +191,25 @@ write.csv(max.effect, "maximumEffect.csv", row.names=FALSE)
 target.diffexp <- read.csv("target_diffexp.csv")
 max.effect <- read.csv("maximumEffect.csv")
 
-#### overlapping results across MEK, CDK, HDAC, SHP2 ####
+#### overlapping results across MEK, CDK, HDAC, TOP, SHP2 ####
 # DMEA
-dot.df <- sens[sens$DrugTreatment %in% names(doi2) & sens$Drug_set %in% doi2,]
+dot.df <- na.omit(sens[sens$DrugTreatment %in% names(doi2) & sens$Drug_set %in% doi2,])
 dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
 maxAbsNES <- max(abs(dot.df$NES)) # 4.52
 maxLogFDR <- max(dot.df$minusLogFDR) # 4
 DMEAdotPlots(dot.df, 
-             fname = paste0("MEK-HDAC-CDK-SHP2","_DMEA_dotPlot"), 
+             fname = paste0("MEK-HDAC-TOP-CDK-SHP2","_DMEA_dotPlot"), 
              maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR, 
              x.order=c(names(doi[doi=="MEK inhibitor"]), 
                        names(doi[doi=="HDAC inhibitor"]),
+                       names(doi[doi=="TOP inhibitor"]),
                        names(doi[doi=="CDK inhibitor"]),
                        names(doi[doi=="SHP2 inhibitor"])))
 
 # diffexp
-dot.df <- diffexp[diffexp$Drug %in% names(doi2) & diffexp$signif,]
+dot.df <- na.omit(diffexp[diffexp$Drug %in% names(doi2) & diffexp$signif,])
 dot.df$moa <- ""
-moi <- paste(c("MEK","HDAC","CDK","SHP2"),"inhibitor")
+moi <- paste(c("MEK","HDAC","TOP","CDK","SHP2"),"inhibitor")
 for (i in moi) {
   dot.df[dot.df$Drug %in% names(doi[doi==i]),]$moa <- i
 }
@@ -236,10 +242,11 @@ dot.df$NES <- dot.df$log2FoldChange
 maxAbsNES <- ceiling(max(abs(na.omit(dot.df$NES)))) # 8
 maxAbsP <- ceiling(max(na.omit(dot.df$minusLogFDR))) # 209
 DMEAdotPlots(dot.df, 
-             fname = paste0("MEK-HDAC-CDK-SHP2","_diffexpMin4SigMOAs_dotPlot"), 
+             fname = paste0("MEK-HDAC-TOP-CDK-SHP2","_diffexpMin4SigMOAs_dotPlot"), 
              maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP, 
              x.order=c(names(doi[doi=="MEK inhibitor"]), 
                        names(doi[doi=="HDAC inhibitor"]),
+                       names(doi[doi=="TOP inhibitor"]),
                        names(doi[doi=="CDK inhibitor"]),
                        names(doi[doi=="SHP2 inhibitor"])),
              colorLab="Log2FC")
@@ -257,10 +264,11 @@ dot.df$NES <- dot.df$log2FoldChange
 maxAbsNES <- ceiling(max(abs(na.omit(dot.df$NES)))) # 16
 maxAbsP <- ceiling(max(na.omit(dot.df$minusLogFDR))) # 22
 DMEAdotPlots(dot.df, 
-             fname = paste0("MEK-HDAC-CDK-SHP2","_targetDiffexp_dotPlot"), 
+             fname = paste0("MEK-HDAC-TOP-CDK-SHP2","_targetDiffexp_dotPlot"), 
              maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP, 
              x.order=c(names(doi[doi=="MEK inhibitor"]), 
                        names(doi[doi=="HDAC inhibitor"]),
+                       names(doi[doi=="TOP inhibitor"]),
                        names(doi[doi=="CDK inhibitor"]),
                        names(doi[doi=="SHP2 inhibitor"])),
              colorLab="Log2FC")
@@ -268,7 +276,7 @@ DMEAdotPlots(dot.df,
 # TF
 dot.df <- tf[tf$Drug %in% names(doi2) & tf$signif,]
 dot.df$moa <- ""
-moi <- paste(c("MEK","HDAC","CDK","SHP2"),"inhibitor")
+moi <- paste(c("MEK","HDAC","TOP","CDK","SHP2"),"inhibitor")
 for (i in moi) {
   dot.df[dot.df$Drug %in% names(doi[doi==i]),]$moa <- i
 }
@@ -305,6 +313,7 @@ DMEAdotPlots(dot.df,
              maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP, 
              x.order=c(names(doi[doi=="MEK inhibitor"]), 
                        names(doi[doi=="HDAC inhibitor"]),
+                       names(doi[doi=="TOP inhibitor"]),
                        names(doi[doi=="CDK inhibitor"]),
                        names(doi[doi=="SHP2 inhibitor"])),
              colorLab="Score")
@@ -312,12 +321,12 @@ DMEAdotPlots(dot.df,
 # GSEA
 dot.df <- gsea[gsea$DrugTreatment %in% names(doi2) & gsea$sig,]
 dot.df$moa <- ""
-moi <- paste(c("MEK","HDAC","CDK","SHP2"),"inhibitor")
+moi <- paste(c("MEK","HDAC","TOP","CDK","SHP2"),"inhibitor")
 for (i in moi) {
   dot.df[dot.df$DrugTreatment %in% names(doi[doi==i]),]$moa <- i
 }
-rep.genes <- na.omit(unique(dot.df$Gene_set[duplicated(dot.df$Gene_set)])) # 38
-mean.dot.df <- plyr::ddply(dot.df, .(Gene_set, Time, MPNST), summarize,
+rep.genes <- na.omit(unique(dot.df$feature[duplicated(dot.df$feature)])) # 38
+mean.dot.df <- plyr::ddply(dot.df, .(feature, Time, MPNST), summarize,
                            N_moa_up = length(na.omit(unique(moa[NES>0]))),
                            moas_up = paste0(na.omit(unique(moa[NES>0])), collapse=", "),
                            N_moa_dn = length(na.omit(unique(moa[NES<0]))),
@@ -327,24 +336,25 @@ mean.dot.df <- plyr::ddply(dot.df, .(Gene_set, Time, MPNST), summarize,
                            all_up = all(NES > 0),
                            all_dn = all(NES < 0))
 mean.dot.df$all_same <- mean.dot.df$all_dn | mean.dot.df$all_up
-rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1,]$Gene_set)) # 28
-rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1 & mean.dot.df$all_same,]$Gene_set)) # 23
-rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$Gene_set)) # 11
-rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2 & mean.dot.df$all_same,]$Gene_set)) # 9
-rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3,]$Gene_set)) # 2
-rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3 & mean.dot.df$all_same,]$Gene_set)) # 0
-rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$Gene_set)) # 11
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1,]$feature)) # 28
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>1 & mean.dot.df$all_same,]$feature)) # 23
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$feature)) # 11
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2 & mean.dot.df$all_same,]$feature)) # 9
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3,]$feature)) # 2
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>3 & mean.dot.df$all_same,]$feature)) # 0
+rep.genes <- na.omit(unique(mean.dot.df[mean.dot.df$N_moa>2,]$feature)) # 11
 
-dot.df <- gsea[gsea$DrugTreatment %in% names(doi2) & gsea$Gene_set %in% rep.genes,]
-dot.df$Drug_set <- dot.df$Gene_set
+dot.df <- gsea[gsea$DrugTreatment %in% names(doi2) & gsea$feature %in% rep.genes,]
+dot.df$Drug_set <- dot.df$feature
 dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
 maxAbsNES <- max(abs(dot.df$NES)) # 4.52; 8
 maxLogFDR <- max(dot.df$minusLogFDR) # 4; 4
 DMEAdotPlots(dot.df, 
-             fname = paste0("MEK-HDAC-CDK-SHP2","_GSEAmin3SigMOAs_dotPlot"), 
+             fname = paste0("MEK-HDAC-TOP-CDK-SHP2","_GSEAmin3SigMOAs_dotPlot"), 
              maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR, 
              x.order=c(names(doi[doi=="MEK inhibitor"]), 
                        names(doi[doi=="HDAC inhibitor"]),
+                       names(doi[doi=="TOP inhibitor"]),
                        names(doi[doi=="CDK inhibitor"]),
                        names(doi[doi=="SHP2 inhibitor"])))
 
@@ -402,19 +412,20 @@ mirda.mean <- plyr::ddply(mirda.sens, .(Drug_set), summarize,
                           sdNES=sd(NES),
                           N=dplyr::n(),
                           N_MPNST = length(unique(MPNST)),
-                          MPNST = paste0(sort(unique(MPNST)), collapse=" & "))
+                          MPNST = paste0(sort(unique(MPNST)), collapse=", "))
 mirda.mean$Tested <- "plain"
 mirda.mean[mirda.mean$Drug_set %in% drug.info2,]$Tested <- "bold"
 ggplot(mirda.mean, aes(y=reorder(Drug_set, -meanNES), x=meanNES, fill=MPNST)) + 
   geom_bar(stat="identity") + theme_classic() + scale_y_discrete(position="right") +
   theme(axis.title.y=element_blank(), legend.position="bottom") + labs(x="Mean NES") +
-  scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
+  scale_fill_manual(values=RColorBrewer::brewer.pal(length(unique(mirda.mean$MPNST)),"Dark2"), breaks=unique(mirda.mean$MPNST))
+  #scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
 ggsave("Mirda_DMEA_predictions.pdf", width=5, height=5)
 
 ggplot(mirda.mean, aes(x=reorder(Drug_set, meanNES), y=meanNES, fill=MPNST)) + 
   geom_bar(stat="identity") + theme_classic() + 
   theme(axis.title.x=element_blank(), legend.position="top", axis.text.x=element_text(angle=45, vjust=1, hjust=1)) + labs(y="Mean NES") +
-  scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
+  scale_fill_manual(values=RColorBrewer::brewer.pal(length(unique(mirda.mean$MPNST)),"Dark2"), breaks=unique(mirda.mean$MPNST))
 ggsave("Mirda_DMEA_predictions_horizontal.pdf", width=5, height=5)
 
 mirda.mean[mirda.mean$Drug_set == "protein tyrosine kinase inhibitor",]$Drug_set <- "Protein TKI"
@@ -430,13 +441,13 @@ mirda.mean[grepl("inhibitor", mirda.mean$Drug_set),]$Drug_set <- sub(" inhibitor
 ggplot(mirda.mean, aes(x=reorder(Drug_set, meanNES), y=meanNES, fill=MPNST)) + 
   geom_bar(stat="identity") + theme_classic() + 
   theme(axis.title.x=element_blank(), legend.position="top", axis.text.x=element_text(angle=45, vjust=1, hjust=1)) + labs(y="Mean NES") +
-  scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
+  scale_fill_manual(values=RColorBrewer::brewer.pal(length(unique(mirda.mean$MPNST)),"Dark2"), breaks=unique(mirda.mean$MPNST))
 ggsave("Mirda_DMEA_predictions_horizontal_shortNames.pdf", width=5, height=3)
 ggsave("Mirda_DMEA_predictions_horizontal_shortNames_lessWide.pdf", width=4, height=3)
 
 ggplot(mirda.mean, aes(y=reorder(Drug_set, -meanNES), x=meanNES, fill=MPNST)) + 
   geom_bar(stat="identity") + theme_classic() + scale_y_discrete(position="right") +
   theme(axis.title.y=element_blank(), legend.position="bottom") + labs(x="Mean NES") +
-  scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
+  scale_fill_manual(values=RColorBrewer::brewer.pal(length(unique(mirda.mean$MPNST)),"Dark2"), breaks=unique(mirda.mean$MPNST))
 ggsave("Mirda_DMEA_predictions_shortNames.pdf", width=4, height=5)
 ggsave("Mirda_DMEA_predictions_shortNames_smaller.pdf", width=3, height=4)

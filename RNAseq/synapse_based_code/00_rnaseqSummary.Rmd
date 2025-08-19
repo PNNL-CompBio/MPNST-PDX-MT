@@ -360,7 +360,7 @@ ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom
    scale_color_manual(values=drugCol, breaks=names(drugCol))
  ggsave('batchCorrected_pca_noFacet_noDates_facetTime_diffColors.pdf',width=10,height=8)
  
- ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
+ ggplot(pca.df[pca.df$Drug!="Irinotecan",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
    scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
    scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
    scale_y_continuous(limits=c(-40,40))
