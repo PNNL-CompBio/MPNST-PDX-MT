@@ -176,3 +176,59 @@ ggplot(max.bliss[max.bliss$maxBliss != 0,], aes(x=sample, y=reorder(drugCombo, m
   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(log10(minNonZeroBliss),log10(maxAbsBliss))) + 
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Log|Max Bliss|")
 ggsave("bliss_maxSynergy_log10_heatmap.pdf", width=4.5,height=4)
+
+#### spider plots ####
+# 6 drug combos tested in all 6 MPNSTs at 2 timepoints: mean MuSyC LogAlpha, median CI, median Bliss
+library(fmsb)
+ci.48h <- read.csv(paste0(dataPath,"/48hr Median CI of experimental doses.csv"))
+ci.120h <- read.csv(paste0(dataPath,"/120hr Median CI of experimental doses.csv"))
+ci.48h$time <- 2
+ci.120h$time <- 5
+ci <- rbind(ci.48h, ci.120h)
+colnames(ci)[1] <- "drugCombo"
+ci$drugCombo <- tolower(ci$drugCombo)
+ci <- reshape2::melt(ci, id.vars=c("drugCombo","time"), variable.name="sample", value.name="CI")
+ci$sample <- gsub("[.]","-",ci$sample)
+maxmin <- data.frame(minCI = floor(min(ci$CI, na.rm=TRUE)),maxCI = ceiling(max(ci$CI, na.rm=TRUE)),
+                     minBliss = floor(min(bliss.musyc.tested$maxBliss, na.rm=TRUE)), maxBliss = ceiling(max(bliss.musyc.tested$maxBliss, na.rm=TRUE)),
+                     minMusyc = floor(min(bliss.musyc.tested$meanLogAlpha, na.rm=TRUE)), maxMusyc = ceiling(max(bliss.musyc.tested$meanLogAlpha, na.rm=TRUE)))
+maxmin2 <- data.frame("CI" = c(maxmin$maxCI, maxmin$minCI), "Bliss" = c(maxmin$maxBliss, maxmin$minBliss), "MuSyC" = c(maxmin$maxMusyc, maxmin$minMusyc))
+rownames(maxmin2) <- c("max","min")
+synergy <- merge(ci, bliss.musyc.tested[,c("drugCombo","sample","time","maxBliss","meanLogAlpha")], by=c("drugCombo","sample","time")) # 53 rows for 13 drugCombos
+# comboCoverage <- plyr::ddply(synergy, .(drugCombo), summarize,
+#                              nSamples=length(unique(sample))) # only mirda+palbo, mirda+vorin, mirda+trab have full coverage (6 samples); NAs at 5d CI in TNO combos
+# maxSamples <- length(unique(synergy$sample)) # 6
+# synergyFull <- synergy[synergy$drugCombo %in% unique(comboCoverage[comboCoverage$nSamples==maxSamples,]$drugCombo),]
+# synergyFull <- reshape2::melt(synergyFull, id.vars=c("drugCombo","sample","time"), variable.name="Metric", value.name="Score")
+# synergyFull <- reshape2::dcast(synergyFull, Metric+sample+time ~ drugCombo, value.var="Score") # there are NAs for MN-4 in mirda+palbo and mirda+vorin... make plots for combos instead of metrics
+
+synergyFull <- reshape2::melt(synergy, id.vars=c("drugCombo","sample","time"), variable.name="Metric", value.name="Score")
+synergyFull <- reshape2::dcast(synergyFull, drugCombo+sample+time ~ Metric, value.var="Score")
+allSampleColors <- RColorBrewer::brewer.pal(length(unique(synergyFull$sample)),"Set2")
+names(allSampleColors) <- unique(synergyFull$sample)
+
+for (t in unique(synergyFull$time)) {
+  for (dc in unique(synergyFull$drugCombo)) {
+  # reformat data so that each column is an axis variable, rownames are samples except for first 2 rows which are max and min
+  tempSynergy <- synergyFull[synergyFull$time == t & synergyFull$drugCombo == dc,]
+  rownames(tempSynergy) <- tempSynergy$sample
+  data <- tempSynergy[,c("CI","maxBliss","meanLogAlpha")]
+  colnames(data) <- c("CI", "Bliss", "MuSyC")
+  #data <- rbind(maxmin2, tempSynergy)
+  sampleColors <- allSampleColors[rownames(data)]
+  
+  # prep to save plot
+  pdf(paste0(t,"d_",dc,"_spiderPlot.pdf"), width=5, height=4)
+  
+  # create plot
+  fmsb::radarchart(data, axistype=0, maxmin=FALSE, pcol=sampleColors, 
+                   pfcol=alpha(sampleColors,0.3), plwd=4, plty=1, cglcol="gray",
+                   cglty=1, axislabcol="black", cglwd=0.8, vlcex=0.8)
+  legend(x=0.75, y=1.25, legend=rownames(data), bty="n", pch=20, 
+         col=sampleColors, text.col="black", cex=0.8, pt.cex=1.2) 
+  
+  # save plot
+  dev.off()
+  }
+}
+# was only enough data for plots of mirda+palbo, mirda+trab, mirda+vorin each at 2 or 5d
