@@ -26,7 +26,7 @@ singleFiles = singleFiles[~singleFiles.Filename.str.contains("250122.csv")]
 singledose = []
 multidose = []
 comboMulti = []
-for index,row in comboFilelist.iterrows():
+for index,row in comboFiles.iterrows():
   #print(row['id'])
   dfile = pd.read_csv(syn.get(row['entityId']).path)
   if all(dfile['dataSubtype'] == 'processed'):
@@ -95,7 +95,7 @@ if len(multidose) > 0:
     
     ##fit curve
     #if not os.path.exists("fit_curve.py"):
-    script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/build/utils/fit_curve.py'
+    script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/coderbuild/utils/fit_curve.py'
     subprocess.run(['wget',script])
     #subprocess.run(['python3','-m','pip','install','matplotlib']) # due to matplotlib error
     subprocess.run(['python3','fit_curve.py','--input','mpnst_drug_response.tsv','--output','mpnstDrugOutput'])
@@ -163,17 +163,64 @@ if len(comboMulti) > 0:
     fulltab2 = fulltab[ncols]
     fulltab2.to_csv('mpnst_combo_drug_response.csv', index=False)
     
-    # also create redacted version for upload to MuSyC web app
-    fulltab3 = fulltab
-    fulltab3['sampleName'] = fulltab3['sampleName'].str[-3:]
-    fulltab3['sample'] = fulltab3['sampleName'] + "_" + fulltab3['timePoint'].astype(str) + fulltab3['timePointUnit'] # if need replicate, then use specimenID
-    fulltab3['drug1'] = fulltab3['drug1'].str[1:4]
-    fulltab3['drug2'] = fulltab3['drug2'].str[1:4]
-    fulltab3 = fulltab3[ncols]
-    fulltab3.to_csv('combo_drug_response.csv', index=False) # MuSyC expects CSV file
+    # also calculate auc values
+    tabs1 = fulltab[(fulltab['drug1.conc']>0) & (fulltab['drug2.conc']==0)]
+    tabs1 = tabs1.rename(columns={"drug1.conc": "DOSE", "effect": "GROWTH",
+                            "timePoint": "time", "timePointUnit": "time_unit",
+                            "drug1": "Drug"})
+    tabs2 = fulltab[(fulltab['drug2.conc']>0) & (fulltab['drug1.conc']==0)]
+    tabs2 = tabs2.rename(columns={"drug2.conc": "DOSE", "effect": "GROWTH",
+                            "timePoint": "time", "timePointUnit": "time_unit",
+                            "drug2": "Drug"})
+    tabsCombo1 = fulltab[(fulltab['drug2.conc']>0) & (fulltab['drug1.conc']>0)]
+    tabsCombo1['Drug'] = tabsCombo1['drug1']+'+'+tabsCombo1['drug2']+'('+round(tabsCombo1['drug1.conc']/tabsCombo1['drug2.conc'],2).astype(str)+')1'
+    tabsCombo1 = tabsCombo1.rename(columns={"drug1.conc": "DOSE", "effect": "GROWTH",
+                            "timePoint": "time", "timePointUnit": "time_unit"})
+    tabsCombo2 = fulltab[(fulltab['drug2.conc']>0) & (fulltab['drug1.conc']>0)]
+    tabsCombo2['Drug'] = tabsCombo2['drug1']+'+'+tabsCombo2['drug2']+'('+round(tabsCombo2['drug1.conc']/tabsCombo2['drug2.conc'],2).astype(str)+')2'
+    tabsCombo2 = tabsCombo2.rename(columns={"drug2.conc": "DOSE", "effect": "GROWTH",
+                            "timePoint": "time", "timePointUnit": "time_unit"})
+    ncols0=['DOSE','GROWTH','improve_sample_id','Drug','time','time_unit']
+    fulltab = pd.concat([tabs1[ncols0], tabs2[ncols0], tabsCombo1[ncols0], tabsCombo2[ncols0]], ignore_index=True)
+    #fulltab = pd.concat([tabs1, tabs2, tabsCombo1, tabsCombo2])
+    fulltab['study']='mpnstPDXMT'
+    fulltab['source']='synapse'
+    ##mutate the values create new columns
+    ncols=['DOSE','GROWTH','study','source','improve_sample_id','Drug','time','time_unit']
+    fulltab = fulltab[ncols]
+    # there was a percentViability == "147.128*" - seems like it might be 147.1288 but double check
+    # if any(fulltab['GROWTH'].str.contains("\*")):
+    #     print("replacing asterisk")
+    #     fulltab["GROWTH"] = fulltab["GROWTH"].replace(r'\*','', regex=True)
+    fulltab['GROWTH'] = pd.to_numeric(fulltab['GROWTH'])
+    ##change file headers to DOSE/RESPONSE values needed by other script
+    fulltab.to_csv('mpnst_combo_drug_response_forCurves.tsv',sep='\t')
+    
+    ##fit curve
+    #if not os.path.exists("fit_curve.py"):
+    script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/coderbuild/utils/fit_curve.py'
+    subprocess.run(['wget',script])
+    #subprocess.run(['python3','-m','pip','install','matplotlib']) # due to matplotlib error
+    subprocess.run(['python3','fit_curve.py','--input','mpnst_combo_drug_response_forCurves.tsv','--output','mpnstDrugComboOutput'])
+    #runpy.run_path("fit_curve.py") # replaces subprocess call
+    #os.getcwd()
+    otab = pd.read_csv('mpnstDrugComboOutput.0',sep='\t')
+    
+    # # also create redacted version for upload to MuSyC web app
+    # fulltab3 = fulltab
+    # fulltab['expt.date'] = date.today()
+    # fulltab3 = fulltab3.rename(columns={"improve_sample_id": "sampleName"})
+    # fulltab3['sampleName'] = fulltab3['sampleName'].str[-3:]
+    # fulltab3['sample'] = fulltab3['sampleName'] + "_" + fulltab3['timePoint'].astype(str) + fulltab3['timePointUnit'] # if need replicate, then use specimenID
+    # fulltab3['drug1'] = fulltab3['drug1'].str[1:4]
+    # fulltab3['drug2'] = fulltab3['drug2'].str[1:4]
+    # ncols=['expt.date','drug1.conc','drug2.conc','effect','sample','drug1','drug2','drug1.units','drug2.units']
+    # fulltab3 = fulltab3[ncols]
+    # fulltab3.to_csv('combo_drug_response.csv', index=False) # MuSyC expects CSV file
 
 ##now add in single-point drug measurements
 
 #store on synapse
 syn.store(sc.File('mpnst_combo_drug_response.csv',parentId='syn52369040'))
+#syn.store(sc.File('mpnst_combo_drug_response_forCurves.tsv',parentId='syn52369040'))
 
