@@ -1,0 +1,669 @@
+---
+title: "Compare RNASeq Summaries"
+author: "Sara gosline"
+date: "2025-01-27"
+output: html_document
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr);library(dplyr);library(tidyverse); library(synapser); library(pheatmap); library(RColorBrewer)
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+drug.info <- data.frame(Drug=names(drug.info), MOA = unlist(drug.info))
+```
+
+Here we want to compare the various RNAseq analyses. We want to ask:
+1. Which drugs elicit the most similar response? 
+  - check RNASeq
+  - check TF responses
+  - check pathways
+2. which drugs elicit the most distinct responses? 
+  - check RNASeq
+  - check TF responses
+  - check pathways
+3. What are the most profound changes caused by each drug? Do these predict other drugs? 
+  - check RNASEq
+  - check TF response
+  - check pathways
+
+## Get all data so far
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r load data}
+synLogin()
+#all_exp<-readr::read_csv(synGet('syn64398051')$path)
+diffex_genes<-readr::read_csv(synGet('syn64397743')$path)
+#diffex_tfs<-readr::read_csv(synGet('syn64420968')$path)
+#diff_tf_scores<-readr::read_csv(synGet('syn64695280')$path)
+if (any(diffex_genes$Drug=="Trabectidin")) {
+  diffex_genes[diffex_genes$Drug=="Trabectidin",]$Drug <- "Trabectedin"
+}
+diffex_genes <- diffex_genes[diffex_genes$Drug != "Irinotecan",] # since irinotecan isn't metabolically active
+
+##now we have three different ways of comparing the drugs
+genemat<-diffex_genes|>
+  dplyr::select(ensembl_gene_id,log2FoldChange,individualID,Drug,Timepoint)|>
+  subset(!is.na(log2FoldChange))|>
+  tidyr::unite(individualID,Timepoint,Drug,col='condition')|>
+  tidyr::pivot_wider(names_from=condition,values_from=log2FoldChange,values_fn=mean,values_fill=0.0)|>
+  tibble::column_to_rownames('ensembl_gene_id')|>
+  as.matrix()
+
+genecor<-cor(genemat,use='pairwise.complete.obs')
+write.csv(genecor, "geneCorr.csv")
+
+annot <- as.data.frame(rownames(genecor)) |> 
+  tidyr::separate('rownames(genecor)',into=c('MPNST','Timepoint','Drug'),sep='_')
+if (any(annot$Drug == "Ribociblib")) {
+ annot[annot$Drug == "Ribociblib",]$Drug <- "Ribociclib" 
+}
+annot <- merge(annot, drug.info, by="Drug", all.x=TRUE)
+rownames(annot) <- paste0(annot$MPNST, "_", annot$Timepoint, "_", annot$Drug)
+annot <- annot[rownames(genecor),c('MPNST','Timepoint','Drug','MOA')]
+annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
+annot$MPNST <- factor(annot$MPNST, levels=unique(annot$MPNST))
+annot$MOA <- factor(annot$MOA, levels=unique(annot$MOA))
+annot$Drug <- factor(annot$Drug, levels=unique(annot$Drug))
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor")
+names(cols) <- names(drug.info)
+cols <- cols[levels(annot$Drug)]
+moa.cols <- RColorBrewer::brewer.pal(length(unique(annot$MOA)),"Set3")
+names(moa.cols) <- levels(annot$MOA)
+mpnst.cols <- scales::hue_pal()(length(unique(annot$MPNST)))
+names(mpnst.cols) <- levels(annot$MPNST)
+annot.colors = list(MOA = moa.cols,
+                    Drug = cols,
+                    Timepoint = c("8h" = "#FFFFFF", "24h" = "#000000"),
+                    MPNST = mpnst.cols)
+
+graphics.off()
+pdf("geneCorr.pdf",width=6,height=4.5)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot,
+         annotation_colors=annot.colors,
+         show_colnames=FALSE, show_rownames=FALSE)
+dev.off()
+
+genemat<-diffex_genes[diffex_genes$padj < 0.05,]|>
+  dplyr::select(ensembl_gene_id,log2FoldChange,individualID,Drug,Timepoint)|>
+  subset(!is.na(log2FoldChange))|> #subset(!is.na(padj))|> #subset(padj<0.05)|>
+  tidyr::unite(individualID,Timepoint,Drug,col='condition')|>
+  tidyr::pivot_wider(names_from=condition,values_from=log2FoldChange,values_fn=mean,values_fill=0.0)|>
+  tibble::column_to_rownames('ensembl_gene_id')|>
+  as.matrix()
+
+genecor<-cor(genemat,use='pairwise.complete.obs')
+write.csv(genecor,"degCorr.csv")
+# annot <- as.data.frame(rownames(genecor)) |> 
+#   tidyr::separate('rownames(genecor)',into=c('MPNST','Timepoint','Drug'),sep='_')
+# if (any(annot$Drug == "Ribociblib")) {
+#  annot[annot$Drug == "Ribociblib",]$Drug <- "Ribociclib" 
+# }
+# annot <- merge(annot, drug.info, by="Drug", all.x=TRUE)
+# rownames(annot) <- paste0(annot$MPNST, "_", annot$Timepoint, "_", annot$Drug)
+# annot <- annot[rownames(genecor),c('MPNST','Timepoint','Drug','MOA')]
+# annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
+
+graphics.off()
+pdf("degCorr.pdf",width=6,height=4.5)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
+         show_colnames=FALSE, show_rownames=FALSE)
+dev.off()
+
+subset(diffex_genes,padj<0.05)|>group_by(individualID,Drug,Timepoint,direction)|>
+  summarize(ngenes=n_distinct(hgnc_symbol))|>
+  mutate(dgenes=ifelse(direction=='down',-log10(ngenes),log10(ngenes)))|>
+  ggplot(aes(x=Drug,fill=direction,#fill=Timepoint,
+             y=dgenes))+geom_bar(stat='identity',position='dodge',alpha=0.75)+
+  scale_y_continuous(breaks=c(-4,-2,0,2,4), labels=c(-10^4, -10^2, 0, 10^2, 10^4)) + #scale_y_continuous(transform=scales::transform_exp(base=10)) + #theme_classic(base_size=12) +
+  facet_grid(Timepoint ~ individualID) + scale_fill_manual(values=c("blue","red")) +
+  labs(y='# of Differentially Expressed Genes (q < 0.05)', fill="Direction")+coord_flip()
+ggsave("Ndegs_log10Scale.pdf", width=5.5, height=5)
+
+subset(diffex_genes,padj<0.05)|>group_by(individualID,Drug,Timepoint,direction)|>
+  summarize(ngenes=n_distinct(hgnc_symbol))|>
+  mutate(dgenes=ifelse(direction=='down',-ngenes,ngenes))|>
+  ggplot(aes(x=Drug,fill=direction,#fill=Timepoint,
+             y=dgenes))+geom_bar(stat='identity',position='dodge',alpha=0.75)+
+  facet_grid(Timepoint ~ individualID) + scale_fill_manual(values=c("blue","red")) +
+  labs(y='# of Differentially Expressed Genes (q < 0.05)', fill="Direction")+coord_flip()
+ggsave("Ndegs.pdf", width=5.5, height=5)
+
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+all.drugs <- names(drug.info)
+timepoints <- c("8h","24h")
+diffex_genes$log2FoldChange <- as.numeric(diffex_genes$log2FoldChange)
+n.top.list <- c(1, 2, 3, 5)
+for (n.top in n.top.list) {
+  ### pathway
+  topSigpathway <- data.frame()
+  for (i in all.drugs) {
+    tempSig <- diffex_genes[diffex_genes$Drug == i &
+                              diffex_genes$signif,] %>% slice_max(abs(log2FoldChange), n=n.top)
+    topSigpathway <- rbind(topSigpathway, tempSig)
+  }
+  length(unique(topSigpathway$hgnc_symbol)) # 20
+  dot.df <- na.omit(diffex_genes[diffex_genes$hgnc_symbol %in% unique(topSigpathway$hgnc_symbol),])
+  
+  mean.results <- plyr::ddply(dot.df, .(hgnc_symbol), summarize,
+                              Log2FC = mean(log2FoldChange, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$Log2FC),]$hgnc_symbol
+  drugOrder <- unlist(drug.info)
+  
+  dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+  dot.df$minusLogFDR <- -log10(dot.df$padj)
+  maxAbsscore <- ceiling(max(abs(dot.df$log2FoldChange)))
+  dot.plot <- ggplot2::ggplot(
+    dot.df,
+    ggplot2::aes(
+      x = Drug, y = hgnc_symbol, color = log2FoldChange,
+      size = minusLogFDR
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    ggplot2::scale_x_discrete(limits=all.drugs) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsscore, maxAbsscore)) +
+    theme_minimal(base_size=12) +
+    ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+          axis.title = element_blank()) +
+    geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+    facet_grid(Timepoint~individualID)
+  dot.plot
+  ggplot2::ggsave(paste0(n.top,"_topDEGs_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top<2,4,2*n.top))
+}
+# there were ensembl ids which mapped to the same gene
+
+n.top.list <- c(10, 20, 30, 50)
+for (n.top in n.top.list) {
+  dot.df <- na.omit(diffex_genes) %>% slice_max(abs(log2FoldChange), n=n.top)
+  
+  mean.results <- plyr::ddply(dot.df, .(hgnc_symbol), summarize,
+                              Log2FC = mean(log2FoldChange, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$Log2FC),]$hgnc_symbol
+  drugOrder <- unlist(drug.info)
+  
+  dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+  dot.df$minusLogFDR <- -log10(dot.df$padj)
+  maxAbsscore <- ceiling(max(abs(dot.df$log2FoldChange)))
+  dot.plot <- ggplot2::ggplot(
+    dot.df,
+    ggplot2::aes(
+      x = Drug, y = hgnc_symbol, color = log2FoldChange,
+      size = minusLogFDR
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    ggplot2::scale_x_discrete(limits=all.drugs) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsscore, maxAbsscore)) +
+    theme_minimal(base_size=12) +
+    ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+          axis.title = element_blank()) +
+    geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+    facet_grid(Timepoint~individualID)
+  dot.plot
+  ggplot2::ggsave(paste0(n.top,"_topDEGsOverall_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top<16,4,n.top/4))
+}
+
+drug.targets <- read.csv("comboPrediction_usingTop500Sig/target_diffexp.csv")
+dot.df <- na.omit(diffex_genes[diffex_genes$hgnc_symbol %in% drug.targets$hgnc_symbol,]) #%>% slice_max(abs(log2FoldChange), n=n.top)
+
+mean.results <- plyr::ddply(dot.df, .(hgnc_symbol), summarize,
+                            Log2FC = mean(log2FoldChange, na.rm=TRUE))
+setOrder <- mean.results[order(mean.results$Log2FC),]$hgnc_symbol
+drugOrder <- rownames(drug.info)
+timepoints <- c("8h","24h")
+dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+dot.df$minusLogFDR <- -log10(dot.df$padj)
+maxAbsscore <- ceiling(max(abs(dot.df$log2FoldChange)))
+dot.plot <- ggplot2::ggplot(
+  dot.df,
+  ggplot2::aes(
+    x = Drug, y = hgnc_symbol, color = log2FoldChange,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = setOrder) +
+  ggplot2::scale_x_discrete(limits=drugOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsscore, maxAbsscore)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(Timepoint~individualID)
+dot.plot
+ggplot2::ggsave("targetDiffExp_dotPlot.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/4))
+
+dot.plot <- ggplot2::ggplot(
+  dot.df,
+  ggplot2::aes(
+    x = Drug, y = hgnc_symbol, color = log2FoldChange,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_discrete(limits=drugOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsscore, maxAbsscore)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(Timepoint~individualID)
+dot.plot
+ggplot2::ggsave("targetDiffExp_dotPlot_alphabeticalOrder.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/2.67))
+
+ggplot2::ggsave("targetDiffExp_dotPlot_alphabeticalOrder_shorter.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/3.5))
+
+dot.df <- na.omit(diffex_genes[diffex_genes$hgnc_symbol %in% drug.targets$hgnc_symbol,]) #%>% slice_max(abs(log2FoldChange), n=n.top)
+sig.dot.df <- dot.df[dot.df$signif,]
+dot.df <- dot.df[dot.df$hgnc_symbol %in% sig.dot.df$hgnc_symbol,]
+
+drugOrder <- rownames(drug.info)
+timepoints <- c("8h","24h")
+dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
+dot.df$minusLogFDR <- -log10(dot.df$padj)
+maxAbsscore <- ceiling(max(abs(dot.df$log2FoldChange)))
+dot.plot <- ggplot2::ggplot(
+  dot.df,
+  ggplot2::aes(
+    x = Drug, y = hgnc_symbol, color = log2FoldChange,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_discrete(limits=drugOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsscore, maxAbsscore)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "Log2FC", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(Timepoint~individualID)
+dot.plot
+ggplot2::ggsave("sigTargetDiffExp_dotPlot_alphabeticalOrder.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/2.67))
+
+ggplot2::ggsave("sigTargetDiffExp_dotPlot_alphabeticalOrder_shorter.pdf", dot.plot, width=10, height=ifelse(length(setOrder)<16,4,length(setOrder)/3.5))
+
+diffex_genes$Timepoint <- factor(diffex_genes$Timepoint, levels=c("8h","24h"))
+Nbar <- ggplot2::ggplot(na.omit(diffex_genes[diffex_genes$signif,]), aes(x=Drug, fill=Timepoint)) + 
+  geom_bar(stat="count") + facet_wrap(.~individualID) + theme_classic() + 
+  scale_x_discrete(limits=drugOrder) + theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+                                             axis.title.x=element_blank()) + 
+  ylab("# of Differentially\nExpressed Genes")
+ggsave("nSigDEGs.pdf", Nbar, width=10, height=2)
+
+Ndegs <- plyr::ddply(na.omit(diffex_genes[diffex_genes$signif,]), .(individualID, Timepoint, Drug),summarize,
+                     n=length(unique(hgnc_symbol)))
+Ndegs$Timepoint <- factor(Ndegs$Timepoint, levels=c("8h","24h"))
+Nbar <- ggplot2::ggplot(Ndegs, aes(x=Drug, y=n, fill=Timepoint)) + 
+  geom_bar(stat="identity", position="dodge") + facet_wrap(.~individualID) + 
+  theme_classic() + scale_y_continuous(trans="log10") + 
+  scale_x_discrete(limits=drugOrder) + 
+  theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+        axis.title.x=element_blank()) + 
+  ylab("# of Differentially\nExpressed Genes")
+ggsave("nSigDEGs_log10.pdf", Nbar, width=10, height=2)
+write.csv(Ndegs, "nSigDEGs.csv", row.names=FALSE)
+
+# does JH-2-002 have earlier response than MN-2?
+jh2.time.degs <- t.test(Ndegs[Ndegs$individualID=="JH-2-002" & Ndegs$Timepoint=="8h",]$n, 
+                         Ndegs[Ndegs$individualID=="JH-2-002" & Ndegs$Timepoint=="24h",]$n)
+mn2.time.degs <- t.test(Ndegs[Ndegs$individualID=="MN-2" & Ndegs$Timepoint=="8h",]$n, 
+                         Ndegs[Ndegs$individualID=="MN-2" & Ndegs$Timepoint=="24h",]$n)
+
+# upset plots for each MPNST
+for (m in unique(diffex_genes$individualID)) {
+  # generate list of significant results
+  sigList <- list()
+  for (i in unique(diffex_genes$Drug)) {
+    if (nrow(diffex_genes[diffex_genes$Drug == i & 
+                          diffex_genes$individualID == m & diffex_genes$signif,]) > 0) {
+      sigList[[i]] <- na.omit(unique(diffex_genes[diffex_genes$Drug == i & 
+                                                    diffex_genes$individualID == m & 
+                                                    diffex_genes$signif,]$source)) 
+    }
+  }
+  
+  if (length(sigList) > 1) {
+    # convert to matrix
+    myPlot = ComplexHeatmap::make_comb_mat(sigList)
+    pdf(file.path(tf.path,paste0(m,"_enrichedTF_upsetPlot.pdf")))
+    up <- ComplexHeatmap::UpSet(myPlot)
+    ComplexHeatmap::draw(up)
+    dev.off()
+  }
+}
+
+# need to redo TF analysis with individualID
+# tfmat<-diffex_tfs|>
+#   dplyr::select(source,individualID, Drug,Timepoint,score)|>
+#   tidyr::unite(individualID,Timepoint,Drug,col='condition')|>
+#     tidyr::pivot_wider(names_from=condition,values_from=score,values_fill=0.0)|>
+#   tibble::column_to_rownames('source')|>
+#   as.matrix()
+# 
+# subset(diffex_tfs,padj<0.01)|>
+#   mutate(direction=ifelse(score<0,'down','up'))|>
+#   group_by(individualID,Drug,Timepoint,direction)|>
+#   summarize(ngenes=n_distinct(source))|>
+#   mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
+#   ggplot(aes(x=Drug,#fill=Timepoint,
+#              y=dgenes))+
+#   geom_bar(stat='identity',position='dodge')+facet_grid(Timepoint~individualID)+
+#   ggtitle('Differentially expressed TFs at each time point for each drug')+coord_flip()
+# 
+# 
+# tfcor<-cor(tfmat,use='pairwise.complete.obs')
+# #pheatmap(tfcor,main='TF score based correlation')
+# 
+# tfpmat<-diff_tf_scores|>
+#   dplyr::select(TF,individualID,Drug,tfChange,Timepoint)|>
+#   tidyr::unite(individualID,Timepoint,Drug,col='condition')|>
+#   tidyr::pivot_wider(names_from='condition',values_from=tfChange,values_fill=0.0)|>
+#   tibble::column_to_rownames('TF')|>
+#   as.matrix()
+# 
+# diff_tf_scores|>
+#   mutate(ep=rank(tfChange)/length(tfChange))|>
+#   subset(ep<0.05|ep>0.95)|>
+#   mutate(direction=ifelse(tfChange<0,'down','up'))|>
+#   group_by(individualID,Timepoint,Drug,direction)|>
+#   summarize(ngenes=n_distinct(TF))|>
+#   mutate(dgenes=ifelse(direction=='down',ngenes*-1,ngenes))|>
+#   ggplot(aes(x=Drug,#fill=Timepoint,
+#              y=dgenes))+geom_bar(stat='identity',position='dodge')+
+#   facet_grid(Timepoint ~ individualID) +
+#   ggtitle('Differentially expressed Priori TFs at each time point for each drug')+coord_flip()
+# 
+# tfpcor<-cor(tfpmat,use='pairwise.complete.obs')
+# #pheatmap(tfpcor,main='Priori tf score correlation')
+
+```
+
+Conclusion: 8 hours is the most informative time point overall. Mirda and doxorubicin show more changes at 24 hrs. 
+
+```{r box and whisker, echo=FALSE}
+# prep data
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectidin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+diffex_genes <- read.csv(synapser::synGet('syn64397743')$path)
+diffex_genes$Drug <- factor(diffex_genes$Drug, levels=names(drug.info))
+timepoints <- c("8h", "24h")
+diffex_genes$Timepoint <- factor(diffex_genes$Timepoint, levels=timepoints)
+individualID <- c("MN-2", "JH-2-002")
+all.drugs <- levels(diffex_genes$Drug)
+all.moas <- sort(unique(unlist(drug.info)))
+drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
+names(drugCol) <- all.drugs
+
+sig.tf <- na.omit(diffex_genes[diffex_genes$padj <= 0.05 & diffex_genes$individualID %in% individualID,])
+ntfs <- plyr::ddply(sig.tf, .(individualID, Drug, Timepoint), dplyr::summarize,
+                    N = length(na.omit(unique(hgnc_symbol))))
+ntfs.overall <- plyr::ddply(sig.tf, .(Drug, Timepoint), dplyr::summarize,
+                    N = length(na.omit(unique(hgnc_symbol))))
+
+# are there more/less enriched tfs at 8h vs. 24h? No, p = 0.9211
+for (m in individualID) {
+ cat(m, "# of DEGs at 8h vs. 24h\n")
+  t.test(ntfs[ntfs$individualID==m & ntfs$Timepoint=="8h",]$N, 
+         ntfs[ntfs$individualID==m & ntfs$Timepoint=="24h",]$N) 
+}
+cat("Overall", "# of DEGs at 8h vs. 24h\n")
+t.test(ntfs.overall[ntfs.overall$Timepoint=="8h",]$N, 
+       ntfs.overall[ntfs.overall$Timepoint=="24h",]$N)
+
+cat("Overall", "# of DEGs in MN-2 vs. JH-2-002\n") # similar (p=0.4545)
+t.test(ntfs[ntfs$individualID=="MN-2",]$N, 
+       ntfs[ntfs$individualID=="JH-2-002",]$N)
+
+ntfs$moa <- NA
+ntfs.overall$moa <- NA
+for (i in all.moas) {
+  temp.drugs <- names(drug.info[drug.info %in% i])
+  if (any(ntfs$Drug %in% temp.drugs)) {
+   ntfs[ntfs$Drug %in% temp.drugs,]$moa <- i 
+   ntfs.overall[ntfs.overall$Drug %in% temp.drugs,]$moa <- i
+  }
+}
+
+# generate plot
+ntfs$moa <- factor(ntfs$moa, levels=all.moas)
+ntf.plot <- ggplot2::ggplot(ntfs, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=Drug, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + 
+  scale_color_manual(limits=all.drugs, values=drugCol) +
+  labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+  theme_classic(base_size=12) +
+  theme(legend.box="horizontal") + facet_wrap(~individualID)
+ggplot2::ggsave("N_DEGs.pdf", ntf.plot, width=6, height=4.5)
+
+ntfs.overall$moa <- factor(ntfs.overall$moa, levels=all.moas)
+ntf.plot.overall <- ggplot2::ggplot(ntfs.overall, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+  geom_point(aes(color=Drug, shape=moa)) +
+  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+  labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("N_DEGs_overall.pdf", ntf.plot.overall, width=6, height=4.5)
+
+
+# # just MN-2
+# sig.tf <- na.omit(diffex_genes[diffex_genes$padj <= 0.05,])
+# ntfs <- plyr::ddply(sig.tf, .(Drug, Timepoint), dplyr::summarize,
+#                     N = length(na.omit(unique(hgnc_symbol))))
+# # generate plot
+# ntfs$moa <- NA
+# for (i in all.moas) {
+#   temp.drugs <- names(drug.info[drug.info %in% i])
+#   if (any(ntfs$Drug %in% temp.drugs)) {
+#    ntfs[ntfs$Drug %in% temp.drugs,]$moa <- i 
+#   }
+# }
+# ntfs$moa <- factor(ntfs$moa, levels=all.moas)
+# ntf.plot <- ggplot2::ggplot(ntfs, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+#   geom_point(aes(color=Drug, shape=moa)) +
+#   geom_boxplot(width=0.2, alpha = 0) + 
+#   scale_color_manual(limits=all.drugs, values=drugCol) +
+#   labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+#        color = "Drug Treatment", shape = "Mechanism") +
+#   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+#   theme_classic(base_size=12) +
+#   theme(legend.box="horizontal")
+# ggplot2::ggsave("N_DEGs_MN-2.pdf", ntf.plot, width=6, height=4.5)
+# sig.tf$individualID <- "MN-2"
+# 
+# JH2.de <- read.csv("totalRNASeqDiffExtoDate.csv")
+# JH2.de <- na.omit(JH2.de[JH2.de$padj <= 0.05 & JH2.de$individualID == "JH-2-002",])
+# all.sig.tf <- rbind(sig.tf, JH2.de)
+# 
+# ntfs <- plyr::ddply(all.sig.tf, .(individualID, Drug, Timepoint), dplyr::summarize,
+#                     N = length(na.omit(unique(hgnc_symbol))))
+# ntfs.overall <- plyr::ddply(all.sig.tf, .(Drug, Timepoint), dplyr::summarize,
+#                     N = length(na.omit(unique(hgnc_symbol))))
+# 
+# # are there more/less enriched tfs at 8h vs. 24h? No, p = 0.2003
+# for (m in individualID) {
+#  cat(m, "# of DEGs at 8h vs. 24h\n")
+#   t.test(ntfs[ntfs$individualID==m & ntfs$Timepoint=="8h",]$N, 
+#          ntfs[ntfs$individualID==m & ntfs$Timepoint=="24h",]$N) 
+# }
+# cat("Overall", "# of DEGs at 8h vs. 24h\n") # no difference, p = 0.7106 when Sara swapped samples back; 20250416: p = 0.3314
+# t.test(ntfs.overall[ntfs.overall$Timepoint=="8h",]$N, 
+#        ntfs.overall[ntfs.overall$Timepoint=="24h",]$N)
+# 
+# cat("Overall", "# of DEGs in MN-2 vs. JH-2-002\n") # no difference, p = 0.06382 when Sara swapped samples back; 20250416: p=0.0008461 (MN-2 has more DEGs than JH-2-002)
+# t.test(ntfs[ntfs$individualID=="MN-2",]$N, 
+#        ntfs[ntfs$individualID=="JH-2-002",]$N)
+# 
+# ntfs$moa <- NA
+# ntfs.overall$moa <- NA
+# for (i in all.moas) {
+#   temp.drugs <- names(drug.info[drug.info %in% i])
+#   if (any(ntfs$Drug %in% temp.drugs)) {
+#    ntfs[ntfs$Drug %in% temp.drugs,]$moa <- i 
+#    ntfs.overall[ntfs.overall$Drug %in% temp.drugs,]$moa <- i
+#   }
+# }
+# 
+# # generate plot
+# ntfs$moa <- factor(ntfs$moa, levels=all.moas)
+# ntf.plot <- ggplot2::ggplot(ntfs, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+#   geom_point(aes(color=Drug, shape=moa)) +
+#   geom_boxplot(width=0.2, alpha = 0) + 
+#   scale_color_manual(limits=all.drugs, values=drugCol) +
+#   labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+#        color = "Drug Treatment", shape = "Mechanism") +
+#   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+#   theme_classic(base_size=12) +
+#   theme(legend.box="horizontal") + facet_wrap(~individualID)
+# ggplot2::ggsave("N_DEGs_v2.pdf", ntf.plot, width=6, height=4.5)
+# 
+# ntfs.overall$moa <- factor(ntfs.overall$moa, levels=all.moas)
+# ntf.plot.overall <- ggplot2::ggplot(ntfs.overall, aes(x=Timepoint, y=N)) + geom_violin(alpha=0) +
+#   geom_point(aes(color=Drug, shape=moa)) +
+#   geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+#   labs(x="Time (Hours)", y="# of Differentially Expressed Genes (q < 0.05)",
+#        color = "Drug Treatment", shape = "Mechanism") +
+#   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
+#   theme(legend.box="horizontal")
+# ggplot2::ggsave("N_DEGs_overall_v2.pdf", ntf.plot.overall, width=6, height=4.5)
+
+
+
+```
+
+## UMAP plots of data
+
+We can first get a handle on the data similarities via dimensionality reduction.
+
+
+```{r umaps, echo=FALSE}
+library(umap)
+
+plotU<-function(umapres){
+  layout<-umapres$layout
+  colnames(layout)<-c('dim1','dim2')
+  layout<-as.data.frame(layout)|>tibble::rownames_to_column('condition')|>
+    tidyr::separate(condition,into=c('individualID','Timepoint','Drug'),sep='_')|>
+    ggplot(aes(x=dim1,y=dim2,col=Drug,shape=Timepoint))+geom_point()+ggrepel::geom_label_repel(aes(label=Drug))+
+    facet_wrap(~individualID)
+}
+
+geneu<-umap(t(genemat))
+
+
+#tfu<-umap(t(tfmat))
+#tfpu<-umap(t(tfpmat))
+
+ug<-plotU(geneu)
+#ut<-plotU(tfu)
+#up<-plotU(tfpu)
+
+
+#cowplot::plot_grid(ug,ut,up,nrow=2)
+ug+ggtitle("Gene based UMAP")
+#ut+ggtitle("TF based UMAP")
+#up+ggtitle("Priori TF based UMAP")
+
+```
+
+I really think that the TF scores from decoupler are the best way to reduce dimensionality, the Prior scores don't look right.
+
+## Top TFs for each drug
+
+Let's go into every drug/time point, get the top TFs and maybe the associated genes to see what is happening??
+
+```{r tf analysis}
+##get collecTRI network
+net<-readr::read_csv(synGet('syn64713359')$path)
+
+###not sure what to do here, goal is to plot/visualize individual TF networks...
+plotTfNet<-function(tf,net,data){
+  library(pheatmap)
+  tfnet<-subset(net,source==tf)
+  
+  sigtreats<-diffex_tfs|>subset(source==tf)|>#subset(signif)|>
+    dplyr::rename(TFsig='signif')|>
+    mutate(tfDir=ifelse(score<0,'down','up'))|>
+    dplyr::select(-padj)
+  #print(paste('found',nrow(sigtreats),'conditions where',tf,'is significant'))
+  
+  dd<-data|>
+    subset(!is.na(signif))|>
+    subset(!is.na(direction))|>
+    subset(hgnc_symbol%in%c(tf,tfnet$target))|>
+    left_join(sigtreats)
+    
+      #  subset(signif)
+
+#  okabe <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+  fig<-dd|>subset(signif)|>ggplot(aes(x=Drug,y=log2FoldChange,fill=TFsig))+
+    facet_grid(Timepoint~individualID)+geom_boxplot(outliers=FALSE)+
+    geom_jitter(aes(shape=direction,col=TFsig))+
+    ggtitle(paste("Fold change changing genes downstream of",tf))#+scale_fill_discrete(okabe)
+  
+  
+  #
+  #pheatmap(log10(genes+0.001),annotation_col = meta,clustering_distance_rows='correlation',
+  #clustering_distance_cols='correlation',main=paste0(tf,' targets after ',time,' ',drug,' treatment'))
+  return(fig)  
+    
+}
+
+plotTfNet('EGR1',net,diffex_genes)
+plotTfNet('SP1',net,diffex_genes)
+plotTfNet('STAT1',net,diffex_genes)
+#plotTfNet('NFKB1_NFK2',net,diffex_genes)
+
+plotTfNet('HDAC1',net,diffex_genes)
+
+```
+
+
+
+

@@ -11,8 +11,8 @@ http://synapse.org/mpnst. It is currently under embargo as we continue
 to process and analyze the data but will release the data upon
 publication. 
 
-### Single drug measurements
-We are currently measuring drug response across four PDX-MT. 
+### Single and combo drug measurements
+These data are currently being analyzed in our [drugViability](drugViability/) directory.
 
 
 ### Single drug transcriptional response

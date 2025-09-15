@@ -61,3 +61,17 @@ rsconnect/
 *.gct
 *.gctx
 *.txt
+*.gct copy
+RNAseq/synapse_based_code/DMEA_Cmap_L1000/beforeFixContrast/resultsOnlyMN2/signature_comparison/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin
+RNAseq/synapse_based_code/DMEA_Cmap_L1000/beforeFixContrast/resultsOnlyMN2/signature_comparison/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin
+RNAseq/synapse_based_code/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin
+RNAseq/synapse_based_code/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin
+*.tsv
+*.0
+*.xlsx
+*.svg
+*.rds
+*.Rbin
+*.log
+*.cys
+/exp_1
