@@ -365,7 +365,8 @@ ggsave('bcorrected_pca_drug.pdf', width=5,height=5)
 pca.df <- plotPCA(vsd,intgroup=c('Drug','individualID','Timepoint','Date'),returnData=TRUE)
 pca.df$Drug <- droplevels(pca.df$Drug) # didn't work
 pca.df$Drug <- factor(pca.df$Drug, levels=c("DMSO",names(drug.info)))
-pca.df[grepl("Trabectidin",pca.df$group),]$Drug <- "Trabectedin"
+
+#pca.df[grepl("Trabectidin",pca.df$group),]$Drug <- "Trabectedin"
 pca.df[grepl("DMSO",pca.df$group),]$Drug <- "DMSO"
 pca.df$Timepoint <- factor(pca.df$Timepoint, c("0h","8h","24h"))
 ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
@@ -459,7 +460,6 @@ synFile <- synapser::File('rnaseqcounts.csv', parent = 'syn64004220')
 synapser::synStore(synFile)
 synFile <- synapser::File('rnaseqcounts_hgnc.csv', parent = 'syn64004220')
 synapser::synStore(synFile)
->>>>>>> main
 
 ```
 ### Differential expression

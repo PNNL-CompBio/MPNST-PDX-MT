@@ -173,11 +173,11 @@ if len(comboMulti) > 0:
                             "timePoint": "time", "timePointUnit": "time_unit",
                             "drug2": "Drug"})
     tabsCombo1 = fulltab[(fulltab['drug2.conc']>0) & (fulltab['drug1.conc']>0)]
-    tabsCombo1['Drug'] = tabsCombo1['drug1']+'+'+tabsCombo1['drug2']+'('+round(tabsCombo1['drug1.conc']/tabsCombo1['drug2.conc'],2).astype(str)+')1'
+    tabsCombo1['Drug'] = tabsCombo1['drug1']+'+'+tabsCombo1['drug2']#+'('+round(tabsCombo1['drug1.conc']/tabsCombo1['drug2.conc'],2).astype(str)+')1'
     tabsCombo1 = tabsCombo1.rename(columns={"drug1.conc": "DOSE", "effect": "GROWTH",
                             "timePoint": "time", "timePointUnit": "time_unit"})
     tabsCombo2 = fulltab[(fulltab['drug2.conc']>0) & (fulltab['drug1.conc']>0)]
-    tabsCombo2['Drug'] = tabsCombo2['drug1']+'+'+tabsCombo2['drug2']+'('+round(tabsCombo2['drug1.conc']/tabsCombo2['drug2.conc'],2).astype(str)+')2'
+    tabsCombo2['Drug'] = tabsCombo2['drug1']+'+'+tabsCombo2['drug2']#+'('+round(tabsCombo2['drug1.conc']/tabsCombo2['drug2.conc'],2).astype(str)+')2'
     tabsCombo2 = tabsCombo2.rename(columns={"drug2.conc": "DOSE", "effect": "GROWTH",
                             "timePoint": "time", "timePointUnit": "time_unit"})
     ncols0=['DOSE','GROWTH','improve_sample_id','Drug','time','time_unit']
@@ -212,7 +212,8 @@ if len(comboMulti) > 0:
     # fulltab['expt.date'] = date.today()
     # fulltab3 = fulltab3.rename(columns={"improve_sample_id": "sampleName"})
     # fulltab3['sampleName'] = fulltab3['sampleName'].str[-3:]
-    # fulltab3['sample'] = fulltab3['sampleName'] + "_" + fulltab3['timePoint'].astype(str) + fulltab3['timePointUnit'] # if need replicate, then use specimenID
+    # fulltab3['sample'] = fulltab3['sampleName'] + "_" + fulltab3['timePoint'].astype(str) + fulltab3['timePointUnit']
+    # if need replicate, then use specimenID
     # fulltab3['drug1'] = fulltab3['drug1'].str[1:4]
     # fulltab3['drug2'] = fulltab3['drug2'].str[1:4]
     # ncols=['expt.date','drug1.conc','drug2.conc','effect','sample','drug1','drug2','drug1.units','drug2.units']
@@ -220,8 +221,24 @@ if len(comboMulti) > 0:
     # fulltab3.to_csv('combo_drug_response.csv', index=False) # MuSyC expects CSV file
     ##SG wrote results to files
     otab.to_csv('mpnstDrugComboOutput.txt',sep='\t')
-    wtab = otab.pivot(columns='dose_response_metric',values='dose_response_value')
+    wtab = otab.pivot(index=['source','improve_sample_id','improve_drug_id','study','time','time_unit'],columns='dose_response_metric',values='dose_response_value')
+#    print(wtab)
     wtab.to_csv('mpnstDrugComboMatrix.tsv',sep='\t')
+    wtab = pd.read_csv('mpnstDrugComboMatrix.tsv',sep='\t')
+
+    single = wtab[['+' not in a for a in wtab.improve_drug_id]]
+
+    combo = wtab[['+' in a for a in wtab.improve_drug_id]]
+    combo[['drug1','drug2']]=combo['improve_drug_id'].str.split('+',expand=True)
+
+    s1 = single[['improve_drug_id','improve_sample_id','time','auc']]
+    s1 = s1.rename(columns={'improve_drug_id':'drug1','auc':'drug1_auc'})
+    s2 = s1.rename(columns={'drug1':'drug2','drug1_auc':'drug2_auc'})
+
+
+    combo = combo.merge(s1)
+    combo = combo.merge(s2)
+    combo.to_csv('mpnstDrugComboMatrix.tsv',sep='\t')
 ##now add in single-point drug measurements
 
 #store on synapse
