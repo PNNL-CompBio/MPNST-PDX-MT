@@ -127,8 +127,8 @@ rnaSeqTab<-getRNASeq<-function(){
  ##was this removed? 
  
 
-   mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(drugnames[[x]])))
-   
+   #mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(drugnames[[x]])))
+  # 
    
   
  return(mtab)

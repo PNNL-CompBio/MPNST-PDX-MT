@@ -192,7 +192,8 @@ if len(comboMulti) > 0:
     # if any(fulltab['GROWTH'].str.contains("\*")):
     #     print("replacing asterisk")
     #     fulltab["GROWTH"] = fulltab["GROWTH"].replace(r'\*','', regex=True)
-    fulltab['GROWTH'] = pd.to_numeric(fulltab['GROWTH'])
+    #SG: script requires percentages, so converting growth values to percentages here
+    fulltab['GROWTH'] = pd.to_numeric(fulltab['GROWTH'])*100.00
     ##change file headers to DOSE/RESPONSE values needed by other script
     fulltab.to_csv('mpnst_combo_drug_response_forCurves.tsv',sep='\t')
     
@@ -217,10 +218,17 @@ if len(comboMulti) > 0:
     # ncols=['expt.date','drug1.conc','drug2.conc','effect','sample','drug1','drug2','drug1.units','drug2.units']
     # fulltab3 = fulltab3[ncols]
     # fulltab3.to_csv('combo_drug_response.csv', index=False) # MuSyC expects CSV file
-
+    ##SG wrote results to files
+    otab.to_csv('mpnstDrugComboOutput.txt',sep='\t')
+    wtab = otab.pivot(columns='dose_response_metric',values='dose_response_value')
+    wtab.to_csv('mpnstDrugComboMatrix.tsv',sep='\t')
 ##now add in single-point drug measurements
 
 #store on synapse
 syn.store(sc.File('mpnst_combo_drug_response.csv',parentId='syn52369040'))
+##SG uploaded to synapse
+syn.store(sc.File('mpnstDrugComboOutput.txt',parentId='syn52369040'))
+syn.store(sc.File('mpnstDrugComboMatrix.tsv',parentId='syn52369040'))
+
 #syn.store(sc.File('mpnst_combo_drug_response_forCurves.tsv',parentId='syn52369040'))
 
