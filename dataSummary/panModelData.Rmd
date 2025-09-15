@@ -1,0 +1,401 @@
+---
+title: "Cross-model summary"
+author: "Sara Gosline"
+date: "2025-06-12"
+output: html_document
+---
+
+The goal of this document is to compare the various model systems. 
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo= TRUE)
+library(tidyverse)
+library(synapser)
+
+```
+
+## Get all sample information
+
+We are currently maintaining a table of all the information on our model systems. The full model catalog can be found [here](https://www.synapse.org/Synapse:syn53503360/tables/). 
+
+We are removing some samples for which sequencing between samples does no align
+
+```{r get sample info}
+sl <- synLogin()
+all_data <- synTableQuery("select * from syn53503360")$asDataFrame()
+
+badsamps <- c('JH-2-009')#,'MN-1','WU-505','WU-536','WU-545','MN-3')
+
+pcols <- c(`JH-2-002` =  'sienna',`JH-2-079c` = 'turquoise4',
+           `MN-4`  =  'steelblue4', `WU-225`  =  'darkgoldenrod',
+           `JH-2-031`  = 'pink3', `JH-2-103`  =  'chartreuse4',
+           `MN-1` = 'darkred', `MN-2` = 'cornsilk3', `MN-3` = 'mediumorchid4', 
+           `WU-355` = 'salmon', `WU-368` = 'orangered3')
+
+all_data <- subset(all_data,!Sample %in% badsamps) |>
+  mutate(drugData  =  !is.na(MicroTissueDrugFolder))
+```
+
+
+
+## RNA Seq comparisons
+
+You can also embed plots, for example:
+
+```{r seq, echo = FALSE, message = FALSE, warning = FALSE}
+
+do_deseq_import <- function(file) {
+  if (!require('DESeq2')) {
+    BiocManager::install("DESeq2")
+    library(DESeq2)
+  }
+  
+  if (!require('tximportData')) {
+    BiocManager::install("tximportData")
+    library(tximportData)
+  }
+  
+  if (!require('tximport')) {
+    BiocManager::install("tximport")
+    library(tximport)
+  }
+  
+  dir <- system.file("extdata", package  =  "tximportData")
+  tx2gene <- read.csv(file.path(dir, "tx2gene.gencode.v27.csv"))
+  
+  qnt.table <-
+    data.frame(counts  =  tximport::tximport(file, type  =  'salmon',
+                                           tx2gene  =  tx2gene)$counts) %>%
+    tibble::rownames_to_column('GENEID')
+  
+  return(qnt.table)
+}
+
+rna <- all_data |>
+  dplyr::select(Sample,ends_with('RNASeq'))
+
+seqdata <- do.call(rbind,plyr::alply(rna,1,function(x){
+  pat  =  x[[1]]
+  pdx  =  x[[2]]
+  tumor  =  x[[3]]
+  
+  pd <- NULL
+  td <- NULL
+  if (!is.na(pdx))
+    pd <- do_deseq_import(synGet(pdx)$path) |>
+        mutate(sample  =  'PDX', patient  =  pat, synId = pdx)
+  if (!is.na(tumor))
+    td <- do_deseq_import(synGet(tumor)$path) |>
+        mutate(sample  =  'Tumor', patient  =  pat, synId = tumor)
+  return(rbind(pd,td))
+}))
+
+```
+
+Now that we have the data we can map and load into DESeq for column normalization
+
+```{r map}
+
+seqdata <- seqdata |>
+  tidyr::separate_wider_delim(cols = c(GENEID),names = c('GENE','VERS'),delim = '.')
+
+
+if (!require('EnsDb.Hsapiens.v86')) {
+    BiocManager::install('EnsDb.Hsapiens.v86')
+    library(EnsDb.Hsapiens.v86)
+  }
+database <- EnsDb.Hsapiens.v86
+pmap <-  ensembldb::select(
+    database,
+    keys  =  list(
+      GeneIdFilter(seqdata$GENE),
+      TxBiotypeFilter("protein_coding")
+    ),
+    columns  =  c("GENENAME")
+  ) %>%
+  dplyr::rename(GENE  =  'GENEID') %>%
+  right_join(seqdata) %>%
+  subset(TXBIOTYPE  ==  'protein_coding') %>%
+  dplyr::select(GENE, GENENAME) %>% distinct()#%>%
+# tibble::column_to_rownames('GENEID')
+
+
+  counts <- seqdata |>
+      subset(GENE %in% pmap$GENE) %>% ## this is important as we filter for protein coding genes
+      dplyr::select(GENE, counts, synId) %>%
+    tidyr::pivot_wider(values_from  =  'counts', names_from  =  'synId') %>%
+    tibble::column_to_rownames('GENE') %>%
+    round()
+
+  cdata <- all_data |> 
+    dplyr::select(Sample,Age,Sex, PDX_RNASeq,Tumor_RNASeq, drugData) |> 
+    tidyr::pivot_longer(c('PDX_RNASeq','Tumor_RNASeq'),names_to = 'source',values_to = 'synId') |>
+    mutate(source = gsub('_RNASeq','',source)) |>
+    subset(!is.na(synId)) |>
+    tibble::column_to_rownames('synId')
+  
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData  =  counts,
+                                        colData  =  cdata,
+                                        design  =  ~ Sex)# + Clinical.Status)
+  
+  keep <- rowSums(counts(dds)) >=  10
+  dds <- dds[keep, ]
+  dds <- DESeq2::DESeq(dds)
+##now get all the SF files, read them in 
+vsd <- DESeq2::vst(dds)
+
+```
+
+Now we can try to plot
+
+```{R plot}
+library(ggplot2)
+library(ggrepel)
+pcaData <- plotPCA(vsd, intgroup = c("Sample", "source", "drugData"), returnData = TRUE)
+
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+
+
+p <- ggplot(pcaData, aes(PC1, PC2, shape = source, color = Sample)) +
+  geom_point(size = 3) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  coord_fixed()+
+  ggtitle('Samples by normalized expression') 
+
+p+geom_label_repel(aes(label = Sample))+theme_minimal()+scale_color_manual(values = pcols)
+
+ ggsave('rnaSeqPCA.pdf')
+ 
+ ##then subset for those which have drug data
+ p <- subset(pcaData, drugData)|>
+   ggplot(aes(PC1, PC2, shape = source, color = Sample)) +
+  geom_point(size = 3) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  coord_fixed()+
+  ggtitle('Samples by normalized expression') 
+
+p+geom_label_repel(aes(label = Sample))+theme_minimal()+scale_color_manual(values = pcols)
+
+ ggsave('rnaSeqDrugPCA.pdf')
+ 
+p <- subset(pcaData, source == 'PDX')|>
+   ggplot(aes(PC1, PC2, shape = drugData, color = Sample)) +
+  geom_point(size = 3) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  coord_fixed()+
+  ggtitle('Samples by normalized expression')+scale_color_manual(values = pcols)
+
+p+geom_label_repel(aes(label = Sample))+theme_minimal()
+
+ ggsave('rnaSeqDrugPDX.pdf')
+ 
+```
+
+## Copy number comparisons
+Probably don't need to do these, but at the same time maybe?
+
+## Drug response comparisons
+
+First let's get the older data
+```{r get original data}
+
+
+orig_scores <- readr::read_tsv(synGet('syn68384507')$path)
+
+orig_scores$improve_drug_id[which(orig_scores$improve_drug_id == 'CUDC907C')]<-'CUDC907'
+
+orig_scores |>
+   subset(dose_response_metric  ==  'auc') |>
+  ggplot(aes(x  =  as.factor(time),y  =  dose_response_value,fill  =  improve_sample_id)) +
+    geom_bar(position  =  'dodge',stat  =  'identity') +
+    facet_grid(study~improve_drug_id)+scale_fill_manual(values = pcols)
+
+ggsave('origDrugAUC.pdf',width = 24,height = 3)
+```
+
+How does the drug response compare to the Musyc scores?
+
+```{r drug preds}
+
+single_scores <- readr::read_tsv(synGet('syn65941820')$path)
+
+single_scores |>
+   subset(dose_response_metric  ==  'auc') |>
+  ggplot(aes(x  =  as.factor(time),y  =  dose_response_value,fill  =  improve_sample_id)) +
+    geom_bar(position  =  'dodge',stat  =  'identity') +
+    facet_grid(~improve_drug_id)+scale_fill_manual(values = pcols)
+
+ggsave('singleDrugAUC.pdf',width = 20)
+
+#single_scores |>
+#    subset(dose_response_metric  =  =  'auc') |>
+#   ggplot(aes(x  =  as.factor(time),y  =  dose_response_value,fill  =  improve_drug_id))+
+#  geom_bar(stat  =  'identity',position  =  'dodge') + facet_grid(improve_sample_id~.)
+
+combo_scores <- readr::read_csv(synGet('syn68258295')$path)
+
+##combinations have different effects on different samples
+ggplot(combo_scores,aes(x = as.factor(time),y  =  log_alpha12,
+                        fill = sample)) + geom_boxplot() +
+  scale_fill_manual(values = pcols)
+
+
+p1 <- ggplot(combo_scores,aes(x = time,
+                        y = log_alpha12,fill = sample)) + 
+  facet_grid(drug1~drug2)+
+  geom_bar(stat = 'identity',position = 'dodge') +
+   scale_fill_manual(values = pcols)
+
+p2 <- ggplot(combo_scores,aes(x = time,
+                        y = log_alpha21,fill = sample)) +
+  facet_grid(drug1~drug2) +
+  geom_bar(stat = 'identity',position = 'dodge') +
+   scale_fill_manual(values = pcols)
+
+cowplot::plot_grid(p1,p2,ncol = 1)
+
+ggsave('musycBarplots.pdf',width = 10,height = 10)
+
+
+```
+
+
+Here we see that the 2 day timepoint shows greater effect over the five day in general
+
+```{r effect comparison}
+a1<-ggplot(combo_scores,aes(x=as.factor(time),y=log_alpha21,fill=sample))+geom_boxplot()+scale_fill_manual(values=pcols)
+
+a2<-ggplot(combo_scores,aes(x=as.factor(time),y=log_alpha12,fill=sample))+geom_boxplot()+scale_fill_manual(values=pcols)
+
+cowplot::plot_grid(a1,a2)+ggtitle('2D measurment shows greater effects')
+
+
+```
+
+```{r scores by drug}
+##music gives three measurements that provide a profile of drug sensitivity rather than just synergy
+ggplot(combo_scores,
+       aes(x = log_alpha21,y = log_alpha12,
+           colour = beta,shape = sample,size = 4)) +
+  geom_point() +
+  scale_color_viridis_c() +
+  facet_grid(drug1~drug2) + 
+  theme_bw()
+
+ggsave('musyc_scores.pdf',width = 12)
+
+```
+
+
+Now can we compare musyc results to DMEA results?
+
+```{R comparison}
+
+combineddata <- readr::read_csv(synGet('syn68327933')$path)
+
+ggplot(combineddata,aes(x=Time,y=NES,fill=DrugTreatment))+geom_bar(position='dodge',stat='identity')+facet_grid(~Drug_set)
+
+full_data<-combineddata|>left_join(combo_scores)
+
+##first let's check which time points. 
+
+p1<-  ggplot(full_data,aes(x=log_alpha12,y=NES,shape=Time,col=time))+
+  geom_point()+facet_grid(DrugTreatment~Drug_set)
+
+p2<-  ggplot(full_data,aes(x=log_alpha21,y=NES,shape=Time,col=time))+
+  geom_point()+facet_grid(DrugTreatment~Drug_set)
+
+cowplot::plot_grid(p1,p2)
+```
+
+this isn't great, let's try to evaluate one drug at a time
+
+```{r dmea}
+
+dmea <- readr::read_csv(synGet('syn65672258')$path)
+
+ds <- c("HDAC inhibitor","MEK inhibitor","MET inhibitor","DNA alkylating agent",'CDK inhibitor' )
+drugs <-c('TNO155','Mirdametinib','Doxorubicin','Vorinostat','Trabectidin',"Olaparib",'Trabectedin','Palbociclib')
+
+drugs <- c(drugs,tolower(drugs))
+
+preds <- dmea |>
+  subset(DrugTreatment %in% drugs) |>
+  subset(Drug_set %in% ds) |>
+  ggplot(aes(x = Drug_set,col = MPNST,y = NES,size = -log10(FDR_q_value))) +
+  geom_point() +
+  facet_grid(Time~DrugTreatment) +
+  scale_color_manual(values = pcols) +
+  coord_flip() +
+  theme_bw()
+
+ggsave('selectPreds.pdf',preds,height=5)
+###now we can do a side by side with our drug scores
+actual <- combo_scores |>
+  subset(drug1 %in% drugs) |>
+  subset(drug2 %in% drugs) |>
+ggplot(aes(x = log_alpha21,y = log_alpha12,
+           color = sample,size=beta,shape=as.factor(time))) +
+  geom_point() +
+ scale_color_manual(values = pcols) +
+  facet_grid(drug1~drug2) + 
+  theme_bw()
+
+ggsave('selectActuals.pdf',actual,height=5)
+cowplot::plot_grid(preds,actual)
+
+ggsave('predsVsActual.pdf',width=20, height=5)
+
+
+```
+
+
+This is too much, let'st ry to focus even more
+
+```{r mirda}
+
+subset(dmea,DrugTreatment == 'Mirdametinib') |>
+  subset(Time == '24h') |>
+  subset(FDR_q_value < 0.1) |>
+  subset(NES < 0) |>
+  ggplot(aes(x = reorder(Drug_set,NES),y = NES,fill=MPNST))+
+  #facet_grid(Time~.)+
+  geom_bar(position='dodge',stat='identity')+
+  coord_flip()+
+  scale_fill_manual(values=pcols)+
+  ggtitle("Mirdametinib based predictions")
+
+ggsave('mirdaPreds.pdf')
+
+subset(dmea,DrugTreatment=='TNO155')|>
+  subset(Time=='24h') |>
+  subset(FDR_q_value<0.25)|>
+  subset(NES<0)|>
+  ggplot(aes(x=reorder(Drug_set,NES),y=NES,fill=MPNST))+
+  #facet_grid(Time~.)+
+  geom_bar(position='dodge',stat='identity')+
+  coord_flip()+
+  scale_fill_manual(values=pcols)+
+  ggtitle("TNO155 based predictions")
+
+ggsave('tnoPreds.pdf')
+
+subset(dmea,DrugTreatment=='Doxorubicin')|>
+  subset(FDR_q_value<0.25)|>
+  subset(Time=='24h') |>
+  subset(NES<0)|>
+  ggplot(aes(x=reorder(Drug_set,NES),y=NES,fill=MPNST))+
+  #facet_grid(Time~.)+
+  geom_bar(position='dodge',stat='identity')+
+  coord_flip()+
+  scale_fill_manual(values=pcols)+
+  ggtitle("Doxorubicin based predictions")
+
+ggsave('doxPreds.pdf')
+```
+
+Now we can compare to actual values, suggest new ones. 

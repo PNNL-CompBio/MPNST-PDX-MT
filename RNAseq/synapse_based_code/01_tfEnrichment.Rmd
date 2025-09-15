@@ -28,6 +28,17 @@ if (any(diffex$Drug == "Trabectidin")) {
 }
 counts_ens<-readr::read_csv(synapser::synGet('syn64398049')$path)
 
+n <- 15
+library(RColorBrewer)
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(n-8,'Set2'))
+ 
+pie(rep(1,n), col=sample(cols, n))
+
+drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
+                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociblib',TNO='TNO155',VOR='Vorinostat',
+                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectidin',DOX='Doxorubicin')
+
+names(cols)<-unlist(drugnames)
 ```
 
 ## Decoupler analysis 
@@ -114,10 +125,11 @@ tf_mat<-sample_acts|>
 
 ddesign<-design|>
   tibble::column_to_rownames('id')|>
-  mutate(Timepoint=as.factor(Timepoint))
+  mutate(Timepoint=as.character(Timepoint))
 
-#pheatmap(tf_mat,annotation_row = ddesign,labels_row=c())
-# Error in hclust(d, method = method) : must have n >= 2 objects to cluster
+tcolors=c("white",'lightgrey','darkgrey')
+names(tcolors)<-c('0h','8h','24h')
+pheatmap(tf_mat,annotation_row = ddesign,labels_row=c(),annotation_colors=list(Timepoint=tcolors,Drug=cols))
 
 
 sample_acts|>
@@ -125,7 +137,7 @@ sample_acts|>
   mutate(log10p=(-log10(p_value)))|>
   left_join(design)|>
   subset(source%in%vars$source[1:15])|>
-  ggplot(aes(x=Drug,y=score,col=source,shape=as.factor(Timepoint),size=log10p))+geom_point()
+  ggplot(aes(x=source,y=score,col=Drug,size=log10p))+geom_point()+facet_grid(~Timepoint)+scale_color_manual(values=cols)+coord_flip()
 
 readr::write_csv(sample_acts,'allTFestimatesBySample.csv')
 sf<-synapser::File('allTFestimatesBySample.csv',parentId='syn64693461')
@@ -178,6 +190,7 @@ subset(allcontrast,padj<0.01)|>
   ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+
   geom_point()+coord_flip()+facet_grid(Timepoint~individualID)
 #allcontrast[allcontrast$Drug=="Ribociblib",]$Drug <- "Ribociclib"
+
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenes.csv')
 sf <-synapser::File('tfEstimatesEnsGenes.csv',parentId='syn64693461')
 synapser::synStore(sf)
@@ -197,13 +210,41 @@ mat<-allcontrast|>
 subset(allcontrast,source%in%c('ZEB1','STAT1','EGR1','RELA'))|>
   ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+
   geom_point()+facet_grid(individualID~source)+coord_flip()
+  dplyr::select(Drug,Timepoint,Date)|>
+  distinct()|>
+  tidyr::unite(Drug,Timepoint,Date,col='DrugTimepointDate',remove=FALSE)|>
+  tibble::column_to_rownames('DrugTimepointDate')
+
+mat<-allcontrast|>
+  dplyr::select(source,Drug,Timepoint,Date,score)|>
+  tidyr::unite(Drug,Timepoint,Date,col='DrugTimepointDate')|>
+  pivot_wider(names_from=DrugTimepointDate,values_from=score,values_fill = 0.0)
+
+subset(allcontrast,source%in%c('BRD4','STAT3','EGR1','E2F1','FOXM1'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()+scale_color_manual(values=cols)
+
+
+
+subset(allcontrast,source%in%c('FOXC1','HOXB8','MSX2','FOXD1','HOXD13','SNAI2'))|>ggplot(aes(x=Drug,y=score,size=signif,color=Drug,shape=as.factor(Timepoint)))+geom_point()+facet_grid(~source)+coord_flip()+scale_color_manual(values=cols)
+
+pdf('prc2Tfs.pdf')
+
 ```
 
 We can evaluate how the transcription factor values correlate with one another
 ```{r tfcors}
 
 corval<-mat|>tibble::column_to_rownames('source')|>cor(use='pairwise.complete.obs')
-pheatmap(corval,annotation_row = md,annotation_col=md)
+
+
+cortab<-corval|>
+  as.data.frame()|>
+ tibble::rownames_to_column('drug_exp1')|>tidyr::pivot_longer(contains('h'),names_to='drug_exp2',values_to='cor')|>
+  arrange(cor)
+
+print(cortab)
+
+md$Date=as.factor(md$Date)
+pheatmap(corval,annotation_row = md,annotation_col=md,annotation_colors=list(Drug=cols,Timepoint=tcolors))
 
 pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
 
@@ -212,6 +253,7 @@ comps|>
   ggplot(aes(x=PC1,y=PC2,col=Drug,shape=as.factor(Timepoint),size=4))+
   geom_point()+#ggrepel::geom_label_repel(aes(label=Drug))+
   facet_grid(~individualID)
+
 ```
 
 
