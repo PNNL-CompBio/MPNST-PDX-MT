@@ -490,6 +490,8 @@ diffexCalls<-do.call(rbind,lapply(unique(sampmeta$Date),function(dval){
   if ("DMSO" %in% datemeta$Drug) {
     temp.drugs <- unique(datemeta$Drug)
     temp.drugs <- temp.drugs[temp.drugs != "DMSO"]
+    temp.drugs <- temp.drugs[temp.drugs != "untreated"]##SG added this why? what does this mean?
+
     ##check for each drug at the date
     do.call(rbind,lapply(temp.drugs,function(d_name){
       cat(d_name,"\n")
