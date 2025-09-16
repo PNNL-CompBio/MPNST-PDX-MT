@@ -57,9 +57,10 @@ Created a helper function to get RNASeq data. Currently this uses the file names
 ##TODO: udpate using file views
 rnaSeqTab<-getRNASeq<-function(){
   ##metadata query first queries file view for all files - in this case i do counts.sf files, but you can also query by data type
-  manifest <- synapser::synTableQuery("select * from syn52369043 where name like '%quant.genes.sf'")|>#$asDataFrame()|>
-    as.data.frame()|>
-    dplyr::select(name,id,specimenID)
+  manifest <- synapser::synTableQuery("select * from syn52369043 where name like '%quant.genes.sf'")$filepath#|>#$asDataFrame()|>
+    
+    #base::as.data.frame()|>
+  manifest <- readr::read_csv(manifest)|>dplyr::select(name,id,specimenID)
   
  ##not sure what the 'samples' are here so isolating them out
 
@@ -127,8 +128,8 @@ rnaSeqTab<-getRNASeq<-function(){
  ##was this removed? 
  
 
-   #mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(drugnames[[x]])))
-  # 
+   mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(ifelse(x%in%names(drugnames),drugnames[[x]],x))))
+   
    
   
  return(mtab)
@@ -365,8 +366,7 @@ ggsave('bcorrected_pca_drug.pdf', width=5,height=5)
 pca.df <- plotPCA(vsd,intgroup=c('Drug','individualID','Timepoint','Date'),returnData=TRUE)
 pca.df$Drug <- droplevels(pca.df$Drug) # didn't work
 pca.df$Drug <- factor(pca.df$Drug, levels=c("DMSO",names(drug.info)))
-
-#pca.df[grepl("Trabectidin",pca.df$group),]$Drug <- "Trabectedin"
+pca.df[grepl("Trabectidin",pca.df$group),]$Drug <- "Trabectedin"
 pca.df[grepl("DMSO",pca.df$group),]$Drug <- "DMSO"
 pca.df$Timepoint <- factor(pca.df$Timepoint, c("0h","8h","24h"))
 ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
@@ -633,36 +633,3 @@ subset(dgenes,ensembl_gene_id%in%topgenes$ensembl_gene_id)|>
 ```
 Most genes are only differentially expressed upon a single drug treatment, but some are shared with other drugs. Targeting these canonical responders might be effective, but what if we can find distinct genes changing?
 
-Maybe we want drugs that exhibit inverse behavior for genes like UBASH3B? Uup in mirda/dox, 
-
-Here we ask for genes only changing in one drug - is this a more reliable list?
-
-```{r distinct genes}
-
-ugenes<-subset(drugscounts,ndrugs==1)
-
-subset(dgenes,ensembl_gene_id%in%ugenes$ensembl_gene_id)|>
-   subset(signif)|>
-  group_by(Drug,Timepoint,direction,individualID)|>
-  summarize(ngenes=n())|>
-  ggplot()+geom_bar(aes(x=Drug,y=ngenes,fill=direction),stat='identity',position='dodge')+
-    facet_grid(individualID~Timepoint)+coord_flip()
-```
-
-Lastly, what if we only look at uniquely changing genes that are consistently changing? Are the pathways still the same? 
-
-```{r consistent genes}
-##what about genes that are consistent across 8 and 24hr time point/
-ggenes<-dgenes|>subset(signif)|>group_by(Drug,direction,ensembl_gene_id)|>summarize(ntime=n())|>subset(ntime==2)
-
-  left_join(ggenes,dgenes)|>
-   subset(signif)|>
-  group_by(Drug,Timepoint,direction,individualID)|>
-  summarize(ngenes=n())|>
-  ggplot()+geom_bar(aes(x=Drug,y=ngenes,fill=direction),stat='identity',position='dodge')+
-    facet_grid(individualID~Timepoint)+coord_flip()+ggtitle("Consistently changing genes in only one drug")
-
-
-```
-
-should we target genes that are unique to a drug? and if so, do we want genes that are consistently changed across time points? What are the enrichment statistics for these genes? 
