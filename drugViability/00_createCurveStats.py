@@ -34,13 +34,15 @@ for index,row in comboFiles.iterrows():
   dfile = pd.read_csv(syn.get(row['id']).path)
   if all(dfile['dataSubtype'] == 'processed'):
       dfile['improve_sample_id'] = row['specimenID']
+      if pd.isna(row['specimenID']):
+        dfile['improve_sample_id'] = dfile['sampleName']
       dfile = dfile.reset_index()
       
       # replace nan with drug 1 or 2 names as appropriate
       drug1 = dfile['drugOneName'].dropna().unique()[0]
-      dfile['drugOneName'].fillna(drug1, inplace=True)
+      dfile['drugOneName'] = dfile['drugOneName'].fillna(drug1)#.fillna(drug1, inplace=True)
       drug2 = dfile['drugTwoName'].dropna().unique()[0]
-      dfile['drugTwoName'].fillna(drug2, inplace=True)
+      dfile['drugTwoName'] = dfile['drugTwoName'].fillna(drug2)#.fillna(drug2, inplace=True)
       if all(dfile['drugOneName'] == drug1) & all(dfile['drugTwoName'] == drug2):
           comboMulti.append(dfile)
               
@@ -49,6 +51,8 @@ for index,row in singleFiles.iterrows():
   dfile = pd.read_csv(syn.get(row['id']).path)
   if all(dfile['dataSubtype'] == 'processed'):
       dfile['improve_sample_id'] = row['specimenID']
+      if pd.isna(row['specimenID']):
+        dfile['improve_sample_id'] = dfile['sampleName']
       dfile = dfile.reset_index()
       
       ##get counts of drugs to only keep drugs with >1 dose for curve fitting
