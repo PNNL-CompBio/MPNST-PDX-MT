@@ -88,11 +88,11 @@ synapser::synLogin()
 degs <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
 degs <- degs[degs$hgnc_symbol != "" & !is.na(degs$hgnc_symbol),]
 degs <- degs[degs$Drug != "Irinotecan",] # since irinotecan isn't metabolically active
-colnames(degs)[15] <- "Gene"
+colnames(degs)[ncol(degs)] <- "Gene"
 colnames(degs)[4] <- "Log2FC"
 degs$padj <- as.numeric(degs$padj)
 degs <- degs[degs$padj <= 0.05,]
-length(na.omit(unique(degs$Gene))) # 2950
+length(na.omit(unique(degs$Gene))) # 11194
 
 # CCLE RNA-seq with HGNC symbols
 ccle <- get_CCLE_RNA(hgnc = TRUE)
@@ -141,39 +141,23 @@ setwd("DMEA")
 dmea.sens <- list()
 drug.corr.sens <- list()
 for (i in timepoints) {
-  #setwd(dmea.path)
-  cat(i, "\n")
-  #dir.create(i)
-  #setwd(i)
-  # timeSyn <- synapser::synStore(synapser::Folder(i, 
-  #                               parent = synapse_id)) 
+  cat(i, "\n") 
   
   # filter for time
   time.deg <- degs[degs$Timepoint == i,]
   
   temp.dmea.sens <- list()
   temp.drug.corr.sens <- list()
- for (m in mpnst) {
-  #setwd(file.path(dmea.path, i))
-  #dir.create(m)
-  #setwd(m)
-  # tempSyn <- synapser::synStore(synapser::Folder(m, 
-  #                               parent = timeSyn)) 
-  cat(m, "\n")
-  
-  # filter for mpnst
-  mpnst.deg <- time.deg[time.deg$individualID == m,]
   
   # prep inputs for each drug
   drug.degs <- list()
   expr <- list()
-  all.drugs <- na.omit(unique(mpnst.deg$Drug))
+  all.drugs <- na.omit(unique(time.deg$Drug))
   for (j in all.drugs) {
     cat(j,"(",which(all.drugs == j),"/",length(all.drugs),"drugs)\n")
     temp.deg <- na.omit(dplyr::distinct(
-      mpnst.deg[mpnst.deg$Drug == j,
+      time.deg[time.deg$Drug == j,
                 c("Gene","Log2FC")]))
-    #temp.deg <- temp.deg %>% slice_max(abs(Log2FC), n = 500)
     if (any(duplicated(temp.deg$Gene))) {
       cat("resolving duplicates\n")
       temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
@@ -190,37 +174,16 @@ for (i in timepoints) {
   drugResults <- panSEA::mDMEA(drug.sensitivity = prism, gmt = gmt.drug,
                                  expression = expr, weights = drug.degs,
                                  types = names(drug.degs), scatter.plots=FALSE)
-  # temp.files <- list()
-  # tested.drugs <- names(drugResults$all.results)
-  # for (j in tested.drugs) {
-  #   temp.files[[j]] <- extract_DMEA_files(drugResults, j)
-  # }
-  # temp.files[["Compiled"]] <- 
-  #   list("DMEA_results.csv" = drugResults$compiled.results$results,
-  #        "Compiled_DMEA_results.csv" = drugResults$compiled.results$mean.results,
-  #        "DMEA_venn_diagram.pdf" = drugResults$compiled.results$venn.diagram,
-  #        "DMEA_dot_plot.pdf" = drugResults$compiled.results$dot.plot,
-  #        "DMEA_correlations.csv" = drugResults$compiled.results$corr,
-  #        "DMEA_correlation_matrix.pdf" =drugResults$compiled.results$corr.matrix)
-  # save_to_synapse_v2(temp.files, tempSyn)
-  
-  temp.dmea.sens[[m]] <- drugResults$compiled.results$result
+
+  temp.dmea.sens.df <- drugResults$compiled.results$result
   
   # also compile drug correlations
   drug.corr.list <- list()
   for (j in all.drugs) {
     drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
   }
-  drug.corr.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "DrugTreatment")
-  temp.drug.corr.sens[[m]] <- drug.corr.df
-  saveRDS(temp.dmea.sens, file.path(dmea.path,"tempDMEAsens8h.rds"))
-  saveRDS(temp.drug.corr.sens, file.path(dmea.path,"tempDMEAcorrSens8h.rds"))
- }  
-  temp.drug.corr.sens.df <- data.table::rbindlist(temp.drug.corr.sens, use.names=TRUE, idcol="MPNST")
-  temp.dmea.sens.df <- data.table::rbindlist(temp.dmea.sens, use.names=TRUE, idcol="MPNST")
-  colnames(temp.dmea.sens.df)[2] <- "DrugTreatment"
-  temp.dmea.sens.df[temp.dmea.sens.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
-  temp.drug.corr.sens.df[temp.drug.corr.sens.df$DrugTreatment == "Ribociblib",]$DrugTreatment <- "Ribociclib"
+  temp.drug.corr.sens.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "DrugTreatment")
+  colnames(temp.dmea.sens.df)[1] <- "DrugTreatment"
   drug.corr.sens[[as.character(i)]] <- temp.drug.corr.sens.df
   dmea.sens[[as.character(i)]] <- temp.dmea.sens.df
 }
@@ -243,12 +206,6 @@ dmea.path <- file.path(base.path, "DMEA")
 setwd(dmea.path)
 dmea.sens.df <- read.csv("DMEA_results.csv")
 drug.corr.sens.df <- read.csv("DMEA_correlations.csv")
-if (any(drug.corr.sens.df$DrugTreatment == "Trabectidin")) {
-  drug.corr.sens.df[drug.corr.sens.df$DrugTreatment == "Trabectidin",]$DrugTreatment <- "Trabectedin"
-}
-if (any(dmea.sens.df$DrugTreatment == "Trabectidin")) {
-  dmea.sens.df[dmea.sens.df$DrugTreatment == "Trabectidin",]$DrugTreatment <- "Trabectedin"
-}
 drug.corr.sens.df$DrugTreatment <- factor(drug.corr.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 dmea.sens.df$DrugTreatment <- factor(dmea.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 timepoints <- unique(drug.corr.sens.df$Time)
@@ -256,49 +213,30 @@ drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=timepoints)
 dmea.sens.df$Time <- factor(dmea.sens.df$Time, levels=timepoints)
 all.drugs <- levels(dmea.sens.df$DrugTreatment)
 all.drugs <- all.drugs[all.drugs %in% dmea.sens.df$DrugTreatment]
-all.moas <- sort(names(drug.info)[names(drug.info) %in% dmea.sens.df$DrugTreatment])
+all.moas <- sort(names(drug.info)[unlist(drug.info) %in% dmea.sens.df$DrugTreatment])
 drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
 names(drugCol) <- all.drugs
 
-sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 & 
-                           dmea.sens.df$p_value <= 0.05,]
-nMOAs <- plyr::ddply(sig.dmea, .(MPNST, DrugTreatment, Time), dplyr::summarize,
-                    N = length(na.omit(unique(Drug_set))))
+sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value < 0.25 & 
+                           dmea.sens.df$p_value < 0.05,]
 nMOAs.overall <- plyr::ddply(sig.dmea, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug_set))))
 
-# are there more/less enriched drug MOAs at 8h vs. 24h? more at 24h p=0.02221
-# for (m in mpnst) {
-#  cat(m, "# of MOAs enriched at 8h vs. 24h\n")
-#   t.test(nMOAs[nMOAs$MPNST==m & nMOAs$Time=="8h",]$N, 
-#          nMOAs[nMOAs$MPNST==m & nMOAs$Time=="24h",]$N) 
-# }
+# are there more/less enriched drug MOAs at 8h vs. 24h? 2-sided p=0.05422887; 1-sided: more at 24h (p=0.02711443)
 cat("Overall", "# of MOAs enriched at 8h vs. 24h\n")
-# t.test(nMOAs.overall[nMOAs.overall$Time=="8h",]$N, 
-#        nMOAs.overall[nMOAs.overall$Time=="24h",]$N)
+t.test(nMOAs.overall[nMOAs.overall$Time=="8h",]$N,
+       nMOAs.overall[nMOAs.overall$Time=="24h",]$N)
+test <- t.test(nMOAs.overall[nMOAs.overall$Time=="8h",]$N,
+       nMOAs.overall[nMOAs.overall$Time=="24h",]$N, "less")
 
-nMOAs$moa <- NA
 nMOAs.overall$moa <- NA
 for (i in 1:length(drug.info)) {
-  if (any(nMOAs$DrugTreatment %in% drug.info[[i]])) {
-   nMOAs[nMOAs$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i] 
+  if (any(nMOAs.overall$DrugTreatment %in% drug.info[[i]])) {
    nMOAs.overall[nMOAs.overall$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i]
   }
 }
 
 # generate plot
-nMOAs$moa <- factor(nMOAs$moa, levels=sort(na.omit(unique(nMOAs$moa))))
-nMOA.plot <- ggplot2::ggplot(nMOAs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=moa)) +
-  geom_boxplot(width=0.2, alpha = 0) + 
-  scale_color_manual(limits=all.drugs, values=drugCol) +
-  labs(x="Time (Hours)", y="# of Enriched Drug Mechanisms",
-       color = "Drug Treatment", shape = "Mechanism") +
-  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
-  theme_classic(base_size=12) +
-  theme(legend.box="horizontal") + facet_wrap(~MPNST)
-ggplot2::ggsave("N_enrichedDrugMechanisms.pdf", nMOA.plot, width=5.5, height=4)
-
 nMOAs.overall$moa <- factor(nMOAs.overall$moa, levels=sort(na.omit(unique(nMOAs.overall$moa))))
 nMOA.plot.overall <- ggplot2::ggplot(nMOAs.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
   geom_point(aes(color=DrugTreatment, shape=moa)) +
@@ -311,46 +249,25 @@ ggplot2::ggsave("N_enrichedDrugMechanisms_overall.pdf", nMOA.plot.overall, width
 
 ## drugs
 # prep data
-sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$Pearson.q <= 0.05,]
-nDrugs <- plyr::ddply(sig.drug.corr, .(MPNST, DrugTreatment, Time), dplyr::summarize,
-                    N = length(na.omit(unique(Drug))))
+sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$Pearson.q < 0.05,]
 nDrugs.overall <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
                     N = length(na.omit(unique(Drug))))
 
-# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.9166
-# for (m in mpnst) {
-#  cat(m, "# of drugs correlated at 8h vs. 24h\n")
-#   t.test(nDrugs[nDrugs$MPNST==m & nDrugs$Time=="8h",]$N, 
-#          nDrugs[nDrugs$MPNST==m & nDrugs$Time=="24h",]$N) 
-# }
-# cat("Overall", "# of drugs correlated at 8h vs. 24h\n")
-# t.test(nDrugs.overall[nDrugs.overall$Time=="8h",]$N, 
-#        nDrugs.overall[nDrugs.overall$Time=="24h",]$N)
+# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.4324531
+cat("Overall", "# of drugs correlated at 8h vs. 24h\n")
+t.test(nDrugs.overall[nDrugs.overall$Time=="8h",]$N,
+       nDrugs.overall[nDrugs.overall$Time=="24h",]$N)
 
-nDrugs$moa <- NA
 nDrugs.overall$moa <- NA
 for (i in 1:length(drug.info)) {
-  if (any(nDrugs$DrugTreatment %in% drug.info[[i]])) {
-   nDrugs[nDrugs$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i] 
+  if (any(nDrugs.overall$DrugTreatment %in% drug.info[[i]])) {
    nDrugs.overall[nDrugs.overall$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i]
   }
 }
 
 # generate plot
-#nDrugs$Time <- factor(nDrugs$Time, levels=timepoints)
-nDrugs$moa <- factor(nDrugs$moa, levels=sort(na.omit(unique(nDrugs$moa))))
-nDrug.plot <- ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=moa)) + scale_color_manual(limits=all.drugs, values=drugCol) +
-  geom_boxplot(width=0.2, alpha = 0) + 
-  scale_y_continuous(trans="log10") + labs(x="Time (Hours)", y="Log(# of Correlated Drugs)",
-                                           color = "Drug Treatment", shape = "Mechanism") +
-  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
-  theme(legend.box="horizontal") + facet_wrap(~MPNST)
-ggplot2::ggsave("N_correlatedDrugs.pdf", nDrug.plot, width=5.5, height=4)
-
-#nDrugs.overall$Time <- factor(nDrugs.overall$Time, levels=timepoints)
 nDrugs.overall$moa <- factor(nDrugs.overall$moa, levels=sort(na.omit(unique(nDrugs.overall$moa))))
-nDrug.plot.overall <- ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+nDrug.plot.overall <- ggplot2::ggplot(nDrugs.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
   geom_point(aes(color=DrugTreatment, shape=moa)) + scale_color_manual(limits=all.drugs, values=drugCol) +
   geom_boxplot(width=0.2, alpha = 0) + 
   scale_y_continuous(trans="log10") + labs(x="Time (Hours)", y="Log(# of Correlated Drugs)",
@@ -358,10 +275,6 @@ nDrug.plot.overall <- ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + geom_violin(al
   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
 ggplot2::ggsave("N_correlatedDrugs_overall.pdf", nDrug.plot.overall, width=5.5, height=4)
-
-patchN.plot <- nMOA.plot + nDrug.plot + patchwork::plot_layout(guides="collect") #& theme(legend.box="horizontal")
-ggplot2::ggsave("N_drugsAndMOAs.pdf", patchN.plot, width=8, height=4)
-ggplot2::ggsave("N_drugsAndMOAs_taller.pdf", patchN.plot, width=8, height=8)
 
 patchN.plot.overall <- nMOA.plot.overall + nDrug.plot.overall + patchwork::plot_layout(guides="collect") #& theme(legend.box="horizontal")
 ggplot2::ggsave("N_drugsAndMOAs_overall.pdf", patchN.plot.overall, width=8, height=4)
@@ -421,7 +334,7 @@ dot.plot <- ggplot2::ggplot(
   theme(axis.text.y=element_text(face=setFace), 
         axis.text.x=element_text(face=inputFace,angle=45, vjust=1, hjust=1)) +
   geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
-  facet_wrap(vars(cols = Time, rows=MPNST))
+  facet_grid(.~Time)
 dot.plot
 # most are only in prot and not in RNA
 ggplot2::ggsave("Enriched_MOAs_dotPlot.pdf", dot.plot, width=10, height=20)
@@ -434,7 +347,7 @@ library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
 
-moa.info2 <- dplyr::distinct(nMOAs[,c("DrugTreatment","moa")])
+moa.info2 <- dplyr::distinct(nMOAs.overall[,c("DrugTreatment","moa")])
 
 n.top.list <- c(1, 2, 3, 5)
 for (n.top in n.top.list) {
@@ -448,7 +361,9 @@ for (n.top in n.top.list) {
   length(unique(topSigMOA$Drug_set)) # 20
   dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% unique(topSigMOA$Drug_set),]
   # shorten names as needed
-  dot.df[dot.df$Drug_set == "PDGFR tyrosine kinase receptor inhibitor",]$Drug_set <- "PDGFR inhibitor"
+  if ("PDGFR tyrosine kinase receptor inhibitor" %in% dot.df$Drug_set) {
+    dot.df[dot.df$Drug_set == "PDGFR tyrosine kinase receptor inhibitor",]$Drug_set <- "PDGFR inhibitor"
+  }
   
   mean.results <- plyr::ddply(dot.df, .(Drug_set), summarize,
                               NES = mean(NES, na.rm=TRUE))
@@ -483,13 +398,13 @@ for (n.top in n.top.list) {
     ) + 
     theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
     geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
-    facet_wrap(vars(cols = Time, rows=MPNST))
+    facet_grid(.~Time)
   dot.plot
-  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top*1.5<3,3,n.top*1.5))
-  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_littleTaller.pdf"), dot.plot, width=10, height=ifelse(n.top*2<4.5,4.5,n.top*2))
-  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_littleTallerWider.pdf"), dot.plot, width=12, height=ifelse(n.top*2<4.5,4.5,n.top*2))
-  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_taller.pdf"), dot.plot, width=10, height=ifelse(n.top*3<6,6,n.top*3))
-  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_tallerWider.pdf"), dot.plot, width=12, height=ifelse(n.top*3<6,6,n.top*3))
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot.pdf"), dot.plot, width=10, height=ifelse(n.top*1.5<3,3,n.top))
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_littleTaller.pdf"), dot.plot, width=10, height=ifelse(n.top*2<4.5,4.5,n.top*1.5))
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_littleTallerWider.pdf"), dot.plot, width=12, height=ifelse(n.top*2<4.5,4.5,n.top*1.5))
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_taller.pdf"), dot.plot, width=10, height=ifelse(n.top*3<6,6,n.top*2))
+  ggplot2::ggsave(paste0(n.top,"_topEnrichedMOAs_dotPlot_tallerWider.pdf"), dot.plot, width=12, height=ifelse(n.top*3<6,6,n.top*2))
   
   # create tile plot for drug MOA annotations
   moa.plot <- ggplot2::ggplot(moa.info2, aes(x=DrugTreatment,y=1, fill=moa)) + 
@@ -541,12 +456,11 @@ ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
     theme( 
       axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
     geom_point(data = subset(dot.df, Pearson.q <= 0.05), col = "black", stroke = 1.5, shape = 21) +
-    facet_wrap(vars(cols = Time, rows=MPNST))
+    facet_grid(.~Time)
   dot.plot
   # most are only in prot and not in RNA
-  ggplot2::ggsave(paste0(n.top,"_topCorrelatedDrugs_dotPlot.pdf"), dot.plot, width=10, height=ifelse(4*n.top<5,5,4*n.top))
+  ggplot2::ggsave(paste0(n.top,"_topCorrelatedDrugs_dotPlot.pdf"), dot.plot, width=10, height=ifelse(4*n.top<5,5,3*n.top))
 }
-
 ```
 
 
@@ -615,7 +529,7 @@ dot.plot <- ggplot2::ggplot(
           angle=45, vjust=1, hjust=1),
         legend.box="horizontal") +
   geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
-  facet_wrap(vars(cols = Time,rows=MPNST))
+  facet_grid(.~Time)
 dot.plot
 # most are only in prot and not in RNA
 ggplot2::ggsave("Validation_MOAs_dotPlot.pdf", dot.plot, width=10, height=3)
@@ -625,7 +539,7 @@ validations$Time <- as.character(validations$Time)
 validations$Time <- as.numeric(substr(validations$Time, 1, nchar(validations$Time)-1))
 validations$Drug_set <- factor(validations$Drug_set, levels=sort(na.omit(unique(validations$Drug_set))))
 validation.plot <- ggplot2::ggplot(validations, aes(x=Time, y=NES, color=DrugTreatment)) + 
-  geom_point(aes(shape=Drug_set, alpha=MPNST)) + geom_smooth(method="lm", se = FALSE, linetype="dashed") + #geom_line(linetype="dashed") +
+  geom_point(aes(shape=Drug_set)) + geom_smooth(method="lm", se = FALSE, linetype="dashed") + #geom_line(linetype="dashed") +
   scale_x_continuous(trans="log10") +
   labs(x="Time (Hours)", y="Normalized Enrichment Score",
        color = "Drug Treatment", shape = "Mechanism") +
@@ -639,10 +553,10 @@ drugValidations <- drug.corr.sens.df[tolower(drug.corr.sens.df$Drug) == tolower(
 drugValidations$Time <- as.character(drugValidations$Time)
 drugValidations$Time <- as.numeric(substr(drugValidations$Time, 1, nchar(drugValidations$Time)-1))
 validation.plot <- ggplot2::ggplot(drugValidations, aes(x=Time, y=Pearson.est, color=DrugTreatment)) + 
-  geom_point(aes(shape=MPNST)) + geom_smooth(method="lm", se = FALSE, linetype="dashed") + #geom_line(linetype="dashed") +
+  geom_point() + geom_smooth(method="lm", se = FALSE, linetype="dashed") + #geom_line(linetype="dashed") +
   scale_x_continuous(trans="log10") +
   labs(x="Time (Hours)", y="Pearson r",
-       color = "Drug Treatment", shape = "MPNST") + theme_classic(base_size=12) +
+       color = "Drug Treatment") + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
 ggplot2::ggsave("validatedDrugs_scatterPlot.pdf", validation.plot, width=5.5, height=3)
 ```
@@ -659,26 +573,23 @@ myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
 names(myCol) <- names(drug.info)
 moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
 
-for (m in mpnst) {
-  # generate list of significant results
-  sigList <- list()
-  for (i in unique(unlist(drug.info))) {
-    if (nrow(dmea.sens.df[dmea.sens.df$DrugTreatment == i & 
-                          dmea.sens.df$MPNST == m & dmea.sens.df$sig,]) > 0) {
-      sigList[[i]] <- na.omit(unique(dmea.sens.df[dmea.sens.df$DrugTreatment == i & 
-                                                    dmea.sens.df$MPNST == m & dmea.sens.df$sig,]$Drug_set)) 
-    }
+# generate list of significant results
+sigList <- list()
+for (i in unique(unlist(drug.info))) {
+  if (nrow(dmea.sens.df[dmea.sens.df$DrugTreatment == i & dmea.sens.df$sig,]) > 0) {
+    sigList[[i]] <- na.omit(unique(dmea.sens.df[dmea.sens.df$DrugTreatment == i & 
+                                                  dmea.sens.df$sig,]$Drug_set)) 
   }
-  
-  if (length(sigList) > 1) {
-    # convert to matrix
-    myPlot = ComplexHeatmap::make_comb_mat(sigList)
-    #ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
-    pdf(file.path(dmea.path,paste0(m,"_enrichedMOA_upsetPlot.pdf")))
-    up <- ComplexHeatmap::UpSet(myPlot)
-    draw(up)
-    dev.off()
-  }
+}
+
+if (length(sigList) > 1) {
+  # convert to matrix
+  myPlot = ComplexHeatmap::make_comb_mat(sigList)
+  #ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
+  pdf(file.path(dmea.path,"enrichedMOA_upsetPlot.pdf"))
+  up <- ComplexHeatmap::UpSet(myPlot)
+  draw(up)
+  dev.off()
 }
 # could also repeat for individual timepoints or filtered for "optimal" timepoints (max validation / inhibition of known targets) 
 ```
