@@ -303,3 +303,74 @@ for (moa in all.pathways) {
   } 
 }
 ```
+
+
+### upset plots to see overlap across drug treatments
+```{r plot overlap of results, echo = FALSE}
+library(ComplexHeatmap)
+gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+setwd(gsea.path)
+gsea.df <- read.csv("GSEA_results_Hallmark.csv")
+# inspired by: https://jokergoo.github.io/ComplexHeatmap-reference/book/upset-plot.html#upset-making-the-plot
+# moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
+# myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
+# names(myCol) <- names(drug.info)
+# moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
+
+# generate list of significant results
+sigList <- list()
+for (i in unique(names(drug.info))) {
+  if (nrow(gsea.df[gsea.df$DrugTreatment == i & gsea.df$sig,]) > 0) {
+    sigList[[i]] <- na.omit(unique(gsea.df[gsea.df$DrugTreatment == i & 
+                                                  gsea.df$sig,]$Gene_set)) 
+  }
+}
+
+if (length(sigList) > 1) {
+  # convert to matrix
+  myPlot = ComplexHeatmap::make_comb_mat(sigList)
+  #ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
+  pdf(file.path(gsea.path,"enrichedPathway_upsetPlot.pdf"))
+  up <- ComplexHeatmap::UpSet(myPlot)
+  draw(up)
+  dev.off()
+}
+
+# repeat for upregulated pathways
+sigList <- list()
+for (i in unique(names(drug.info))) {
+  if (nrow(gsea.df[gsea.df$DrugTreatment == i & gsea.df$sig,]) > 0) {
+    sigList[[i]] <- na.omit(unique(gsea.df[gsea.df$DrugTreatment == i & 
+                                                  gsea.df$sig & gsea.df$NES>0,]$Gene_set)) 
+  }
+}
+
+if (length(sigList) > 1) {
+  # convert to matrix
+  myPlot = ComplexHeatmap::make_comb_mat(sigList)
+  #ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
+  pdf(file.path(gsea.path,"upregulatedPathway_upsetPlot.pdf"))
+  up <- ComplexHeatmap::UpSet(myPlot)
+  draw(up)
+  dev.off()
+}
+
+# repeat for downregulated pathways
+sigList <- list()
+for (i in unique(names(drug.info))) {
+  if (nrow(gsea.df[gsea.df$DrugTreatment == i & gsea.df$sig,]) > 0) {
+    sigList[[i]] <- na.omit(unique(gsea.df[gsea.df$DrugTreatment == i & 
+                                                  gsea.df$sig & gsea.df$NES<0,]$Gene_set)) 
+  }
+}
+
+if (length(sigList) > 1) {
+  # convert to matrix
+  myPlot = ComplexHeatmap::make_comb_mat(sigList)
+  #ComplexHeatmap::UpSet(m, right_annotation = moaAnnotation)
+  pdf(file.path(gsea.path,"downregulatedPathway_upsetPlot.pdf"))
+  up <- ComplexHeatmap::UpSet(myPlot)
+  draw(up)
+  dev.off()
+}
+```
