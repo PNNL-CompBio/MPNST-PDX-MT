@@ -568,6 +568,177 @@ validation.plot <- ggplot2::ggplot(drugValidations, aes(x=Time, y=Pearson.est, c
 ggplot2::ggsave("validatedDrugs_scatterPlot.pdf", validation.plot, width=5.5, height=3)
 ```
 
+### results for validated drugs
+``` {r results for validated drugs, echo=FALSE}
+valid.results <- dmea.sens.df[dmea.sens.df$DrugTreatment %in% validations$DrugTreatment,]
+sigMoas <- unique(valid.results[valid.results$sig,]$Drug_set)
+#dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% names(drug.info),]
+dot.df <- na.omit(valid.results[valid.results$Drug_set %in% sigMoas,])
+dot.df$Time <- factor(dot.df$Time, levels=timepoints)
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(dot.df,
+  ggplot2::aes(
+    x = DrugTreatment, y = reorder(Drug_set, NES), color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  #ggplot2::scale_y_discrete(limits = setOrder) +
+  ggplot2::scale_x_discrete(limits=names(inputFace)[names(inputFace) %in% validations$DrugTreatment]) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  #viridis::scale_color_viridis() +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(
+    x = "Drug Treatment (Input)",
+    y = "Drug Mechanism (Output)",
+    color = "NES", size = "-log(FDR)"
+  ) + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(.~Time)
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("ValidatedDrug_results_dotPlot.pdf", dot.plot, width=9, height=12)
+
+valid.results <- dmea.sens.df[dmea.sens.df$DrugTreatment %in% validations$DrugTreatment & 
+                                dmea.sens.df$Drug_set %in% validations$Drug_set,]
+sigMoas <- unique(valid.results[valid.results$sig,]$Drug_set)
+#dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% names(drug.info),]
+dot.df <- na.omit(valid.results[valid.results$Drug_set %in% sigMoas,])
+dot.df$Time <- factor(dot.df$Time, levels=timepoints)
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(dot.df,
+  ggplot2::aes(
+    x = DrugTreatment, y = reorder(Drug_set, NES), color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  #ggplot2::scale_y_discrete(limits = setOrder) +
+  ggplot2::scale_x_discrete(limits=names(inputFace)[names(inputFace) %in% validations$DrugTreatment]) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  #viridis::scale_color_viridis() +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(
+    x = "Drug Treatment (Input)",
+    y = "Drug Mechanism (Output)",
+    color = "NES", size = "-log(FDR)"
+  ) + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(.~Time)
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("ValidatedDrug_results_inLibrary_dotPlot.pdf", dot.plot, width=6, height=2.5)
+
+#### repeat for individual MPNST results ####
+dmea.sens.df <- read.csv(synapser::synGet("syn69910844")$path)
+validations <- data.frame()
+for (i in names(drug.info)) {
+  temp.valid <- dmea.sens.df[dmea.sens.df$Drug_set == i &
+                               dmea.sens.df$DrugTreatment %in% drug.info[[i]] &
+                               dmea.sens.df$sig,]
+  validations <- rbind(validations, temp.valid)
+}
+valid.results <- dmea.sens.df[dmea.sens.df$DrugTreatment %in% validations$DrugTreatment & 
+                                dmea.sens.df$Drug_set %in% validations$Drug_set,]
+sigMoas <- unique(valid.results[valid.results$sig,]$Drug_set)
+#dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% names(drug.info),]
+dot.df <- na.omit(valid.results[valid.results$Drug_set %in% sigMoas,])
+dot.df$Time <- factor(dot.df$Time, levels=timepoints)
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(dot.df,
+  ggplot2::aes(
+    x = DrugTreatment, y = reorder(Drug_set, NES), color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  #ggplot2::scale_y_discrete(limits = setOrder) +
+  ggplot2::scale_x_discrete(limits=names(inputFace)[names(inputFace) %in% validations$DrugTreatment]) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  #viridis::scale_color_viridis() +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(
+    x = "Drug Treatment (Input)",
+    y = "Drug Mechanism (Output)",
+    color = "NES", size = "-log(FDR)"
+  ) + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
+  facet_grid(MPNST~Time)
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("ValidatedDrug_results_inLibrary_MPNSTs_dotPlot.pdf", dot.plot, width=6, height=5)
+
+# what's the top moa to target mirda resistance?
+dot.df$condition <- paste0(dot.df$MPNST,"_",dot.df$Time)
+mirda.res <- dot.df[dot.df$DrugTreatment == "Mirdametinib" & 
+                      dot.df$Drug_set == "MEK inhibitor" & dot.df$NES>0 &
+                      dot.df$sig,]
+mirda.res.results <- dot.df[dot.df$condition %in% mirda.res$condition & 
+                              dot.df$DrugTreatment=="Mirdametinib" & 
+                              dot.df$NES<0 & dot.df$sig,]
+mirda.res.results[mirda.res.results$Drug_set=="topoisomerase inhibitor",]$Drug_set <- "TOP inhibitor"
+ggplot2::ggplot(mirda.res.results, aes(x=NES, y=reorder(Drug_set,-NES, drop=FALSE))) +
+  geom_violin(alpha=0) + geom_point(aes(color=MPNST, shape=Time)) + 
+  geom_boxplot(width=0.2, alpha = 0) + theme_classic() + 
+  theme(axis.title.y=element_blank())
+ggsave("moas_for_mirdaRes.pdf",width=5,height=1.5)
+
+mean.mirda.res.results <- plyr::ddply(mirda.res.results, .(Drug_set), summarize,
+                                      meanNES=mean(NES))
+ggplot2::ggplot(mean.mirda.res.results, aes(x=meanNES, y=reorder(Drug_set,-meanNES))) +
+  geom_bar(stat="identity") + theme_classic() + 
+  theme(axis.title.y=element_blank())+ xlab("Mean NES")
+ggsave("moas_for_mirdaRes_barPlot.pdf",width=3,height=1.5)
+
+validations$DrugTreatment <- factor(validations$DrugTreatment, levels=unique(validations$DrugTreatment))
+validation.plot <- ggplot2::ggplot(validations, aes(x=as.factor(Time), y=NES)) + 
+  geom_point(aes(shape=Drug_set, color=DrugTreatment)) + 
+  labs(x="Time (Hours)", y="Normalized Enrichment Score",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(unique(validations$Drug_set))) +
+  scale_color_manual(values=drugCol[names(drugCol) %in% levels(validations$DrugTreatment)])+theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("validatedDrugMechanisms_MPNSTs.pdf", validation.plot, width=5, height=3)
+
+validation.plot <- ggplot2::ggplot(validations, aes(x=as.factor(Time), y=NES)) + 
+  geom_point(aes(shape=Drug_set, color=MPNST)) + 
+  labs(x="Time (Hours)", y="Normalized Enrichment Score",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(unique(validations$Drug_set))) +
+  theme_classic(base_size=12) + theme(legend.box="horizontal")
+ggplot2::ggsave("validatedDrugMechanisms_MPNSTs_v2.pdf", validation.plot, width=5, height=3)
+
+validations$Time <- factor(validations$Time, levels=c("8h","24h"))
+validation.plot <- ggplot2::ggplot(validations, aes(x=as.factor(Time), y=NES)) + 
+  geom_point(aes(shape=Drug_set, color=DrugTreatment)) + 
+  labs(x="Time (Hours)", y="Normalized Enrichment Score",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(unique(validations$Drug_set))) +
+  scale_color_manual(values=drugCol[names(drugCol) %in% levels(validations$DrugTreatment)])+theme_classic(base_size=12) +
+  theme(legend.box="horizontal")+facet_grid(.~MPNST)
+ggplot2::ggsave("validatedDrugMechanisms_MPNSTs_faceted.pdf", validation.plot, width=7, height=3)
+```
 
 ### upset plots to see overlap across drug treatments
 ```{r plot overlap of results, echo = FALSE}
