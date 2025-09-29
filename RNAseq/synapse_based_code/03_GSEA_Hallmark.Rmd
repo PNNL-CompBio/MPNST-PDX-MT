@@ -374,3 +374,70 @@ if (length(sigList) > 1) {
   dev.off()
 }
 ```
+
+### correlations
+```{r correlations, echo=FALSE}
+library(RColorBrewer);library(pheatmap)
+gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+setwd(gsea.path)
+gsea.df <- read.csv("GSEA_results_Hallmark.csv")
+genemat<-gsea.df[gsea.df$FDR_q_value < 0.25 & 
+                           gsea.df$p_value < 0.05,]|>
+  dplyr::select(Gene_set,NES,DrugTreatment,Time)|>
+  subset(!is.na(NES))|> 
+  tidyr::unite(Time,DrugTreatment,col='condition')|>
+  tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
+  tibble::column_to_rownames('Gene_set')|>
+  as.matrix()
+genecor<-cor(genemat,use='pairwise.complete.obs')
+write.csv(genecor,"sigGSEACorr.csv")
+
+annot <- as.data.frame(rownames(genecor)) |> 
+  tidyr::separate('rownames(genecor)',into=c('Timepoint','Drug'),sep='_')
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor")
+drug.info.df <- as.data.frame(t(as.data.frame(drug.info)))
+drug.info.df$Drug <- rownames(drug.info.df)
+colnames(drug.info.df)[1] <- "MOA"
+annot <- merge(annot, drug.info.df, by="Drug", all.x=TRUE)
+rownames(annot) <- paste0(annot$Timepoint, "_", annot$Drug)
+annot <- annot[rownames(genecor),c('Timepoint','Drug','MOA')]
+annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
+annot$MOA <- factor(annot$MOA, levels=unique(annot$MOA))
+annot$Drug <- factor(annot$Drug, levels=unique(annot$Drug))
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
+names(cols) <- names(drug.info)
+cols <- cols[levels(annot$Drug)]
+moa.cols <- RColorBrewer::brewer.pal(length(unique(annot$MOA)),"Set3")
+names(moa.cols) <- levels(annot$MOA)
+annot.colors = list(MOA = moa.cols,
+                    Drug = cols,
+                    Timepoint = c("8h" = "#FFFFFF", "24h" = "#000000"))
+
+graphics.off()
+pdf("sigGSEACorr.pdf",width=6,height=4.5)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
+         show_colnames=FALSE, show_rownames=FALSE)
+dev.off()
+
+genemat<-gsea.df|>
+  dplyr::select(Gene_set,NES,DrugTreatment,Time)|>
+  subset(!is.na(NES))|> 
+  tidyr::unite(Time,DrugTreatment,col='condition')|>
+  tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
+  tibble::column_to_rownames('Gene_set')|>
+  as.matrix()
+genecor<-cor(genemat,use='pairwise.complete.obs')
+write.csv(genecor,"GSEACorr.csv")
+graphics.off()
+pdf("GSEACorr.pdf",width=6,height=4.5)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
+         show_colnames=FALSE, show_rownames=FALSE)
+dev.off()
+```

@@ -466,7 +466,6 @@ ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
 
 ### plot validations
 ```{r plot validation results, echo = FALSE}
-
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
@@ -547,6 +546,14 @@ validation.plot <- ggplot2::ggplot(validations, aes(x=Time, y=NES, color=DrugTre
   theme(legend.box="horizontal")
 ggplot2::ggsave("validatedDrugMechanisms_scatterPlot.pdf", validation.plot, width=8, height=3)
 
+validation.plot <- ggplot2::ggplot(validations, aes(x=as.factor(Time), y=NES, color=DrugTreatment)) + 
+  geom_point(aes(shape=Drug_set)) + 
+  labs(x="Time (Hours)", y="Normalized Enrichment Score",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:nlevels(validations$Drug_set)) + theme_classic(base_size=12) +
+  theme(legend.box="horizontal")
+ggplot2::ggsave("validatedDrugMechanisms.pdf", validation.plot, width=5, height=3)
+
 ### Drug correlations
 drugValidations <- drug.corr.sens.df[tolower(drug.corr.sens.df$Drug) == tolower(drug.corr.sens.df$DrugTreatment) &
                                        drug.corr.sens.df$Pearson.q <= 0.05,] # 0
@@ -592,4 +599,71 @@ if (length(sigList) > 1) {
   dev.off()
 }
 # could also repeat for individual timepoints or filtered for "optimal" timepoints (max validation / inhibition of known targets) 
+```
+
+### correlations
+```{r correlations, echo=FALSE}
+library(RColorBrewer);library(pheatmap)
+dmea.path <- file.path(getwd(),"DMEA")
+setwd(dmea.path)
+dmea.sens.df <- read.csv("DMEA_results.csv")
+genemat<-dmea.sens.df[dmea.sens.df$FDR_q_value < 0.25 & 
+                           dmea.sens.df$p_value < 0.05,]|>
+  dplyr::select(Drug_set,NES,DrugTreatment,Time)|>
+  subset(!is.na(NES))|> 
+  tidyr::unite(Time,DrugTreatment,col='condition')|>
+  tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
+  tibble::column_to_rownames('Drug_set')|>
+  as.matrix()
+genecor<-cor(genemat,use='pairwise.complete.obs')
+write.csv(genecor,"sigDMEACorr.csv")
+
+annot <- as.data.frame(rownames(genecor)) |> 
+  tidyr::separate('rownames(genecor)',into=c('Timepoint','Drug'),sep='_')
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor")
+drug.info.df <- as.data.frame(t(as.data.frame(drug.info)))
+drug.info.df$Drug <- rownames(drug.info.df)
+colnames(drug.info.df)[1] <- "MOA"
+annot <- merge(annot, drug.info.df, by="Drug", all.x=TRUE)
+rownames(annot) <- paste0(annot$Timepoint, "_", annot$Drug)
+annot <- annot[rownames(genecor),c('Timepoint','Drug','MOA')]
+annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
+annot$MOA <- factor(annot$MOA, levels=unique(annot$MOA))
+annot$Drug <- factor(annot$Drug, levels=unique(annot$Drug))
+cols=c(brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
+names(cols) <- names(drug.info)
+cols <- cols[levels(annot$Drug)]
+moa.cols <- RColorBrewer::brewer.pal(length(unique(annot$MOA)),"Set3")
+names(moa.cols) <- levels(annot$MOA)
+annot.colors = list(MOA = moa.cols,
+                    Drug = cols,
+                    Timepoint = c("8h" = "#FFFFFF", "24h" = "#000000"))
+
+graphics.off()
+pdf("sigDMEACorr.pdf",width=6,height=4.5)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
+         show_colnames=FALSE, show_rownames=FALSE)
+dev.off()
+
+genemat<-dmea.sens.df|>
+  dplyr::select(Drug_set,NES,DrugTreatment,Time)|>
+  subset(!is.na(NES))|> 
+  tidyr::unite(Time,DrugTreatment,col='condition')|>
+  tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
+  tibble::column_to_rownames('Drug_set')|>
+  as.matrix()
+genecor<-cor(genemat,use='pairwise.complete.obs')
+write.csv(genecor,"DMEACorr.csv")
+graphics.off()
+pdf("DMEACorr.pdf",width=6,height=4.5)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
+         show_colnames=FALSE, show_rownames=FALSE)
+dev.off()
 ```
