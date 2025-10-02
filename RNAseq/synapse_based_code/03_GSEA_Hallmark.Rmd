@@ -441,3 +441,217 @@ pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=
          show_colnames=FALSE, show_rownames=FALSE)
 dev.off()
 ```
+
+```{r shared results MEK and HDAC, echo=FALSE}
+library(ggplot2); library(synapser)
+synapser::synLogin()
+gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+setwd(gsea.path)
+gsea.df <- read.csv(synapser::synGet("syn69910859")$path)
+gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)
+
+# find pathways enriched in both MEKi and HDACi at the same times in the same mpnsts
+mek.hdac.sig <- c()
+for (t in unique(gsea.df$Time)) {
+  for (m in unique(gsea.df$MPNST)) {
+    mek.sig <- unique(gsea.df[gsea.df$DrugTreatment %in% 
+                                c("Mirdametinib","Trametinib","Selumetinib") &
+                                gsea.df$sig & gsea.df$Time==t &
+                                gsea.df$MPNST==m,]$Gene_set)
+    hdac.sig <- unique(gsea.df[gsea.df$DrugTreatment =="Vorinostat" &
+                                 gsea.df$sig & gsea.df$Time==t &
+                                gsea.df$MPNST==m,]$Gene_set)
+    mek.hdac.sig <- unique(c(mek.hdac.sig,mek.sig[mek.sig %in% hdac.sig]))
+  }
+}
+dot.df <- gsea.df[gsea.df$DrugTreatment %in% 
+                      c("Mirdametinib","Vorinostat","Trametinib","Selumetinib") &
+                      gsea.df$Gene_set %in% mek.hdac.sig,]
+
+dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = DrugTreatment, y = reorder(Gene_set,NES), color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_discrete(limits=c("Vorinostat","Mirdametinib","Selumetinib","Trametinib")) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  #viridis::scale_color_viridis() +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) + facet_grid(MPNST~Time)
+dot.plot
+customWidth <- ifelse(4 < 3, 4, 4+2.5)
+ggplot2::ggsave("MEK_HDAC_Pathways_dotPlot_MPNST.pdf", 
+                dot.plot, width=customWidth, 
+                height=ifelse(length(mek.hdac.sig)<2,2,length(mek.hdac.sig)/2)) 
+```
+
+```{r shared results mirda and vorin, echo=FALSE}
+library(ggplot2); library(synapser)
+synapser::synLogin()
+gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+setwd(gsea.path)
+gsea.df <- read.csv(synapser::synGet("syn69910859")$path)
+gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)
+
+# find pathways enriched in both MEKi and HDACi at the same times in the same mpnsts
+mek.hdac.sig <- c()
+for (t in unique(gsea.df$Time)) {
+  for (m in unique(gsea.df$MPNST)) {
+    mek.sig <- unique(gsea.df[gsea.df$DrugTreatment =="Mirdametinib" &
+                                gsea.df$sig & gsea.df$Time==t &
+                                gsea.df$MPNST==m,]$Gene_set)
+    hdac.sig <- unique(gsea.df[gsea.df$DrugTreatment =="Vorinostat" &
+                                 gsea.df$sig & gsea.df$Time==t &
+                                gsea.df$MPNST==m,]$Gene_set)
+    mek.hdac.sig <- unique(c(mek.hdac.sig,mek.sig[mek.sig %in% hdac.sig]))
+  }
+}
+dot.df <- gsea.df[gsea.df$DrugTreatment %in% 
+                      c("Mirdametinib","Vorinostat") &
+                      gsea.df$Gene_set %in% mek.hdac.sig,]
+
+dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = DrugTreatment, y = reorder(Gene_set,NES), color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_discrete(limits=c("Mirdametinib","Vorinostat")) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  #viridis::scale_color_viridis() +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) + facet_grid(MPNST~Time)
+dot.plot
+customWidth <- ifelse(4 < 3, 4, 4+2.5)
+ggplot2::ggsave("mirdaVorin_Pathways_dotPlot_MPNST.pdf", 
+                dot.plot, width=5, 
+                height=ifelse(length(mek.hdac.sig)<2,2,length(mek.hdac.sig)/1.5)) 
+
+dot.df <- gsea.df[gsea.df$DrugTreatment %in% 
+                      c("Mirdametinib","Vorinostat") &
+                      gsea.df$Gene_set %in% c("KRAS_SIGNALING_DN",
+                                              "TNFA_SIGNALING_VIA_NFKB"),] # these pathways had opposite enrichment
+
+dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = DrugTreatment, y = reorder(Gene_set,NES), color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_discrete(limits=c("Mirdametinib","Vorinostat")) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  #viridis::scale_color_viridis() +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        axis.title = element_blank()) +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) + facet_grid(MPNST~Time)
+dot.plot
+customWidth <- ifelse(4 < 3, 4, 4+2.5)
+ggplot2::ggsave("mirdaVorin_oppPathways_dotPlot_MPNST.pdf", 
+                dot.plot, width=5, 
+                height=3.5)
+```
+
+```{r expression of leading edge genes opposite in mirda and vorin, echo=FALSE}
+kras.leads <- unique(unlist(strsplit(gsea.df[gsea.df$DrugTreatment %in% c("Mirdametinib","Vorinostat") &
+                                          gsea.df$sig &
+                                            gsea.df$Gene_set=="KRAS_SIGNALING_DN",
+                                          ]$Leading_edge, ", "))) # 109
+tnfa.leads <- unique(unlist(strsplit(gsea.df[gsea.df$DrugTreatment %in% c("Mirdametinib","Vorinostat") &
+                                          gsea.df$sig & gsea.df$Gene_set == "TNFA_SIGNALING_VIA_NFKB",
+                                          ]$Leading_edge, ", "))) # 171
+leads <- unique(c(kras.leads, tnfa.leads)) # 276
+overlapping.leads <- kras.leads[kras.leads %in% tnfa.leads] # 4: NR4A2, EDN1, SGK1, BTG2
+de <- read.csv(synapser::synGet("syn69910880")$path)
+de.leads <- leads[leads %in% de[de$Drug %in% c("Mirdametinib","Vorinostat") & de$signif,]$hgnc_symbol] # 179
+map.leads <- de.leads[startsWith(de.leads,"MAP2K")] # MAP2K3
+hdac.leads <- de.leads[startsWith(de.leads,"HDAC")] # none
+overlap.de.leads <- overlapping.leads[overlapping.leads %in% de.leads] # 3: NR4A2, EDN1, SGK1
+
+mek.targets <- na.omit(unique(de[startsWith(de$hgnc_symbol,"MAP2K"),]$hgnc_symbol)) # 8
+hdac.target <- na.omit(unique(de[startsWith(de$hgnc_symbol,"HDAC"),]$hgnc_symbol)) # 15
+library(PCSF)
+data("STRINGv12")
+edges <- STRINGv12[STRINGv12$from %in% de.leads |
+                          STRINGv12$to %in% de.leads,]
+vert <- data.frame(unique(c(edges$from, edges$to)), type="Inferred", meanLog2FC=NA, sigMirda=NA, sigVorin=NA)
+colnames(vert)[1] <- "name"
+vert[vert$name %in% kras.leads,]$type <- "KRAS_SIGNALING_DN"
+vert[vert$name %in% tnfa.leads,]$type <- "TNFA_SIGNALING_VIA_NFKB"
+quant.nodes <- unique(vert$name[vert$name %in% de$hgnc_symbol]) # 6688 out of 7496
+for (i in quant.nodes) {
+  vert[vert$name == i,]$meanLog2FC <- mean(de[de$hgnc_symbol==i,]$log2FoldChange, na.rm=TRUE)
+  vert[vert$name == i,]$sigMirda <- any(de[de$hgnc_symbol==i & de$Drug=="Mirdametinib",]$signif)
+  vert[vert$name == i,]$sigVorin <- any(de[de$hgnc_symbol==i & de$Drug=="Vorinostat",]$signif)
+}
+vert$Target <- FALSE
+vert[startsWith(vert$name,"HDAC"),]$Target <- TRUE
+vert[startsWith(vert$name,"MAP2K"),]$Target <- TRUE
+write.csv(vert,"mirdaVorin_diffexpLeads_nodes.csv", row.names=FALSE)
+vert2 <- na.omit(vert[vert$sigMirda & vert$sigVorin,])
+write.csv(vert2,"mirdaVorin_diffexpLeads_nodes_sigInBoth.csv", row.names=FALSE)
+edges2 <- edges[edges$from %in% vert2$name,]
+write.csv(vert2,"mirdaVorin_diffexpLeads_edges_sigInBoth.csv", row.names=FALSE)
+vert3 <- vert[vert$name %in% c(edges2$from, edges2$to),]
+write.csv(vert3,"mirdaVorin_diffexpLeads_nodes_sigInBoth_final.csv", row.names=FALSE)
+topGraph <- igraph::graph_from_data_frame(edges2, directed=FALSE, vertices = vert3)
+RCy3::createNetworkFromIgraph(topGraph, title="mirdaVen_diffexpLeads_sigInBoth")
+
+edges3 <- edges2[edges2$from %in% vert3[vert3$Target,]$name,] # 167
+vert4 <- vert[vert$name %in% c(edges3$from, edges3$to),] # 167
+vert4$color <- "Inferred"
+vert4[vert4$type=="TNFA_SIGNALING_VIA_NFKB",]$color <- "TNFA_SIGNALING_VIA_NFKB"
+vert4[vert4$type=="KRAS_SIGNALING_DN",]$color <- "KRAS_SIGNALING_DN"
+vert4[vert4$Target,]$color <- "Target"
+vert4[vert4$Target & vert4$type=="TNFA_SIGNALING_VIA_NFKB",]$color <- "Target & TNFA_SIGNALING_VIA_NFKB" # noticed MAP2K3 was both
+
+vert4$shape <- "Inferred"
+vert4[!is.na(vert4$sigMirda) & vert4$sigMirda=="TRUE",]$shape <- "Affected by mirdametinib"
+vert4[!is.na(vert4$sigVorin) & vert4$sigVorin=="TRUE",]$shape <- "Affected by vorinostat"
+vert4[!is.na(vert4$sigVorin) & !is.na(vert4$sigMirda) & 
+        vert4$sigVorin=="TRUE" & vert4$sigMirda=="TRUE",]$shape <- "Affected by mirdametinib & vorinostat"
+topGraph <- igraph::graph_from_data_frame(edges3, directed=FALSE, vertices = vert4)
+RCy3::createNetworkFromIgraph(topGraph, title="mirdaVen_diffexpLeads_sigInBoth_target")
+write.csv(vert4, "mirdaVen_diffexpLeads_sigInBoth_target_nodes.csv", row.names=FALSE)
+write.csv(edges3, "mirdaVen_diffexpLeads_sigInBoth_target_edges.csv", row.names=FALSE)
+
+
+```
