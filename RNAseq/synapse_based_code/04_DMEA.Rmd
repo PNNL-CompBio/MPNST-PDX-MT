@@ -211,7 +211,7 @@ dmea.sens.df$DrugTreatment <- factor(dmea.sens.df$DrugTreatment, levels=sort(uni
 timepoints <- unique(drug.corr.sens.df$Time)
 drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=timepoints)
 dmea.sens.df$Time <- factor(dmea.sens.df$Time, levels=timepoints)
-all.drugs <- levels(dmea.sens.df$DrugTreatment)
+all.drugs <- unique(dmea.sens.df$DrugTreatment)
 all.drugs <- all.drugs[all.drugs %in% dmea.sens.df$DrugTreatment]
 all.moas <- sort(names(drug.info)[unlist(drug.info) %in% dmea.sens.df$DrugTreatment])
 drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
@@ -711,6 +711,18 @@ ggplot2::ggplot(mean.mirda.res.results, aes(x=meanNES, y=reorder(Drug_set,-meanN
   theme(axis.title.y=element_blank())+ xlab("Mean NES")
 ggsave("moas_for_mirdaRes_barPlot.pdf",width=3,height=1.5)
 
+mirda.res <- dot.df[dot.df$DrugTreatment == "Mirdametinib" & 
+                      dot.df$Drug_set == "MEK inhibitor" & 
+                      dot.df$sig,]
+mirda.res.results <- dot.df[dot.df$condition %in% mirda.res$condition & dot.df$Drug_set!="MEK inhibitor" &
+                              dot.df$DrugTreatment=="Mirdametinib" & dot.df$sig,]
+mirda.res.results[mirda.res.results$Drug_set=="topoisomerase inhibitor",]$Drug_set <- "TOP inhibitor"
+ggplot2::ggplot(mirda.res.results, aes(x=abs(NES), y=reorder(Drug_set,abs(NES), drop=FALSE))) +
+  geom_violin(alpha=0) + geom_point(aes(color=MPNST, shape=Time)) + 
+  geom_boxplot(width=0.2, alpha = 0) + theme_classic() + 
+  theme(axis.title.y=element_blank()) + xlab("|Normalized Enrichment Score|")
+ggsave("moas_for_mirdaRes_absNES.pdf",width=5,height=1.5)
+
 validations$DrugTreatment <- factor(validations$DrugTreatment, levels=unique(validations$DrugTreatment))
 validation.plot <- ggplot2::ggplot(validations, aes(x=as.factor(Time), y=NES)) + 
   geom_point(aes(shape=Drug_set, color=DrugTreatment)) + 
@@ -738,6 +750,17 @@ validation.plot <- ggplot2::ggplot(validations, aes(x=as.factor(Time), y=NES)) +
   scale_color_manual(values=drugCol[names(drugCol) %in% levels(validations$DrugTreatment)])+theme_classic(base_size=12) +
   theme(legend.box="horizontal")+facet_grid(.~MPNST)
 ggplot2::ggsave("validatedDrugMechanisms_MPNSTs_faceted.pdf", validation.plot, width=7, height=3)
+
+
+validation.plot <- ggplot2::ggplot(validations, aes(x=as.factor(Time), y=abs(NES))) + 
+  geom_point(aes(shape=Drug_set, color=DrugTreatment)) + 
+  labs(x="Time (Hours)", y="|Normalized Enrichment Score|",
+       color = "Drug Treatment", shape = "Mechanism") +
+  scale_shape_manual(values=1:length(unique(validations$Drug_set))) +
+  scale_color_manual(values=drugCol[names(drugCol) %in% levels(validations$DrugTreatment)])+theme_classic(base_size=12) +
+  theme(legend.box="horizontal")+facet_grid(.~MPNST)
+ggplot2::ggsave("validatedDrugMechanisms_MPNSTs_faceted_absNES.pdf", validation.plot, width=7, height=3)
+
 ```
 
 ### upset plots to see overlap across drug treatments
