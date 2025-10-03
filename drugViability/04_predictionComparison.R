@@ -527,3 +527,95 @@ for (i in names(syn.scores)) {
          y="Absolute DMEA Sensitivity Prediction")
   ggsave(paste0("moaResults_",i,"_vs_dmea_absSigNES_spearman.pdf"),width=5,height=5)
 }
+write.csv(shared.moa.res2, "moaResults_vs_dmea_data.csv", row.names=FALSE)
+# get median or avg rank for DMEA results
+library(plyr);library(dplyr)
+moa.med <- plyr::ddply(shared.moa.res2, .(moaComboShort), summarize,
+                        absNES=median(abs(NES)),
+                        NES=median(NES),
+                        dAUC=median(dAUC),
+                        maxBliss=median(maxBliss),
+                        meanLogAlpha=median(meanLogAlpha),
+                        n=dplyr::n(),
+                        nDrugCombos=length(unique(paste0(drug1,"+",drug2))),
+                        nMPNST=length(unique(sample)))
+moa.mean <- plyr::ddply(shared.moa.res2, .(moaComboShort), summarize,
+                       absNES=mean(abs(NES)),
+                       NES=mean(NES),
+                       dAUC=mean(dAUC),
+                       maxBliss=mean(maxBliss),
+                       meanLogAlpha=mean(meanLogAlpha),
+                       n=dplyr::n(),
+                       nDrugCombos=length(unique(paste0(drug1,"+",drug2))),
+                       nMPNST=length(unique(sample)))
+moa.max <- plyr::ddply(shared.moa.res2, .(moaComboShort), summarize,
+                        absNES=max(abs(NES)),
+                        NES=max(NES),
+                        dAUC=max(dAUC),
+                        maxBliss=max(maxBliss),
+                        meanLogAlpha=max(meanLogAlpha),
+                        n=dplyr::n(),
+                        nDrugCombos=length(unique(paste0(drug1,"+",drug2))),
+                        nMPNST=length(unique(sample)))
+moa.med$aggFn <- "median"
+moa.mean$aggFn <- "mean"
+moa.max$aggFn <- "max"
+moa.pred <- rbind(moa.med, moa.mean, moa.max)
+write.csv(moa.pred,"aggregatedDrugComboScores_synergyScoresAndPredictions.csv", row.names=FALSE)
+
+# create correlation matrix
+med.mat <- moa.med[,1:6]
+rownames(med.mat) <- med.mat$moaComboShort
+med.mat <- as.matrix(med.mat[,2:ncol(med.mat)])
+corr.mat <- stats::cor(med.mat)
+write.csv(corr.mat,"medianAggregatedDrugComboScores_PearsonCorr.csv")
+
+# plot correlation matrix
+corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
+ggsave("medianAggregatedDrugComboScores_PearsonCorr.pdf", corr.mat.plot, width=4, height=4)
+
+corr.mat <- stats::cor(med.mat, method="spearman")
+write.csv(corr.mat,"medianAggregatedDrugComboScores_SpearmanCorr.csv")
+
+# plot correlation matrix
+corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
+ggsave("medianAggregatedDrugComboScores_SpearmanCorr.pdf", corr.mat.plot, width=4, height=4)
+
+# best seems to be absNES vs. dAUC
+moa.med.cor <- cor.test(moa.med$absNES, moa.med$dAUC)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Median Delta AUC",
+       y="Median Absolute DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","dAUC","_vs_dmea_absSigNES.pdf"),width=5,height=5)
+
+moa.med.cor <- cor.test(moa.med$absNES, moa.med$dAUC, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Median Delta AUC",
+       y="Median Absolute DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","dAUC","_vs_dmea_absSigNES_spearman.pdf"),width=5,height=5)
