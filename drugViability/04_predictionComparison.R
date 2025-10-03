@@ -597,7 +597,7 @@ ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sampl
     colour = "black", parse = TRUE, 
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
-  labs(x="Median Delta AUC",
+  labs(x="Median Delta AUC",color="MOA Combo",
        y="Median Absolute DMEA Sensitivity Prediction")
 ggsave(paste0("moaResultsMedian_","dAUC","_vs_dmea_absSigNES.pdf"),width=5,height=5)
 
@@ -616,6 +616,125 @@ ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sampl
     colour = "black", parse = TRUE, 
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
-  labs(x="Median Delta AUC",
+  labs(x="Median Delta AUC", color="MOA Combo",
        y="Median Absolute DMEA Sensitivity Prediction")
 ggsave(paste0("moaResultsMedian_","dAUC","_vs_dmea_absSigNES_spearman.pdf"),width=5,height=5)
+
+# next best seems to be meanLogAlpha vs. dAUC
+moa.med.cor <- cor.test(moa.med$meanLogAlpha, moa.med$dAUC)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Median Delta AUC",color="MOA Combo",
+       y="Median Log Alpha")
+ggsave(paste0("moaResultsMedian_","dAUC","_vs_meanLogAlpha.pdf"),width=5,height=5)
+
+moa.med.cor <- cor.test(moa.med$meanLogAlpha, moa.med$dAUC, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Median Delta AUC", color="MOA Combo",
+       y="Median Log Alpha")
+ggsave(paste0("moaResultsMedian_","dAUC","_vs_meanLogAlpha_spearman.pdf"),width=5,height=5)
+
+# also see positive corr between NES and mean Log Alpha, maxBliss
+moa.med.cor <- cor.test(moa.med$NES, moa.med$meanLogAlpha)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Median Log Alpha",color="MOA Combo",
+       y="Median DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","meanLogAlpha","_vs_dmea_SigNES.pdf"),width=5,height=5)
+
+moa.med.cor <- cor.test(moa.med$NES, moa.med$meanLogAlpha, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Median Log Alpha", color="MOA Combo",
+       y="Median DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","meanLogAlpha","_vs_dmea_SigNES_spearman.pdf"),width=5,height=5)
+
+
+moa.med.cor <- cor.test(moa.med$NES, moa.med$maxBliss)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Median Max Bliss",color="MOA Combo",
+       y="Median DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","maxBliss","_vs_dmea_SigNES.pdf"),width=5,height=5)
+
+moa.med.cor <- cor.test(moa.med$NES, moa.med$maxBliss, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Median Max Bliss", color="MOA Combo",
+       y="Median DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","maxBliss","_vs_dmea_SigNES_spearman.pdf"),width=5,height=5)
+
+# median: absNES sig corr with dAUC (pearson or spearman)
