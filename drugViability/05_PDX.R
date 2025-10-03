@@ -106,6 +106,10 @@ for (m in mpnsts) {
 }
 p.df$q <- qvalue::qvalue(p.df$p, pi0=1)$qvalues
 write.csv(p.df,"PDX_mirdaVorin_pValues.csv",row.names=FALSE)
+
+p.df.h <- p.df[p.df$MPNST!="JH-2-002",]
+p.df.h$q <- qvalue::qvalue(p.df.h$p, pi0=1)$qvalues
+write.csv(p.df.h,"PDX_mirdaVorin_pValues_HirbeLab.csv",row.names=FALSE)
 # 
 # #### mirda combos predicted ####
 # mirda.sens <- sens[sens$DrugTreatment=="Mirdametinib" & sens$sig & sens$NES < 0,]
