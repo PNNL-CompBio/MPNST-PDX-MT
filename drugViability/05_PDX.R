@@ -34,7 +34,9 @@ drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor
                   "pexidartinib" = "KIT inhibitor", "IAG933" = "YAP inhibitor", "SN38" = "TOP inhibitor")
 names(cols1) <- c("DMSO", names(drug.info))
 scales::show_col(cols1[c("DMSO","mirdametinib","vorinostat")]) # black, brown, yellow?
-ggplot(na.omit(tumor.size),aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) + 
+dot.df <- na.omit(tumor.size)
+dot.df$SD <- as.numeric(dot.df$SD)
+ggplot(dot.df,aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) + 
   geom_point() + geom_errorbar(aes(ymin=`Mean.Size`-SD, ymax=`Mean.Size`+SD))+
   geom_smooth(se=FALSE, linetype="dashed")+
   theme_classic() + labs(y="Mean Tumor Size (mm^3)", x="Treatment Duration (Days)") +
@@ -44,6 +46,19 @@ setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-
 ggsave("mirdaVorinostat_PDX.pdf", width=6, height=3) # was width 4
 write.csv(tumor.size,"PDX_mirdametinibVorinostat_meanTumorSize.csv", row.names=FALSE)
 tumor.size <- read.csv("PDX_mirdametinibVorinostat_meanTumorSize.csv")
+
+dot.df <- na.omit(tumor.size[tumor.size$MPNST %in% c("MN-2","WU-225"),])
+dot.df$SD <- as.numeric(dot.df$SD)
+ggplot(dot.df,
+       aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) + 
+  geom_point() + geom_errorbar(aes(ymin=`Mean.Size`-SD, ymax=`Mean.Size`+SD))+
+  geom_smooth(se=FALSE, linetype="dashed")+
+  theme_classic() + labs(y=paste0("Mean Tumor Size (m",expression("m^3"),")"), x="Treatment Duration (Days)") +
+  scale_color_manual(values=c("grey","red","blue","black"), 
+                     breaks=c("Vehicle","Mirdametinib","Vorinostat","Mirdametinib + Vorinostat")) + 
+  facet_wrap(.~MPNST, ncol=2)
+ggsave("mirdaVorinostat_PDX_MN2-WU225.pdf", width=6, height=3) # was width 4
+ggsave("mirdaVorinostat_PDX_MN2-WU225_wide.pdf", width=12, height=3) # was width 4
 
 combo.t <- t.test(tumor.size[tumor.size$Treatment %in% c("Mirdametinib","Vorinostat"),]$`Mean.Size`,
                   tumor.size[tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater")
