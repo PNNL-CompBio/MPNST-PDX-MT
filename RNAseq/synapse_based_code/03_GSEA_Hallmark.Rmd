@@ -653,5 +653,43 @@ RCy3::createNetworkFromIgraph(topGraph, title="mirdaVen_diffexpLeads_sigInBoth_t
 write.csv(vert4, "mirdaVen_diffexpLeads_sigInBoth_target_nodes.csv", row.names=FALSE)
 write.csv(edges3, "mirdaVen_diffexpLeads_sigInBoth_target_edges.csv", row.names=FALSE)
 
+```
 
+``` {r shared / unique results, echo=FALSE}
+library(ggplot2); library(synapser); library(plyr);library(dplyr)
+synapser::synLogin()
+gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+setwd(gsea.path)
+gsea.df <- read.csv("GSEA_results_Hallmark.csv")
+gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)
+print(length(unique(na.omit(gsea.df[gsea.df$sig,]$Gene_set))))
+
+# add MOAs
+drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
+                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
+                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
+                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
+                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Verteporfin" = "YAP inhibitor")
+red.drug.info <- drug.info[names(drug.info) %in% gsea.df$DrugTreatment]
+gsea.df$moa <- NA
+for (i in names(red.drug.info)) {
+  gsea.df[gsea.df$DrugTreatment==i,]$moa <- red.drug.info[[i]]
+}
+
+n.sig <- plyr::ddply(gsea.df[gsea.df$sig,], .(Gene_set), summarize,
+                     N_drugs=length(sort(unique(na.omit(DrugTreatment)))),
+                     Drugs = paste0(sort(unique(na.omit(DrugTreatment))), collapse=", "),
+                     N_moas=length(sort(unique(na.omit(moa)))),
+                     moas = paste0(sort(unique(na.omit(moa))), collapse=", "),
+                     N_drugs_up=length(sort(unique(na.omit(DrugTreatment[NES>0])))),
+                     Drugs_up = paste0(sort(unique(na.omit(DrugTreatment[NES>0]))), collapse=", "),
+                     N_moas_up=length(sort(unique(na.omit(moa[NES>0])))),
+                     moas_up = paste0(sort(unique(na.omit(moa[NES>0]))), collapse=", "),
+                     N_drugs_dn=length(sort(unique(na.omit(DrugTreatment[NES<0])))),
+                     Drugs_dn = paste0(sort(unique(na.omit(DrugTreatment[NES<0]))), collapse=", "),
+                     N_moas_dn=length(sort(unique(na.omit(moa[NES<0])))),
+                     moas_dn = paste0(sort(unique(na.omit(moa[NES<0]))), collapse=", "))
 ```
