@@ -25,8 +25,13 @@ differential expression for MPNST, time, and drug pairs (syn69910880)
 ### Transcription factor activity
 01_tfEnrichment.Rmd
 - Pulls: counts crosstabs (syn64398049 and syn64398051); 
-differential expression (syn64397743)
-- Uploads: transcription factor activity (syn64693461)
+differential expression for time and drug pairs (syn64397743)
+- Uploads: transcription factor activity for time and drug pairs (syn69911032)
+
+01_tfEnrichment_individual.Rmd
+- Pulls: counts crosstabs (syn64398049 and syn64398051); 
+differential expression for MPNST, time, and drug pairs (syn69910880)
+- Uploads: transcription factor activity for MPNST, time, and drug pairs (syn64420968)
 
 ### Comparison of differential expression across drugs
 02_compareRNASeqAnalyses.Rmd
