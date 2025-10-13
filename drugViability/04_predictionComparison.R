@@ -1,16 +1,26 @@
 # compare synergy scores to drug sensitivity predictions
 # author: Belinda B. Garana
+library(synapser);library(ggplot2);library(RColorBrewer)
 setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
 dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
+synapser::synLogin()
 
 #results <- read.csv("results_viabilityBlissMusyc.csv")
 results <- read.csv(synapser::synGet("syn68900322")$path)
 drugs <- unique(c(results$drug1, results$drug2))
 
+#### add delta AUC ####
+dAUC <- read.csv(synapser::synGet("syn69978141")$path)
+colnames(dAUC)[2:3] <- c("time","sample")
+dAUC$time <- as.numeric(sub("h","",dAUC$time))/24
+#dAUC$drugCombo[!(dAUC$drugCombo %in% results$drugCombo)] # 0
+#dAUC$sample[!(dAUC$sample %in% results$sample)] # 0
+results <- merge(results, dAUC, by=c("drugCombo","sample","time"))
+combos <- unique(results$drugCombo)
+
 #### compare musyc alpha to DMEA ####
 ##### drug corr #####
-synapser::synLogin()
-drug.corr <- read.csv(synapser::synGet("syn65672266")$path)
+drug.corr <- read.csv(synapser::synGet("syn69910848")$path) # was syn65672266 which now doesn't include mpnst factor
 drug.corr[drug.corr$DrugTreatment == "Trabectidin",]$DrugTreatment <- "Trabectedin"
 
 shared.drugs <- drugs[tolower(drugs) %in% tolower(c(drug.corr$Drug, drug.corr$DrugTreatment))] # 9: mirdametinib, olaparib, TNO155, capmatinib, doxorubicin, palbociclib, vorinostat, irinotecan, trabectedin
@@ -18,7 +28,7 @@ shared.combos <- tidyr::expand_grid(shared.drugs, shared.drugs)
 shared.combos$drugCombo <- paste0(shared.combos$shared.drugs...1,"+",shared.combos$shared.drugs...2)
 shared.combos$drugCombo2 <- paste0(shared.combos$shared.drugs...2,"+",shared.combos$shared.drugs...1)
 shared.combos <- unique(c(shared.combos$drugCombo, shared.combos$drugCombo2))
-shared.combos <- shared.combos[shared.combos %in% combos] # 23 / 27 tested combos
+shared.combos <- shared.combos[shared.combos %in% combos] # 22 / 26 tested combos
 
 shared.corr <- drug.corr[tolower(drug.corr$Drug) %in% tolower(drugs) & 
                            tolower(drug.corr$DrugTreatment) %in% tolower(drugs),]
@@ -47,9 +57,19 @@ drug.corr.res <- merge(shared.corr, results, by=c("drugCombo","sample")) # no ti
 # note: only mirdametinib+doxorubicin is significantly correlated in MN-2 (Pearson.q<0.05) which has Pearson.est=0.1915
 drug.corr.res <- na.omit(drug.corr.res)
 write.csv(drug.corr.res, "drug_dmea_vs_synergy.csv", row.names = FALSE)
-synapser::synStore(synapser::synFile("drug_dmea_vs_synergy.csv", parent="syn68258288"))
+synapser::synStore(synapser::File("drug_dmea_vs_synergy.csv", parent="syn68258288"))
 
 # create colors using color in-between drug colors
+drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor",
+                  "trabectedin" = "Chemotherapy", "ifosfamide" = "DNA alkylating agent",
+                  "decitabine" = "DNMT inhibitor", "vorinostat" = "HDAC inhibitor",
+                  "mirdametinib" = "MEK inhibitor", "selumetinib" = "MEK inhibitor",
+                  "trametinib" = "MEK inhibitor", "capmatinib" = "MET inhibitor",
+                  "olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "TNO155" = "SHP2 inhibitor", "doxorubicin" = "TOP inhibitor",
+                  "irinotecan" = "TOP inhibitor")
+cols=c(RColorBrewer::brewer.pal(8,'Dark2'),RColorBrewer::brewer.pal(15-8,'Set2'))
+names(cols) <- names(drug.info)
 drug.corr.res$color <- NA
 for (i in shared.combos) {
   if (i %in% drug.corr.res$drugCombo) {
@@ -62,10 +82,12 @@ for (i in shared.combos) {
 }
 combo.cols <- drug.corr.res$color
 names(combo.cols) <- drug.corr.res$drugCombo
-combo.cols <- unique(combo.cols) # 9
+combo.cols <- unique(combo.cols) # 18
 drug.corr.res <- dplyr::distinct(drug.corr.res)
 
-syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", "Mean MuSyC Potency Score" = "meanLogAlpha")
+syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", 
+                "Mean MuSyC Potency Score" = "meanLogAlpha",
+                "Delta AUC" = "dAUC")
 for (i in names(syn.scores)) {
   drug.corr.res$rank <- drug.corr.res[,syn.scores[i]]
   # signed
@@ -260,8 +282,10 @@ for (i in names(syn.scores)) {
 }
 
 ##### moas #####
-moa.df <- read.csv(synapser::synGet("syn65672258")$path)
-moa.df[moa.df$DrugTreatment=="Trabectidin",]$DrugTreatment <- "Trabectedin"
+moa.df <- read.csv(synapser::synGet("syn69910844")$path) # was syn65672258 which now doesn't include mpnst factor
+if (any(moa.df$DrugTreatment=="Trabectidin")) {
+  moa.df[moa.df$DrugTreatment=="Trabectidin",]$DrugTreatment <- "Trabectedin"
+}
 shared.moas <- drug.info[tolower(drug.info) %in% tolower(moa.df$Drug_set)] # 10
 # are CSF1R inhibitors evaluated? (pexidartinib also inhibits CSF1R in addition to KIT)
 any(grepl("CSF1R", moa.df$Drug_set, ignore.case=TRUE)) # FALSE
@@ -278,13 +302,13 @@ shared.moa.df <- moa.df[tolower(moa.df$DrugTreatment) %in% tolower(drugs) &
                           tolower(moa.df$Drug_set) %in% tolower(shared.moas) & 
                           moa.df$MPNST %in% results$sample,]
 shared.moa.df$moa <- NA
-for (d in shared.drugs) {
+for (d in shared.drugs[shared.drugs %in% shared.moa.df$DrugTreatment]) {
   shared.moa.df[tolower(shared.moa.df$DrugTreatment) == tolower(d),]$moa <- drug.info[[d]]
 }
 length(unique(shared.moa.df$moa)) # 8
 shared.moas2 <- shared.moas[shared.moas %in% shared.moa.df$moa] # 8
 
-results2 <- results[,c("sample","drug1","drug2","meanLogAlpha","maxBliss","R2","timeD")]
+results2 <- results[,c("sample","drug1","drug2","meanLogAlpha","maxBliss","R2","time","dAUC")]
 results2[,c("moa1","moa2","moaCombo")] <- NA
 for (d in drugs) {
   if (any(results2$drug1 == d)) {
@@ -311,11 +335,13 @@ shared.moa.df2 <- na.omit(shared.moa.df)
 colnames(shared.moa.df2)[2] <- "sample"
 shared.moa.res <- merge(shared.moa.df2, results3, by=c("sample","moaCombo"))
 shared.moa.res$moaComboShort <- gsub(" inhibitor","i",shared.moa.res$moaCombo)
-shared.moa.res <- dplyr::distinct(shared.moa.res) # 40 rows
+shared.moa.res <- dplyr::distinct(shared.moa.res) # 96 rows
 write.csv(shared.moa.res, "moa_dmea_vs_synergy.csv", row.names = FALSE)
-synapser::synStore(synapser::synFile("moa_dmea_vs_synergy.csv", parent="syn68258288"))
+synapser::synStore(synapser::File("moa_dmea_vs_synergy.csv", parent="syn68258288"))
 
-syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", "Mean MuSyC Potency Score" = "meanLogAlpha")
+syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", 
+                "Mean MuSyC Potency Score" = "meanLogAlpha",
+                "Delta AUC" = "dAUC")
 for (i in names(syn.scores)) {
   shared.moa.res$rank <- shared.moa.res[,syn.scores[i]]
   # signed
@@ -407,7 +433,9 @@ for (i in names(syn.scores)) {
   ggsave(paste0("moaResults_",i,"_vs_dmea_absNES_spearman.pdf"),width=5,height=5)
 }
 
-syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", "Mean MuSyC Potency Score" = "meanLogAlpha")
+syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", 
+                "Mean MuSyC Potency Score" = "meanLogAlpha",
+                "Delta AUC" = "dAUC")
 shared.moa.res2 <- shared.moa.res[shared.moa.res$sig,]
 for (i in names(syn.scores)) {
   shared.moa.res2$rank <- shared.moa.res2[,syn.scores[i]]
@@ -499,3 +527,390 @@ for (i in names(syn.scores)) {
          y="Absolute DMEA Sensitivity Prediction")
   ggsave(paste0("moaResults_",i,"_vs_dmea_absSigNES_spearman.pdf"),width=5,height=5)
 }
+write.csv(shared.moa.res2, "moaResults_vs_dmea_data.csv", row.names=FALSE)
+# get median or avg rank for DMEA results
+library(plyr);library(dplyr)
+moa.med <- plyr::ddply(shared.moa.res2, .(moaComboShort), summarize,
+                        absNES=median(abs(NES)),
+                        NES=median(NES),
+                        dAUC=median(dAUC),
+                        maxBliss=median(maxBliss),
+                        meanLogAlpha=median(meanLogAlpha),
+                        n=dplyr::n(),
+                        nDrugCombos=length(unique(paste0(drug1,"+",drug2))),
+                        nMPNST=length(unique(sample)))
+moa.mean <- plyr::ddply(shared.moa.res2, .(moaComboShort), summarize,
+                       absNES=mean(abs(NES)),
+                       NES=mean(NES),
+                       dAUC=mean(dAUC),
+                       maxBliss=mean(maxBliss),
+                       meanLogAlpha=mean(meanLogAlpha),
+                       n=dplyr::n(),
+                       nDrugCombos=length(unique(paste0(drug1,"+",drug2))),
+                       nMPNST=length(unique(sample)))
+moa.max <- plyr::ddply(shared.moa.res2, .(moaComboShort), summarize,
+                        absNES=max(abs(NES)),
+                        NES=max(NES),
+                        dAUC=max(dAUC),
+                        maxBliss=max(maxBliss),
+                        meanLogAlpha=max(meanLogAlpha),
+                        n=dplyr::n(),
+                        nDrugCombos=length(unique(paste0(drug1,"+",drug2))),
+                        nMPNST=length(unique(sample)))
+moa.med$aggFn <- "median"
+moa.mean$aggFn <- "mean"
+moa.max$aggFn <- "max"
+moa.pred <- rbind(moa.med, moa.mean, moa.max)
+write.csv(moa.pred,"aggregatedDrugComboScores_synergyScoresAndPredictions.csv", row.names=FALSE)
+moa.pred <- read.csv("aggregatedDrugComboScores_synergyScoresAndPredictions.csv")
+
+# create correlation matrix
+med.mat <- moa.med[,1:6]
+rownames(med.mat) <- med.mat$moaComboShort
+med.mat <- as.matrix(med.mat[,2:ncol(med.mat)])
+corr.mat <- stats::cor(med.mat)
+write.csv(corr.mat,"medianAggregatedDrugComboScores_PearsonCorr.csv")
+
+# plot correlation matrix
+corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
+ggsave("medianAggregatedDrugComboScores_PearsonCorr.pdf", corr.mat.plot, width=4, height=4)
+
+corr.mat <- stats::cor(med.mat, method="spearman")
+write.csv(corr.mat,"medianAggregatedDrugComboScores_SpearmanCorr.csv")
+
+# plot correlation matrix
+corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
+ggsave("medianAggregatedDrugComboScores_SpearmanCorr.pdf", corr.mat.plot, width=4, height=4)
+
+# best seems to be absNES vs. dAUC
+moa.med.cor <- cor.test(moa.med$absNES, moa.med$dAUC)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Median Delta AUC",color="MOA Combo",
+       y="Median Absolute DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","dAUC","_vs_dmea_absSigNES.pdf"),width=5,height=5)
+
+moa.med.cor <- cor.test(moa.med$absNES, moa.med$dAUC, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Median Delta AUC", color="MOA Combo",
+       y="Median Absolute DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","dAUC","_vs_dmea_absSigNES_spearman.pdf"),width=5,height=5)
+
+# next best seems to be meanLogAlpha vs. dAUC
+moa.med.cor <- cor.test(moa.med$meanLogAlpha, moa.med$dAUC)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Median Delta AUC",color="MOA Combo",
+       y="Median Log Alpha")
+ggsave(paste0("moaResultsMedian_","dAUC","_vs_meanLogAlpha.pdf"),width=5,height=5)
+
+moa.med.cor <- cor.test(moa.med$meanLogAlpha, moa.med$dAUC, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Median Delta AUC", color="MOA Combo",
+       y="Median Log Alpha")
+ggsave(paste0("moaResultsMedian_","dAUC","_vs_meanLogAlpha_spearman.pdf"),width=5,height=5)
+
+# also see positive corr between NES and mean Log Alpha, maxBliss
+moa.med.cor <- cor.test(moa.med$NES, moa.med$meanLogAlpha)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Median Log Alpha",color="MOA Combo",
+       y="Median DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","meanLogAlpha","_vs_dmea_SigNES.pdf"),width=5,height=5)
+
+moa.med.cor <- cor.test(moa.med$NES, moa.med$meanLogAlpha, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Median Log Alpha", color="MOA Combo",
+       y="Median DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","meanLogAlpha","_vs_dmea_SigNES_spearman.pdf"),width=5,height=5)
+
+
+moa.med.cor <- cor.test(moa.med$NES, moa.med$maxBliss)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Median Max Bliss",color="MOA Combo",
+       y="Median DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","maxBliss","_vs_dmea_SigNES.pdf"),width=5,height=5)
+
+moa.med.cor <- cor.test(moa.med$NES, moa.med$maxBliss, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.med.cor$estimate), digits = 2),
+    p = format(moa.med.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.med, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Median Max Bliss", color="MOA Combo",
+       y="Median DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMedian_","maxBliss","_vs_dmea_SigNES_spearman.pdf"),width=5,height=5)
+
+# median: absNES sig corr with dAUC (pearson or spearman)
+
+#### redo with means ####
+# create correlation matrix
+med.mat <- moa.mean[,1:6]
+rownames(med.mat) <- med.mat$moaComboShort
+med.mat <- as.matrix(med.mat[,2:ncol(med.mat)])
+corr.mat <- stats::cor(med.mat)
+write.csv(corr.mat,"meanAggregatedDrugComboScores_PearsonCorr.csv")
+
+# plot correlation matrix
+corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
+ggsave("meanAggregatedDrugComboScores_PearsonCorr.pdf", corr.mat.plot, width=4, height=4)
+
+corr.mat <- stats::cor(med.mat, method="spearman")
+write.csv(corr.mat,"meanAggregatedDrugComboScores_SpearmanCorr.csv")
+
+# plot correlation matrix
+corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
+ggsave("meanAggregatedDrugComboScores_SpearmanCorr.pdf", corr.mat.plot, width=4, height=4)
+
+# best seems to be absNES vs. dAUC
+moa.mean.cor <- cor.test(moa.mean$absNES, moa.mean$dAUC)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.mean.cor$estimate), digits = 2),
+    p = format(moa.mean.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.mean, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Mean Delta AUC",color="MOA Combo",
+       y="Mean Absolute DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMean_","dAUC","_vs_dmea_absSigNES.pdf"),width=5,height=5)
+
+moa.mean.cor <- cor.test(moa.mean$absNES, moa.mean$dAUC, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.mean.cor$estimate), digits = 2),
+    p = format(moa.mean.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.mean, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Mean Delta AUC", color="MOA Combo",
+       y="Mean Absolute DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMean_","dAUC","_vs_dmea_absSigNES_spearman.pdf"),width=5,height=5)
+
+# next best seems to be meanLogAlpha vs. dAUC
+moa.mean.cor <- cor.test(moa.mean$meanLogAlpha, moa.mean$dAUC)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.mean.cor$estimate), digits = 2),
+    p = format(moa.mean.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.mean, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Mean Delta AUC",color="MOA Combo",
+       y="Mean Log Alpha")
+ggsave(paste0("moaResultsMean_","dAUC","_vs_meanLogAlpha.pdf"),width=5,height=5)
+
+moa.mean.cor <- cor.test(moa.mean$meanLogAlpha, moa.mean$dAUC, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.mean.cor$estimate), digits = 2),
+    p = format(moa.mean.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.mean, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Mean Delta AUC", color="MOA Combo",
+       y="Mean Log Alpha")
+ggsave(paste0("moaResultsMean_","dAUC","_vs_meanLogAlpha_spearman.pdf"),width=5,height=5)
+
+# also see positive corr between NES and mean Log Alpha, maxBliss
+moa.mean.cor <- cor.test(moa.mean$NES, moa.mean$meanLogAlpha)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.mean.cor$estimate), digits = 2),
+    p = format(moa.mean.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.mean, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Mean Log Alpha",color="MOA Combo",
+       y="Mean DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMean_","meanLogAlpha","_vs_dmea_SigNES.pdf"),width=5,height=5)
+
+moa.mean.cor <- cor.test(moa.mean$NES, moa.mean$meanLogAlpha, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.mean.cor$estimate), digits = 2),
+    p = format(moa.mean.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.mean, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Mean Log Alpha", color="MOA Combo",
+       y="Mean DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMean_","meanLogAlpha","_vs_dmea_SigNES_spearman.pdf"),width=5,height=5)
+
+
+moa.mean.cor <- cor.test(moa.mean$NES, moa.mean$maxBliss)
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.mean.cor$estimate), digits = 2),
+    p = format(moa.mean.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.mean, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_pearson)), size = 8
+  ) +
+  labs(x="Mean Max Bliss",color="MOA Combo",
+       y="Mean DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMean_","maxBliss","_vs_dmea_SigNES.pdf"),width=5,height=5)
+
+moa.mean.cor <- cor.test(moa.mean$NES, moa.mean$maxBliss, method="spearman")
+stats_spearman <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(moa.mean.cor$estimate), digits = 2),
+    p = format(moa.mean.cor$p.value, digits = 2)
+  )
+)
+ggplot(moa.mean, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+  geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+    x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+    colour = "black", parse = TRUE, 
+    label = as.character(as.expression(stats_spearman)), size = 8
+  ) +
+  labs(x="Mean Max Bliss", color="MOA Combo",
+       y="Mean DMEA Sensitivity Prediction")
+ggsave(paste0("moaResultsMean_","maxBliss","_vs_dmea_SigNES_spearman.pdf"),width=5,height=5)

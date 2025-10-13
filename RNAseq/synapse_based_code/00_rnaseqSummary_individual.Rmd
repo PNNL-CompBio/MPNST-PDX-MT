@@ -398,30 +398,44 @@ counts<-reduced.data|>
   tibble::column_to_rownames('Name')|>
   as.matrix()
 
-temp.drugs <- unique(sampmeta$Drug)
-temp.drugs <- temp.drugs[temp.drugs != "DMSO"]
-diffexCalls<-do.call(rbind,lapply(temp.drugs,function(d_name){
-  cat(d_name,"\n")
-  ##check for each time point at the drug/date
-  do.call(rbind,lapply(c('8h','24h'),function(tval){
-    cat(tval,"\n")
-    samps <- subset(sampmeta, Timepoint==tval)|>
-      subset(Drug%in%c(d_name,"DMSO"))|>
-      subset(id%in%colnames(counts))
-    samps$Drug <- factor(samps$Drug, levels=c("DMSO",d_name)) # make sure contrast is drug vs. dmso per DESeq2 vignette
-    cts<-counts[,intersect(samps$id,colnames(counts))]
-    dds <- DESeqDataSetFromMatrix(countData = round(cts),
-                                  colData = samps,
-                                  design = ~ Drug + individualID) # use MPNST as batch factor; already corrected for date factor
-    
-    dres<-DESeq(dds)|>
-      results(contrast=c("Drug",d_name,"DMSO"))|> # double check contrast is drug vs. dmso per DESeq2 vignette
-      as.data.frame()|>
-      tibble::rownames_to_column('Gene')|>
-      dplyr::mutate(Drug=d_name,Timepoint=tval)
-    return(dres)
-  })) 
-})) 
+diffexCalls<-do.call(rbind,lapply(unique(sampmeta$Date),function(dval){
+  cat("Running diffexp for", dval,"\n")
+  if (dval == "C") { # use DMSO from group B for group C
+    datemeta <- na.omit(sampmeta[sampmeta$Date == dval | 
+                           (sampmeta$Drug == "DMSO" & sampmeta$Date == "B"),])
+  } else {
+   datemeta<-subset(sampmeta,Date==dval) 
+  }
+  mpnst <- unique(datemeta$individualID) # no need to filter for MPNST because only 1 MPNST per date
+  if ("DMSO" %in% datemeta$Drug) {
+    temp.drugs <- unique(datemeta$Drug)
+    temp.drugs <- temp.drugs[temp.drugs != "DMSO"]
+
+    ##check for each drug at the date
+    do.call(rbind,lapply(temp.drugs,function(d_name){
+      cat(d_name,"\n")
+      ##check for each time point at the drug/date
+      do.call(rbind,lapply(c('8h','24h'),function(tval){
+        cat(tval,"\n")
+        samps <- subset(datemeta, Timepoint==tval)|>
+          subset(Drug%in%c(d_name,"DMSO"))|>
+          subset(id%in%colnames(counts))
+        samps$Drug <- factor(samps$Drug, levels=c("DMSO",d_name)) # make sure contrast is drug vs. dmso per DESeq2 vignette
+        cts<-counts[,intersect(samps$id,colnames(counts))]
+        dds <- DESeqDataSetFromMatrix(countData = round(cts),
+                                      colData = samps,
+                                      design = ~ Drug)
+        
+        dres<-DESeq(dds)|>
+          results(contrast=c("Drug",d_name,"DMSO"))|> # double checks contrast is drug vs. dmso per DESeq2 vignette
+          as.data.frame()|>
+          tibble::rownames_to_column('Gene')|>
+          dplyr::mutate(Drug=d_name,Timepoint=tval,Date=dval, individualID=mpnst)
+        return(dres)
+      })) 
+    })) 
+  }
+}))
 
 diffex<-diffexCalls|>
   mutate(signif=padj<0.05)|>
@@ -433,19 +447,21 @@ dgenes<-diffex|>
 
 diffex_gene<-dgenes|>left_join(map)
 ##let's save this back to synapse for future reference
+dir.create("individual")
+setwd("individual")
 readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
-synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn64004220')
+synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn69910862')
 synapser::synStore(synFile)
 
 
 sumstats<-diffex|>subset(signif)|>
-  group_by(Drug,Timepoint,direction)|>
+  group_by(Drug,Timepoint,direction,individualID)|>
   summarize(numgenes=n())
 
 print('now have differential expression calls')
-ggplot(sumstats,aes(x=Drug,y=numgenes,fill=direction))+geom_bar(stat='identity',position='dodge')+coord_flip()+scale_fill_viridis_d()
+ggplot(sumstats,aes(x=Drug,y=numgenes,fill=direction))+facet_grid(individualID~Timepoint)+geom_bar(stat='identity',position='dodge')+coord_flip()+scale_fill_viridis_d()
 
-ggplot(sumstats,aes(x=Drug,y=Timepoint,size=numgenes,col=Drug))+geom_point()+facet_grid(.~direction)+
+ggplot(sumstats,aes(x=Drug,y=Timepoint,size=numgenes,col=Drug))+geom_point()+facet_grid(individualID~direction)+
   scale_size(range=c(1,15))+scale_color_discrete()+coord_flip()
 
 ggsave('diffExresults.png',height=8)
@@ -495,7 +511,7 @@ if (file.exists('map.csv')) {
 diffex_gene<-dgenes|>left_join(map)
 ##let's save this back to synapse for future reference
 readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
-synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn64004220')
+synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn69910862')
 synapser::synStore(synFile)
 
 

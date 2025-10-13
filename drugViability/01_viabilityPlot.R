@@ -20,8 +20,74 @@ drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor
 ## load data
 viability <- read.table(synapser::synGet("syn65941820")$path, sep="\t", header = TRUE)
 viability <- viability[viability$improve_drug_id != "irinotecan",]
+viability.cmax <- readxl::read_excel(synapser::synGet("syn70107593")$path)
 
 ## plot
+# viability at Cmax
+mean.viability.cmax <- plyr::ddply(viability.cmax, .(Drug, PDX, Hour), summarize,
+                                   meanViability = mean(`Viability at Cmax`, na.rm=TRUE),
+                                   sdViability = sd(`Viability at Cmax`, na.rm=TRUE))
+mean.viability.cmax$timeD <- paste0(as.numeric(mean.viability.cmax$Hour)/24,"d")
+# need to scale SD such that bigger SD is associated with smaller point sizes
+mean.viability.cmax$size <- 1/mean.viability.cmax$sdViability
+ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
+                   color=meanViability, size=size)) + 
+  geom_point() + 
+  facet_wrap(.~timeD)+theme_classic() + 
+  scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) + 
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + 
+  labs(size="1/SD",color="Mean Viability\nat Cmax")
+ggsave("CmaxViability_heatmap_orderMeanViability_sizeInverseSD.pdf", width=4,height=4)
+
+ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
+                                color=meanViability, size=sdViability^-0.5)) + 
+  geom_point() + 
+  facet_wrap(.~timeD)+theme_classic() + 
+  scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) + 
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + 
+  labs(size=expression(1/sqrt(SD)),color="Mean Viability\nat Cmax")
+ggsave("CmaxViability_heatmap_orderMeanViability_sizeSD-0.5Power.pdf", width=4,height=4)
+mean.viability.cmax$size <- mean.viability.cmax$sdViability^-0.5
+
+ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
+                                color=meanViability, size=sdViability^-0.5)) + 
+  geom_point() + 
+  facet_wrap(.~timeD)+theme_classic() + scale_size_continuous(breaks=c(0,5,10,20,30,40)^-0.5, 
+                                                              labels=c(0,5,10,20,30,40)) + 
+  scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) + 
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + 
+  labs(size="SD",color="Mean Viability\nat Cmax")
+ggsave("CmaxViability_heatmap_orderMeanViability_sizeInverseSqrtSD_v2.pdf", width=4,height=4)
+
+ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
+                                color=meanViability, size=sdViability^-0.5)) + 
+  geom_point() + 
+  facet_wrap(.~timeD)+theme_classic() + scale_size_continuous(breaks=c(2.5,5,10,20)^-0.5, 
+                                                              labels=c(2.5,5,10,20)) + 
+  scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) + 
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + 
+  labs(size="SD",color="Mean Viability\nat Cmax")
+ggsave("CmaxViability_heatmap_orderMeanViability_sizeInverseSqrtSD_v3.pdf", width=4,height=4)
+
+mean.viability.cmax[mean.viability.cmax$Drug=="Vorinostat",]$Drug <- "vorinostat"
+ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
+                                color=meanViability, size=sdViability^-0.5)) + 
+  geom_point() + 
+  facet_wrap(.~timeD)+theme_classic() + scale_size_continuous(breaks=c(2.5,5,10,20)^-0.5, 
+                                                              labels=c(2.5,5,10,20)) + 
+  scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) + 
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + 
+  labs(size="SD",color="Mean Viability\nat Cmax")
+ggsave("CmaxViability_heatmap_orderMeanViability_sizeInverseSqrtSD_final.pdf", width=4,height=4)
+
+ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
+                                color=meanViability, size=meanViability/sdViability)) + 
+  geom_point() + facet_wrap(.~timeD)+theme_classic() +  
+  scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) + 
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + 
+  labs(size="Mean/SD",color="Mean Viability\nat Cmax")
+ggsave("CmaxViability_heatmap_orderMeanViability_sizeInverseFracSD.pdf", width=4,height=4)
+
 # AUC
 auc <- viability[viability$dose_response_metric=="fit_auc",]
 quantiles <- quantile(auc$dose_response_value)
