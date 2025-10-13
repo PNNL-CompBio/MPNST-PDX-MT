@@ -1,0 +1,738 @@
+---
+title: "DMEA"
+author: "Belinda B. Garana"
+date: "2025-01-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load packages
+if (require(panSEA)) {
+  if (!require("devtools", quietly = TRUE))
+  install.packages("devtools")
+  
+  devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
+}
+
+library(plyr);library(dplyr);library(ggplot2);library(synapser);library(panSEA)
+library(data.table); library(patchwork)
+source("https://raw.githubusercontent.com/PNNL-CompBio/MPNST_Chr8/refs/heads/main/panSEA_helper_20240913.R")
+
+# load helper functions
+# adapted from: https://github.com/PNNL-CompBio/coderdata/blob/main/build/lincs/05-LINCS_perturbations.R
+build_L1000 <- function() {
+  options(timeout = 300)
+
+  # identify URLs
+  #basename="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE101406"
+  L1000 <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5FLevel4%5FZSPCINF%5Fmlr12k%5Fn1667x12328.gctx.gz'
+  L1000.genes <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Fgene%5Finfo.txt.gz'
+  L1000.inst <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Finst%5Finfo.txt.gz'
+
+  # download source sample & perturbation info
+  L1000.genes.info <- readr::read_delim(L1000.genes, "\t") # pr_gene_symbol, pr_gene_id
+  L1000.inst.info <- readr::read_delim(L1000.inst, "\t") # pert_iname; pert_type = "trt_cp" if drug, "ctl_vehicle" if DMSO; cell_id
+  L1000.inst.info <- L1000.inst.info[L1000.inst.info$pert_type == "trt_cp", ] # only keep drug treatments (remove DMSO controls)
+
+  # download L1000 data
+  if (file.exists("L1000.gctx")) {
+    L1000.df <- cmapR::parse_gctx("L1000.gctx")
+  } else {
+   res<-download.file(L1000,'L1000.gctx.gz', mode="wb")
+  L1000.df<-cmapR::parse_gctx(R.utils::gunzip("L1000.gctx.gz")) 
+  }
+
+  # put data into long format
+  L1000.long <- cmapR::melt_gct(L1000.df)
+  colnames(L1000.long) <- c("inst_id", "pr_gene_id", "data_value")
+  L1000.long$pr_gene_id <- as.numeric(L1000.long$pr_gene_id)
+
+  # join with L1000.gene.info based on pr_gene_id;
+  # L1000.inst.info based on inst_id;
+  # keep only cell_id, pert_type, pert_iname, gene_symbol, data_value
+  L1000.full <- L1000.long |>
+    dplyr::left_join(L1000.genes.info) |>
+    dplyr::left_join(L1000.inst.info) |>
+    dplyr::select(cell_id,pert_type,pert_iname,pr_gene_symbol,data_value)|>
+    dplyr::distinct()
+  L1000.long <- NULL # save space
+
+  # add relevant columns
+  L1000.full <- na.omit(L1000.full)
+  colnames(L1000.full)[1] <- "other_names" # match samples column name
+  colnames(L1000.full)[4] <- "gene_symbol" # match genes column name
+  colnames(L1000.full)[3] <- "chem_name"
+  L1000.full$data_type <- "transcriptomics"
+  L1000.full$source <- "Broad"
+  L1000.full$study <- "LINCS"
+  L1000.full$perturbation_type <- "drug" # all entries have pert_type="trt_cp"
+  return(L1000.full)
+}
+```
+
+## load inputs
+```{r load inputs, echo = FALSE}
+#synapser::synLogin()
+# RNA-seq data with HGNC symbols (update once batch-corrected)
+diffexp1 <- read.csv("GSE183307_diffexp.csv") # 19779 genes
+diffexp1$Source <- "GSE183307"
+degs1 <- na.omit(diffexp1[diffexp1$adj.P.Val <= 0.05,]) # 1295 genes
+degs1$Source <- "GSE183307"
+
+diffexp2 <- read.csv("GSE262030_diffexp.csv") # 19597 genes
+diffexp2$Source <- "GSE262030"
+degs2 <- na.omit(diffexp2[diffexp2$adj.P.Val <= 0.05,]) # 6431 genes
+degs2$Source <- "GSE262030"
+
+degs <- rbind(degs1, degs2) # 7726
+diffexp <- rbind(diffexp1, diffexp2) # 39376
+degs.compiled <- na.omit(reshape2::dcast(degs, Gene ~ Source, value.var = "Log2FC"))
+cor.test(degs.compiled[,2], degs.compiled[,3]) # p-value < 2.2e-16, Pearson correlation: 0.3479867
+
+# plot MEKi targets (MAP2K*) and HDACi targets (HDAC*)
+targets <- c("MAP2K", "HDAC")
+combo.dot.plot <- NULL
+all.dot.df <-  diffexp[diffexp$Gene %like% targets[1] | 
+                         diffexp$Gene %like% targets[2],]
+all.dot.df$minusLogFDR <- -log10(all.dot.df$adj.P.Val)
+for (i in targets) {
+  dot.df <- diffexp[diffexp$Gene %like% i,]
+  mean.results <- plyr::ddply(dot.df, .(Gene), summarize,
+                              Log2FC = mean(Log2FC, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$Log2FC),]$Gene
+
+  maxAbsNES <- ceiling(max(abs(dot.df$Log2FC)))
+  dot.plot <- ggplot2::ggplot(
+    na.omit(dot.df),
+    ggplot2::aes(
+      x = Source, y = Gene, color = Log2FC,
+      size = -log10(adj.P.Val)
+    )
+  ) +
+    ggplot2::geom_point() + scale_size(range=c(floor(min(all.dot.df$minusLogFDR)), ceiling(max(all.dot.df$minusLogFDR)))) +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsNES, maxAbsNES)) +
+    theme_classic(base_size=12) +
+    ggplot2::labs(color = "Log2FC", size = "-Log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1), axis.title=element_blank()) +
+    geom_point(data = subset(dot.df, adj.P.Val <= 0.05), col = "black", stroke = 1.5, shape = 21)
+  dot.plot
+  if (is.null(combo.dot.plot)) {
+    combo.dot.plot <- dot.plot
+  } else {
+    combo.dot.plot <- combo.dot.plot + dot.plot
+  }
+  ggplot2::ggsave(paste0(i,"_diffexp_dotPlot.pdf"), dot.plot, width=2.5, height=0.16*nrow(dot.df))
+  ggplot2::ggsave(paste0(i,"_diffexp_dotPlot_taller.pdf"), dot.plot, width=2.5, height=0.21*nrow(dot.df))
+  ggplot2::ggsave(paste0(i,"_diffexp_dotPlot_evenTaller.pdf"), dot.plot, width=2.5, height=0.25*nrow(dot.df))
+  ggplot2::ggsave(paste0(i,"_diffexp_dotPlot_wider.pdf"), dot.plot, width=2.65, height=0.16*nrow(dot.df))
+  ggplot2::ggsave(paste0(i,"_diffexp_dotPlot_wider-taller.pdf"), dot.plot, width=2.65, height=0.21*nrow(dot.df))
+  ggplot2::ggsave(paste0(i,"_diffexp_dotPlot_wider-evenTaller.pdf"), dot.plot, width=2.65, height=0.25*nrow(dot.df))
+}
+source("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/MPNST/Chr8/MPNST_Chr8_manuscript/Figure_3_Kinase/guides_build_mod.R")
+combo.dot.plot <- combo.dot.plot + plot_layout(guides='collect')
+ggplot2::ggsave("MAP2K-HDAC_diffexp_dotPlot_evenTaller.pdf", combo.dot.plot, width=5, height=0.25*nrow(dot.df))
+
+# plot both MEKs and HDACs sig in at least 1 input
+sigTargets <- unique(all.dot.df[all.dot.df$adj.P.Val <= 0.05,]$Gene)
+dot.df <- all.dot.df[all.dot.df$Gene %in% sigTargets,]
+mean.results <- plyr::ddply(dot.df, .(Gene), summarize,
+                            Log2FC = mean(Log2FC, na.rm=TRUE))
+setOrder <- mean.results[order(mean.results$Log2FC),]$Gene
+
+maxAbsNES <- ceiling(max(abs(dot.df$Log2FC)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = Source, y = Gene, color = Log2FC,
+    size = -log10(adj.P.Val)
+  )
+) +
+  ggplot2::geom_point() + scale_size(range=c(floor(min(all.dot.df$minusLogFDR)), ceiling(max(all.dot.df$minusLogFDR)))) +
+  ggplot2::scale_y_discrete(limits = setOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  theme_classic(base_size=12) +
+  ggplot2::labs(color = "Log2FC", size = "-Log(FDR)") + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1), axis.title=element_blank()) +
+  geom_point(data = subset(dot.df, adj.P.Val <= 0.05), col = "black", stroke = 1.5, shape = 21)
+dot.plot
+ggplot2::ggsave("sigMAP2K-HDAC_diffexp_dotPlot.pdf", dot.plot, width=2.65, height=0.16*nrow(dot.df))
+ggplot2::ggsave("sigMAP2K-HDAC_diffexp_dotPlot_taller.pdf", dot.plot, width=2.65, height=0.21*nrow(dot.df))
+ggplot2::ggsave("sigMAP2K-HDAC_diffexp_dotPlot_evenTaller.pdf", dot.plot, width=2.65, height=0.25*nrow(dot.df))
+
+# reduce to overlapping genes, check for overlapping drugsL1000.genes <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Fgene%5Finfo.txt.gz'
+# L1000.genes <- 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE101nnn/GSE101406/suppl/GSE101406%5FBroad%5FLINCS%5FL1000%5Fgene%5Finfo.txt.gz'
+# L1000.genes.info <- readr::read_delim(L1000.genes, "\t") # pr_gene_symbol, pr_gene_id
+# degs.L1000 <- degs[degs$Gene %in% L1000.genes.info$pr_gene_symbol,] # 3940 / 7726
+```
+
+## produce GMTs
+```{r produce txt files, echo = FALSE}
+# compare treated vs. untreated
+# DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
+base.path <- getwd()
+dmea.path <- file.path(base.path, "DMEA_Cmap_L1000")
+dir.create("DMEA_Cmap_L1000")
+
+# prep inputs for each drug
+drug.degs <- list()
+#expr <- list()
+all.sources <- na.omit(unique(degs.L1000$Source))
+for (j in all.sources) {
+  temp.deg <- na.omit(dplyr::distinct(
+    degs.L1000[degs.L1000$Source == j,c("Gene","Log2FC")]))
+  colnames(temp.deg) <- c("Gene", "Log2FC")
+  if (any(duplicated(temp.deg$Gene))) {
+    temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
+                            Log2FC = mean(Log2FC))
+  }
+  if (nrow(temp.deg) > 0) {
+    up.deg <- temp.deg[temp.deg$Log2FC>0,] %>% slice_max(Log2FC, n=150, with_ties=FALSE)
+    dn.deg <- temp.deg[temp.deg$Log2FC<0,] %>% slice_min(Log2FC, n=150, with_ties=FALSE)
+    if (nrow(up.deg) >= 10 & nrow(dn.deg) >= 10) {
+      drug.degs[[j]] <- rbind(up.deg, dn.deg) 
+    }
+  }
+}
+drug.degs.df <- data.table::rbindlist(drug.degs, use.names=TRUE, idcol="Source")
+setwd(dmea.path)
+write.csv(drug.degs.df,paste0("Top_150_DEGs_by_absLog2FC_noTies_",Sys.Date(),".csv"), row.names = FALSE)
+```
+
+### compile results
+```{r compile results, echo=FALSE}
+dmea.path <- file.path(getwd(), "DMEA_Cmap_L1000")
+setwd(dmea.path)
+all.drug.degs <- read.csv(paste0("Top_150_DEGs_by_absLog2FC_noTies_","2025-02-20",".csv"))
+cmap.results <- list()
+moa.results <- list()
+drug.list <- list()
+
+for (j in na.omit(unique(all.drug.degs$Source))) {
+  fname <- paste0("Query_results/",j,"_24h.tar.gz")
+  if (file.exists(fname)) {
+    ## get Cmap MOA results
+    cat(file=stderr(), "About to load", fname, "\n")
+    dir.info <- archive::archive_extract(fname)
+    dir.name <- dir.info[1]
+    fname2 <- "gsea/TAG/arfs/NORM_CS/gsea_result.gct" # this points to Cmap MOA results
+    fname3 <- paste0(dir.name, fname2)
+    rank.data <- read.delim(file=archive::archive_extract(fname, files=fname3), skip = 2)
+    rank.data <- rank.data[rank.data$cell_iname=="-666" & rank.data$pert_type=="TRT_CP" &
+                             (rank.data$set_type=="PCL" | rank.data$set_type=="MOA_CLASS"),]
+    cmap.results[[j]] <- rank.data[,c("id","raw_cs","norm_cs","fdr_q_nlog10")]
+    
+    ## get drug ranks
+    # load file
+    fname2 <- "arfs/TAG/query_result.gct" # this points to Cmap MOA results
+    fname3 <- paste0(dir.name, fname2)
+    rank.data <- read.delim(file=archive::archive_extract(fname, files=fname3), skip = 2)
+    
+    # filter drug list
+    cat(file=stderr(), "About to filter input", "\n")
+    rank.data <- rank.data[rank.data$qc_pass==1,]
+    rank.data <- rank.data[rank.data$pert_iname!="na",] # removes empty first row in CMap query output
+    rank.data <- rank.data[rank.data$moa!="-666",] # remove drugs without known moa (moa="-666")
+    rank.data[,ncol(rank.data)] <- as.numeric(rank.data[,ncol(rank.data)]) # assuming rank metric is last column
+    rank.data <- rank.data[rank.data[,ncol(rank.data)]!=0,]
+    rank.metric <- colnames(rank.data)[ncol(rank.data)] # store name of rank metric to restore later
+    
+    # average rank metric
+    cat(file=stderr(), "About to average rank metric", "\n")
+    rank.data$FDR_q_value <- 10^(-as.numeric(rank.data$fdr_q_nlog10))
+    rank.data <- plyr::ddply(rank.data, .(pert_iname, moa), summarize, norm_cs = mean(as.numeric(norm_cs), na.rm=TRUE),
+                             FDR_q_value = ifelse(length(na.omit(FDR_q_value))==1,na.omit(FDR_q_value), 
+                                                  as.numeric(metap::sumlog(na.omit(FDR_q_value))$p))) #average across cell lines
+    rank.data$fdr_q_nlog10 <- -log(rank.data$FDR_q_value, 10)
+    drug.list[[j]] <- dplyr::distinct(na.omit(rank.data[!duplicated(rank.data[,c("pert_iname")]),]))
+    rank.data <- dplyr::distinct(na.omit(rank.data[!duplicated(rank.data[,c("pert_iname")]), c("pert_iname", "norm_cs", "moa")]))
+    
+    # run DMEA
+    cat(file=stderr(), "About to run enrichment analysis", "\n")
+    DMEA.output <- panSEA::drugSEA_ties(rank.data, drug="pert_iname", rank.metric="norm_cs",
+                                        FDR=0.25, min.per.set=6, ties=FALSE)
+    moa.results[[j]] <- DMEA.output$result
+  }
+}  
+cmap.dmea.sens.df <- data.table::rbindlist(cmap.results, use.names = TRUE, idcol="Source")
+dmea.sens.df <- data.table::rbindlist(moa.results, use.names = TRUE, idcol="Source")
+drug.corr.sens.df <- data.table::rbindlist(drug.list, use.names = TRUE, idcol="Source")
+write.csv(cmap.dmea.sens.df, "Cmap_L1000_moaRanks.csv", row.names = FALSE)
+write.csv(drug.corr.sens.df, "Cmap_L1000_drugRanks.csv", row.names = FALSE)
+write.csv(dmea.sens.df, "DMEA_Cmap_L1000.csv", row.names = FALSE)
+```
+
+### plot number of correlated drugs, enriched MOAs
+```{r plot # of results, echo = FALSE}
+## drug mechanisms
+# prep data
+setwd(dmea.path)
+sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value <= 0.25 & 
+                           dmea.sens.df$p_value <= 0.05,]
+nMOAs <- plyr::ddply(sig.dmea, .(Source), dplyr::summarize,
+                    N = length(na.omit(unique(Drug_set))))
+
+# generate plot
+ggplot2::ggplot(nMOAs, aes(x=Source, y=N)) + geom_col() +
+  labs(y="# of Enriched Drug Mechanisms") + theme_classic(base_size=12) 
+ggplot2::ggsave("N_enrichedDrugMechanisms.pdf", width=5.5, height=4)
+
+## drugs
+# prep data
+colnames(drug.corr.sens.df)[3] <- "Drug"
+sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$fdr_q_nlog10 >= -log(0.05, 10),]
+nDrugs <- plyr::ddply(sig.drug.corr, .(Source), dplyr::summarize,
+                    N = length(na.omit(unique(Drug))))
+
+# generate plot
+ggplot2::ggplot(nDrugs, aes(x=Source, y=N)) + geom_col() +
+  scale_y_continuous(trans="log10") + labs(y="Log(# of Correlated Drugs)") +
+  theme_classic(base_size=12)
+ggplot2::ggsave("N_correlatedDrugs.pdf", width=5.5, height=4)
+```
+### plot all correlated drugs, enriched MOAs
+```{r plot all results, echo = FALSE}
+
+library(plyr);library(dplyr);library(ggplot2)
+dmea.path <- file.path(getwd(),"DMEA_Cmap_L1000")
+setwd(dmea.path)
+#dmea.sens.df <- read.csv("DMEA_Cmap_L1000.csv)
+#drug.corr.sens.df <- read.csv("Cmap_L1000_drugRanks.csv")
+### MOA
+topSets <- unique(dmea.sens.df[dmea.sens.df$sig,]$Drug_set)
+mean.results <- plyr::ddply(dmea.sens.df, .(Drug_set), summarize,
+                            NES = mean(NES, na.rm=TRUE))
+setOrder <- mean.results[order(mean.results$NES),]$Drug_set
+
+dmea.sens.df$sig <- FALSE
+dmea.sens.df[dmea.sens.df$p_value <= 0.05 & dmea.sens.df$FDR_q_value <= 0.25,]$sig <- TRUE
+dot.df <- dmea.sens.df
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = Source, y = Drug_set, color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = setOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(
+    x = "Drug Treatment (Input)",
+    y = "Drug Mechanism (Output)",
+    color = "NES", size = "-log(FDR)"
+  ) + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("Enriched_MOAs_dotPlot_facetTime.pdf", dot.plot, width=5, height=20)
+
+### Drug correlations
+topSets <- unique(drug.corr.sens.df[drug.corr.sens.df$sig,]$pert_iname)
+mean.results <- plyr::ddply(drug.corr.sens.df, .(pert_iname), summarize,
+                            norm_cs = mean(norm_cs, na.rm=TRUE))
+setOrder <- mean.results[order(mean.results$norm_cs),]$pert_iname
+
+dot.df <- drug.corr.sens.df
+maxAbsnorm_cs <- ceiling(max(abs(dot.df$norm_cs)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = Source, y = pert_iname, color = norm_cs,
+    size = fdr_q_nlog10
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = setOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsnorm_cs, maxAbsnorm_cs)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(
+    x = "Drug Treatment (Input)",
+    y = "Drug (Output)",
+    color = "Normalized Connectivity Score", size = "-log(FDR)"
+  ) + 
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+  geom_point(data = subset(dot.df, fdr_q_nlog10 >= -log(0.05,10)), col = "black", stroke = 1.5, shape = 21)
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("Correlated_drugs_dotPlot_facetTime.pdf", dot.plot, width=12, height=48)
+```
+
+### plot top correlated drugs, enriched MOAs
+```{r plot top results, echo = FALSE}
+
+library(plyr);library(dplyr);library(ggplot2)
+dmea.path <- file.path(getwd(),"DMEA_Cmap_L1000")
+setwd(dmea.path)
+
+n.top.list <- c(1, 2, 3, 5, 6, 7, 10)
+for (n.top in n.top.list) {
+  ### MOA
+  topSigMOA <- data.frame()
+  for (i in unique(dmea.sens.df$Source)) {
+    tempSig <- dmea.sens.df[dmea.sens.df$Source == i &
+                              dmea.sens.df$sig,] %>% slice_max(abs(NES), n=n.top)
+    topSigMOA <- rbind(topSigMOA, tempSig)
+  }
+  length(unique(topSigMOA$Drug_set)) # 20
+  dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% unique(topSigMOA$Drug_set),]
+  
+  mean.results <- plyr::ddply(dot.df, .(Drug_set), summarize,
+                              NES = mean(NES, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$NES),]$Drug_set
+  
+  if (any(dot.df$FDR_q_value == 0)) {
+    dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+  }
+  dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+  dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+  maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+  dot.plot <- ggplot2::ggplot(
+    na.omit(dot.df),
+    ggplot2::aes(
+      x = Source, y = Drug_set, color = NES,
+      size = minusLogFDR
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsNES, maxAbsNES)) +
+    theme_classic(base_size=12) +
+    ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1), axis.title=element_blank()) +
+    geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
+  dot.plot
+  ggplot2::ggsave(paste0("Top_",n.top,"_enriched_MOAs_dotPlot_facetTime.pdf"), dot.plot, width=4, height=0.75*n.top)
+  
+  mean.results <- plyr::ddply(dot.df, .(Drug_set), summarize,
+                              NES = mean(NES, na.rm=TRUE))
+  sig.DMEA.df <- mean.results[mean.results$N_sig > 0,]
+  if (nrow(sig.DMEA.df) >= n.dot.sets) {
+  top.DMEA.df <- sig.DMEA.df %>% dplyr::slice_max(abs(NES), n = n.top)
+} else {
+  top.DMEA.df <- mean.results %>% dplyr::slice_max(abs(NES), n = n.top)
+}
+  setOrder <- top.DMEA.df[order(top.DMEA.df$NES),]$Drug_set
+  dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% unique(top.DMEA.df$Drug_set),]
+  if (any(dot.df$FDR_q_value == 0)) {
+    dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+  }
+  dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+  dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+  maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+  dot.plot <- ggplot2::ggplot(
+    na.omit(dot.df),
+    ggplot2::aes(
+      x = Source, y = Drug_set, color = NES,
+      size = minusLogFDR
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsNES, maxAbsNES)) +
+    theme_classic(base_size=12) +
+    ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1), axis.title=element_blank()) +
+    geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
+  dot.plot
+  ggplot2::ggsave(paste0("Top_",n.top,"_enriched_MOAs_dotPlot_facetTimev2.pdf"), dot.plot, width=4, height=0.4*n.top)
+  
+  ### Drug correlations
+  topSigDrug <- data.frame()
+  for (i in unique(dmea.sens.df$Source)) {
+    tempSig <- drug.corr.sens.df[drug.corr.sens.df$Source == i &
+                                   drug.corr.sens.df$fdr_q_nlog10 >= -log(0.05,10),] %>% slice_max(abs(norm_cs), n=n.top)
+    topSigDrug <- rbind(topSigDrug, tempSig)
+  }
+  cat("Number of top correlated drugs:", length(unique(topSigDrug$pert_iname)))
+  dot.df <- dmea.sens.df[dmea.sens.df$Drug %in% unique(topSigMOA$Drug_set),]
+  mean.results <- plyr::ddply(drug.corr.sens.df[drug.corr.sens.df$pert_iname %in% topSigDrug$pert_iname,], .(pert_iname), summarize,
+                              norm_cs = mean(norm_cs, na.rm=TRUE))
+  setOrder <- mean.results[order(mean.results$norm_cs),]$pert_iname
+  
+  dot.df <- drug.corr.sens.df
+  maxAbsnorm_cs <- ceiling(max(abs(dot.df$norm_cs)))
+  dot.plot <- ggplot2::ggplot(
+    na.omit(dot.df),
+    ggplot2::aes(
+      x = Source, y = pert_iname, color = norm_cs,
+      size = fdr_q_nlog10
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::scale_y_discrete(limits = setOrder) +
+    scale_color_gradient2(low="blue",high="red", mid="grey", 
+                          limits=c(-maxAbsnorm_cs, maxAbsnorm_cs)) +
+    theme_classic(base_size=12) +
+    ggplot2::labs(color = "Normalized Connectivity Score", size = "-log(FDR)") + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1), axis.title=element_blank()) +
+    geom_point(data = subset(dot.df, fdr_q_nlog10 >= -log(0.05,10)), col = "black", stroke = 1.5, shape = 21)
+  dot.plot
+  ggplot2::ggsave(paste0("Top_",n.top,"_correlated_drugs_dotPlot_facetTime.pdf"), dot.plot, width=6, height=2*n.top)
+}
+
+```
+
+
+### plot validations
+```{r plot validation results, echo = FALSE}
+
+library(plyr);library(dplyr);library(ggplot2)
+dmea.path <- file.path(getwd(),"DMEA_Cmap_L1000")
+setwd(dmea.path)
+#dmea.sens.df <- read.csv(paste0("DMEA_results_","2025-01-29",".csv"))
+#drug.corr.sens.df <- read.csv(paste0("DMEA_correlations_","2025-01-29",".csv"))
+### MOA
+topSets <- "MEK inhibitor"
+sigTopSets <- topSets[topSets %in% dmea.sens.df[dmea.sens.df$sig,]$Drug_set]
+validations <- dmea.sens.df[dmea.sens.df$Drug_set == "MEK inhibitor" & dmea.sens.df$sig,]
+validTopSets <- unique(validations$Drug_set)
+mean.results <- plyr::ddply(dmea.sens.df[dmea.sens.df$Drug_set %in% topSets,], .(Drug_set), summarize,
+                            NES = mean(NES, na.rm=TRUE))
+setOrder <- mean.results[order(mean.results$NES),]$Drug_set
+setFace <- rep("plain", length(setOrder))
+names(setFace) <- setOrder
+setFace[validTopSets] <- "bold"
+
+drugsInTopSets <- unique(drug.corr.sens.df[drug.corr.sens.df$Drug == "MEK inhibitor",]$pert_iname)
+if("MEK inhibitor" %in% validTopSets) {
+  drugsInValidTopSets <- drugsInTopSets
+} else {
+  drugsInValidTopSets <- c()
+}
+
+dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% "MEK inhibitor",]
+if (any(dot.df$FDR_q_value == 0)) {
+  dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
+}
+dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
+dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+dot.plot <- ggplot2::ggplot(
+  na.omit(dot.df),
+  ggplot2::aes(
+    x = Source, y = Drug_set, color = NES,
+    size = minusLogFDR
+  )
+) +
+  ggplot2::geom_point() +
+  ggplot2::scale_y_discrete(limits = setOrder) +
+  scale_color_gradient2(low="blue",high="red", mid="grey", 
+                        limits=c(-maxAbsNES, maxAbsNES)) +
+  theme_minimal(base_size=12) +
+  ggplot2::labs(color = "NES", size = "-log(FDR)") + 
+  theme(axis.text.y=element_text(face=setFace), axis.title=element_blank(),
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+        legend.box="horizontal") +
+  geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
+dot.plot
+# most are only in prot and not in RNA
+ggplot2::ggsave("Validation_MOAs_dotPlot_facetTime.pdf", dot.plot, width=10, height=3)
+
+```
+
+### upset plots to see overlap across drug treatments
+```{r plot overlap of results, echo = FALSE}
+library(ComplexHeatmap)
+# inspired by: https://jokergoo.github.io/ComplexHeatmap-reference/book/upset-plot.html#upset-making-the-plot
+### MOA
+# generate list of significant results
+sigList <- list()
+for (i in unique(dmea.sens.df$Source)) {
+  sigList[[i]] <- na.omit(unique(dmea.sens.df[dmea.sens.df$Source == i & dmea.sens.df$sig,]$Drug_set))
+}
+
+# convert to matrix
+m = ComplexHeatmap::make_comb_mat(sigList)
+ComplexHeatmap::UpSet(m)
+ggvenn::ggvenn(sigList, show_percentage = FALSE, set_name_size = 5, text_size = 5)
+ggplot2::ggsave("MOA_vennDiagram.pdf", width=5, height=5)
+
+# merge for correlation and scatter plot
+deg <- data.frame()
+for (i in unique(dmea.sens.df$Source)) {
+  deg1 <- na.omit(unique(dmea.sens.df[dmea.sens.df$Source == i & dmea.sens.df$sig,]))
+  deg1$Source <- i
+  deg <- rbind(deg, deg1)
+}
+combined.degs <- na.omit(reshape2::dcast(deg, Drug_set ~ Source, value.var="NES")) # 578
+pearson.test <- cor.test(combined.degs[,2], combined.degs[,3])
+pearson.p <- pearson.test$p.value
+pearson.est <- pearson.test$estimate
+stats_pearson <- substitute(
+  r == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = as.numeric(format(pearson.est, digits = 3)),
+    p = format(pearson.p, digits = 3)
+  )
+)
+ggplot2::ggplot(combined.degs, aes(x=GSE183307, y=GSE262030)) + geom_point() + 
+  theme_minimal(base_size=12) + ggplot2::geom_smooth(method = "lm", size = 1.5, 
+                       linetype = "solid", color = "blue", se = TRUE, na.rm = TRUE) +
+  ggplot2::geom_text(x = max(combined.degs$GSE183307), y = min(combined.degs$GSE262030),
+                     vjust = "inward", hjust = "inward", colour = "blue", parse = TRUE,
+    label = as.character(as.expression(stats_pearson)), size = 8) + 
+  ggtitle(paste0("NES (N = ",nrow(combined.degs),")")) +
+  geom_hline(yintercept=0) + geom_vline(xintercept=0)
+ggplot2::ggsave("DMEA_scatterPlot_Pearson.pdf", width = 5, height=5)
+ggplot2::ggplot(combined.degs, aes(x=GSE183307, y=GSE262030)) + geom_point() + 
+  theme_classic(base_size=12) + ggplot2::geom_smooth(method = "lm", size = 1.5, 
+                       linetype = "solid", color = "blue", se = TRUE, na.rm = TRUE) +
+  ggplot2::geom_text(x = max(combined.degs$GSE183307), y = min(combined.degs$GSE262030),
+                     vjust = "inward", hjust = "inward", colour = "blue", parse = TRUE,
+    label = as.character(as.expression(stats_pearson)), size = 8) + 
+  ggtitle(paste0("NES (N = ",nrow(combined.degs),")"))
+ggplot2::ggsave("DMEA_scatterPlot_Pearson_v2.pdf", width = 5, height=5)
+
+spearman.test <- cor.test(combined.degs[,2], combined.degs[,3], method="spearman")
+spearman.p <- spearman.test$p.value
+spearman.est <- spearman.test$estimate
+stats_spearman <- substitute(
+  rho == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = as.numeric(format(spearman.est, digits = 3)),
+    p = format(spearman.p, digits = 3)
+  )
+)
+ggplot2::ggplot(combined.degs, aes(x=rank(GSE183307), y=rank(GSE262030))) + geom_point() + 
+  theme_classic(base_size=12) + ggplot2::geom_smooth(method = "lm", size = 1.5, 
+                                                     linetype = "solid", color = "blue", se = TRUE, na.rm = TRUE) +
+  ggplot2::geom_text(x = max(rank(combined.degs$GSE183307)), y = min(rank(combined.degs$GSE262030)),
+                     vjust = "inward", hjust = "inward", colour = "blue", parse = TRUE,
+                     label = as.character(as.expression(stats_spearman)), size = 8) + 
+  ggtitle(paste0("NES (N = ",nrow(combined.degs),")"))
+ggplot2::ggsave("DMEA_scatterPlot_Spearman.pdf", width = 5, height=5)
+nrow(combined.degs[combined.degs$GSE183307/combined.degs$GSE262030 > 0,]) # 14 (100%) are in same direction
+nrow(combined.degs[combined.degs$GSE183307/combined.degs$GSE262030 < 0,]) # 0 (0%) are in opposite directions
+
+
+### drug correlations
+# generate list of significant results
+sigList <- list()
+for (i in unique(dmea.sens.df$Source)) {
+  sigList[[i]] <- na.omit(unique(drug.corr.sens.df[drug.corr.sens.df$Source == i & 
+                                                     drug.corr.sens.df$fdr_q_nlog10 >= -log(0.05,10),]$pert_iname))
+}
+
+# convert to matrix
+m = ComplexHeatmap::make_comb_mat(sigList)
+ComplexHeatmap::UpSet(m)
+ggvenn::ggvenn(sigList, show_percentage = FALSE, set_name_size = 5, text_size = 5)
+ggplot2::ggsave("Drug_vennDiagram.pdf", width=5, height=5)
+```
+
+### waterfall plot of drug correlations
+```{r plot drug correlations, echo = FALSE}
+mean.results <- plyr::ddply(dmea.sens.df[dmea.sens.df$Drug_set %in% topSets,], .(Drug_set), summarize,
+                            NES = mean(NES, na.rm=TRUE))
+sig.moas <- unique(mean.results[mean.results$N_sig>0,]$Drug_set)
+drug.corr.wInfo <- na.omit(drug.corr.sens.df)
+
+maxAbsEst <- max(na.omit(abs(drug.corr.wInfo$norm_cs)))
+maxLogFDR <- ceiling(max(na.omit(drug.corr.wInfo$minusLogFDR)))
+library(patchwork); library(ggplot2)
+moaOrder <- mean.results[order(mean.results$NES),]$Drug_set # 24
+#drug.corr.wInfo$Mechanism <- factor(drug.corr.wInfo$Mechanism, levels = c(moaOrder, "Other"))
+drug.corr.wInfo$Significant <- FALSE
+drug.corr.wInfo[drug.corr.wInfo$FDR_q_value <= 0.25,]$Significant <- TRUE
+drug.corr.wInfo <- drug.corr.wInfo[!is.na(drug.corr.wInfo$pert_iname),]
+
+MOAsInTop50 <- c()
+for (i in unique(drug.corr.wInfo$Source)) {
+  temp.dot.df <- drug.corr.wInfo[drug.corr.wInfo$Significant & drug.corr.wInfo$Source == i,]
+  temp.dot.df <- temp.dot.df %>% slice_max(abs(norm_cs),n=50)
+  MOAsInTop50 <- unique(c(MOAsInTop50, temp.dot.df$Drug))
+}
+
+# take care of cases where there are multiple mechanisms
+for (i in 1:length(moaOrder)) {
+  if (nrow(drug.corr.wInfo[drug.corr.wInfo$Mechanism == "Other" & 
+                           grepl(moaOrder[i],drug.corr.wInfo$Drug),]) > 0) {
+    drug.corr.wInfo[drug.corr.wInfo$Mechanism == "Other" & 
+                      grepl(moaOrder[i],drug.corr.wInfo$Drug),]$Drug <- moaOrder[i]
+  }
+}
+
+# repeat in case of any change
+MOAsInTop50 <- c() # comes out to 17
+for (i in unique(drug.corr.wInfo$Source)) {
+  temp.dot.df <- drug.corr.wInfo[drug.corr.wInfo$Significant & drug.corr.wInfo$Source == i,]
+  temp.dot.df <- temp.dot.df %>% slice_max(abs(norm_cs),n=50)
+  MOAsInTop50 <- unique(c(MOAsInTop50, temp.dot.df$Drug))
+}
+moaOrder3 <- moaOrder[moaOrder %in% MOAsInTop50] # 28
+
+maxAbsEst <- max(na.omit(abs(drug.corr.wInfo$norm_cs)))
+maxLogFDR <- ceiling(max(na.omit(drug.corr.wInfo$minusLogFDR)))
+library(patchwork); library(ggplot2)
+drug.corr.wInfo$Significant <- FALSE
+drug.corr.wInfo[drug.corr.wInfo$FDR_q_value <= 0.05,]$Significant <- TRUE
+
+library(plyr);library(dplyr)
+
+gsea.dot.plots <- NULL
+for (i in unique(drug.corr.wInfo$Source)) {
+  nGenes <- length(unique(na.omit(drug.corr.wInfo[drug.corr.wInfo$Source == i,])$pert_iname))
+  nCorrGenes <- length(unique(na.omit(drug.corr.wInfo[drug.corr.wInfo$Significant & 
+                                                        drug.corr.wInfo$Source == i,])$pert_iname))
+  
+  temp.dot.df <- drug.corr.wInfo[drug.corr.wInfo$Significant & drug.corr.wInfo$Source == i,]
+  temp.dot.df <- temp.dot.df %>% slice_max(abs(norm_cs),n=50)
+  topGenes <- temp.dot.df$pert_iname
+  nTopGenes <- length(topGenes)
+  geneOrder <- temp.dot.df[order(temp.dot.df$norm_cs),]$pert_iname
+  
+  plot.annot <- paste0(i, "\n(", nCorrGenes, " / ", nGenes, " drugs significant)")
+  
+  dot.plot <- ggplot2::ggplot(temp.dot.df,
+                              ggplot2::aes(
+                                x = pert_iname, y = norm_cs, fill = Drug
+                              )
+  ) + scale_size(limits=c(0,maxLogFDR), range = c(0.5,4)) +
+    ggplot2::geom_col() +
+    ggplot2::scale_x_discrete(limits = geneOrder) +
+    theme_classic() + 
+    # scale_fill_manual(breaks=c(moaOrder3,"Other"), 
+    #                                     values = c(grDevices::colorRampPalette(
+    #                                       RColorBrewer::brewer.pal(12, "Set3"))(length(moaOrder3)+1))) +
+    ggplot2::labs(
+      #x = i,
+      y = "Normalized Connectivity Score",
+      fill = "Drug Mechanism"
+    ) + theme(axis.title.x = element_blank()) +
+    #theme(axis.title.y=element_text(face="bold", size=16), 
+    #axis.text.y = element_blank(),
+    #axis.ticks.y = element_blank(),
+    #axis.title.x=element_blank()) +
+    theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) +
+    theme(legend.direction = "horizontal", legend.position = "bottom")
+  
+  cat(plot.annot, "\n")
+  cat(i, "with", nTopGenes, "top Drugs\n")
+  dot.plot <- dot.plot + ggtitle(plot.annot) + theme(plot.title = element_text(hjust = 0.5, face="bold", size=16))
+  dot.plot
+  if (is.null(gsea.dot.plots)) {
+    gsea.dot.plots <- dot.plot
+  } else {
+    gsea.dot.plots <- gsea.dot.plots / dot.plot
+  } 
+}
+ggplot2::ggsave("CorrelatedDrugs_barPlot_patchworkSource_moaFill_sliceMaxAbsNormCS50_oppositeMOAorder.pdf", gsea.dot.plots, width=16, height=12)
+
+```
