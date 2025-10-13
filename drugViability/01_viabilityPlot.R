@@ -78,7 +78,7 @@ ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
   scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) + 
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + 
   labs(size="SD",color="Mean Viability\nat Cmax")
-ggsave("CmaxViability_heatmap_orderMeanViability_sizeInverseSqrtSD_v4.pdf", width=4,height=4)
+ggsave("CmaxViability_heatmap_orderMeanViability_sizeInverseSqrtSD_final.pdf", width=4,height=4)
 
 ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
                                 color=meanViability, size=meanViability/sdViability)) + 
