@@ -1,6 +1,5 @@
-# MPNST-PDX-MT
-Here we have our analysis and modeling of drug response in MPNST
-PDX-MT samples. The goal of this project is to leverage a diverse set
+# Ex vivo assessment of combination therapies (EXACT): An integrated platform to discover combination cancer treatments
+The goal of this project is to leverage a diverse set
 of microtissue models grown from patient-derived xenografts (PDX-MT)
 to identify potential drug combinations that could be used to treat
 MPNST patients.
@@ -16,12 +15,11 @@ publication.
 Dependencies can be installed by running installDependencies.R
 
 ### Single and combo drug measurements
-These data are currently being analyzed in our [drugViability](EXACT-pipeline/drugViability/) directory.
+These data are currently being analyzed in our [drugViability](drugViability/) directory.
 
 ### Single drug transcriptional response
-These data are currently being analyzed in our [RNAseq](EXACT-pipeline/RNAseq/)
+These data are currently being analyzed in our [RNAseq](RNAseq/)
 directory. 
 
-### Single drug proteomic response
-These data are currently be analyzed in our [proteomics](proteomics/)
-directory. 
+### Supplementary table compilation
+Supplementary table 2: suppTable2Compilation.R
