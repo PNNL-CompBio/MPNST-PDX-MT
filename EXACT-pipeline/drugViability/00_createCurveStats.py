@@ -154,7 +154,7 @@ if len(comboMulti) > 0:
     
     #fulltab['DOSE']=fulltab.concentration#+0.0001 # check if should add 0.0001? perhaps cNF data had 0 values
     # combine cell line and time into "sample" column
-    fulltab['sample'] = fulltab['sampleName'] + "_" + fulltab['timePoint'].astype(str) + fulltab['timePointUnit'] # if need replicate, then use specimenID
+    fulltab['sample'] = fulltab['sampleName'].astype(str) + "_" + fulltab['timePoint'].astype(str) + fulltab['timePointUnit'].astype(str) # if need replicate, then use specimenID
     fulltab['drug1.units'] = fulltab['concentrationUnit']
     fulltab['drug2.units'] = fulltab['concentrationUnit']
     fulltab = fulltab.rename(columns={"percentViability": "effect",
