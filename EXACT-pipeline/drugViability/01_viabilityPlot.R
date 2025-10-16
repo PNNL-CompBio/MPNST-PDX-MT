@@ -1,7 +1,7 @@
 # viability plot
 library(plyr);library(dplyr);library(synapser);library(ggplot2)
 synapser::synLogin()
-base.path <- "~/OneDrive - PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
+base.path <- "~/OneDrive - PNNL/Documents/GitHub/MPNST-PDX-MT/EXACT-pipeline/drugViability"
 setwd(base.path)
 
 # run 00_createCurveStats.py
@@ -20,7 +20,12 @@ drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor
 ## load data
 viability <- read.table(synapser::synGet("syn65941820")$path, sep="\t", header = TRUE)
 viability <- viability[viability$improve_drug_id != "irinotecan",]
+viability <- viability[viability$improve_drug_id != "avutometinib",]
+viability <- viability[viability$improve_drug_id != "defactinib",]
+viability <- viability[viability$improve_drug_id != "nazartinib",]
+viability[viability$improve_drug_id == "SN38",]$improve_drug_id <- "SN-38"
 viability.cmax <- readxl::read_excel(synapser::synGet("syn70107593")$path)
+
 
 ## plot
 # viability at Cmax
