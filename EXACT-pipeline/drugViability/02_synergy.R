@@ -34,32 +34,32 @@ musyc.scores$time <- sub(".*_","",musyc.scores$sample)
 musyc.scores$time <- sub("hours","",musyc.scores$time)
 musyc.scores$time <- as.numeric(musyc.scores$time)/24
 
-# fix sample names
-full.names <- c("MN-4","JH-2-079c", "JH-2-002", "WU-225","WU-356", "MN-2")
-short.names <- c("N-4","79c", "002", "225", "356", "N-2")
-for (i in 1:length(short.names)) {
-  mean.conf[grepl(short.names[[i]],mean.conf$sample),]$sample <- full.names[[i]]
-  musyc.scores[grepl(short.names[[i]],musyc.scores$sample),]$sample <- full.names[[i]]
-}
-prc2.loss <- c("JH-2-079c", "JH-2-002", "WU-225", "WU-365", "MN-2")
-prc2.wt <- c("MN-4")
-mean.conf$PRC2 <- "Deficient"
-mean.conf[mean.conf$sample %in% prc2.wt,]$PRC2 <- "Intact"
-
-# restore full drug names for musyc data
-drugs <- unique(c(mean.conf$drug1, mean.conf$drug2))
-short.drugs <- substr(drugs, 2, 4)
-colnames(musyc.scores)[2:3] <- c("drug1","drug2")
-for (i in 1:length(drugs)) {
-  if (any(musyc.scores$drug1 == short.drugs[[i]])) {
-    musyc.scores[musyc.scores$drug1 == short.drugs[[i]],]$drug1 <- drugs[[i]] 
-  }
-  if (any(musyc.scores$drug2 == short.drugs[[i]])) {
-    musyc.scores[musyc.scores$drug2 == short.drugs[[i]],]$drug2 <- drugs[[i]] 
-  }
-}
-write.csv(musyc.scores, "Deconvolved_musyc_20250812.csv", row.names=FALSE) # duplicated and changed name to musyc.csv for synapse
-#musyc.scores <- read.csv("Deconvolved_musyc_20250812.csv")
+# # fix sample names - no longer need to since no longer shortening names for musyc
+# full.names <- c("MN-4","JH-2-079c", "JH-2-002", "WU-225","WU-356", "MN-2")
+# short.names <- c("N-4","79c", "002", "225", "356", "N-2")
+# for (i in 1:length(short.names)) {
+#   mean.conf[grepl(short.names[[i]],mean.conf$sample),]$sample <- full.names[[i]]
+#   musyc.scores[grepl(short.names[[i]],musyc.scores$sample),]$sample <- full.names[[i]]
+# }
+# prc2.loss <- c("JH-2-079c", "JH-2-002", "WU-225", "WU-365", "MN-2")
+# prc2.wt <- c("MN-4")
+# mean.conf$PRC2 <- "Deficient"
+# mean.conf[mean.conf$sample %in% prc2.wt,]$PRC2 <- "Intact"
+# 
+# # restore full drug names for musyc data
+# drugs <- unique(c(mean.conf$drug1, mean.conf$drug2))
+# short.drugs <- substr(drugs, 2, 4)
+# colnames(musyc.scores)[2:3] <- c("drug1","drug2")
+# for (i in 1:length(drugs)) {
+#   if (any(musyc.scores$drug1 == short.drugs[[i]])) {
+#     musyc.scores[musyc.scores$drug1 == short.drugs[[i]],]$drug1 <- drugs[[i]] 
+#   }
+#   if (any(musyc.scores$drug2 == short.drugs[[i]])) {
+#     musyc.scores[musyc.scores$drug2 == short.drugs[[i]],]$drug2 <- drugs[[i]] 
+#   }
+# }
+# write.csv(musyc.scores, "Deconvolved_musyc_20250812.csv", row.names=FALSE) # duplicated and changed name to musyc.csv for synapse
+# #musyc.scores <- read.csv("Deconvolved_musyc_20250812.csv")
 musyc.scores <- read.csv(synapser::synGet("syn68736713")$path)
 
 # make scatter plot of a12 vs a21
