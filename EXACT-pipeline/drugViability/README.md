@@ -12,7 +12,7 @@ Figure 3A-B, 5A: 01_viabilityPlot.R
 - Pulls: single agent viability curves (syn65941820)
 
 ### Synergy metric comparison and heatmaps
-Figure S1B-C: 02_synergy.R
+Figure S1: 02_synergy.R
 - Pulls: combo relative viability data (syn68156852); bliss synergy results (syn68639935); 
 musyc synergy results (syn68736713); 48h median CI (syn70365485); 120h median CI (syn70365484); 
 delta AUC (syn69978141)
