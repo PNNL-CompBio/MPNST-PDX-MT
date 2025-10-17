@@ -1,4 +1,7 @@
 # compile synergy results
+library(plyr);library(dplyr);library(ggplot2);library(ggrepel)
+library(reshape2);library(RColorBrewer);library(ggcorrplot)
+library(fmsb);library(stats);library(synapser)
 # author: Belinda B. Garana
 setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
 dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
