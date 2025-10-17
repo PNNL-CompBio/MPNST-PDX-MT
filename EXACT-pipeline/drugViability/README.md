@@ -13,15 +13,19 @@ Figure 3A-B, 5A: 01_viabilityPlot.R
 
 ### Synergy metric comparison and heatmaps
 Figure S1B-C: 02_synergy.R
-- Pulls: combo relative viability data (syn68156852); bliss synergy results (syn68639935); musyc synergy results (syn68736713)
+- Pulls: combo relative viability data (syn68156852); bliss synergy results (syn68639935); 
+musyc synergy results (syn68736713); 48h median CI (syn70365485); 120h median CI (syn70365484); 
+delta AUC (syn69978141)
 
 ### Dose-response curves
 03_doseResponseCurves.R
-- Pulls: single agent relative viability data (); combo relative viability data (syn68156852); bliss synergy results (syn68900210); musyc synergy results (syn68736713)
+- Pulls: single agent relative viability data (syn65986622); 
+combo relative viability data (syn68156852); bliss synergy results (syn68900210); 
+musyc synergy results (syn68736713)
 - Uploads: compiled combo relative viability, bliss synergy, and musyc synergy results (syn68900322)
 
 ### Prediction comparison
-Figure S1A: 04_predictionComparison.R
+04_predictionComparison.R
 - Pulls: DMEA results (syn65672258) and related drug correlations (syn65672266); compiled combo relative viability, bliss synergy, and musyc synergy results (syn68900322)
 - Uploads: shared DMEA and synergy results (syn68900547); shared drugs across predictions and synergy scores (syn68900548)
 

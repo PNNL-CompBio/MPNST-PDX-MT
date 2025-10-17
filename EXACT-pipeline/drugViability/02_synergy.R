@@ -229,8 +229,8 @@ ggsave("bliss_meanSynergyTested_heatmap.pdf", width=4.5,height=4)
 library(fmsb)
 
 # get CI
-ci.48h <- read.csv(paste0(dataPath,"/48hr Median CI of experimental doses.csv"))
-ci.120h <- read.csv(paste0(dataPath,"/120hr Median CI of experimental doses.csv"))
+ci.48h <- read.csv(synapser::synGet("syn70365485")$path) # 48hr Median CI of experimental doses.csv
+ci.120h <- read.csv(synapser::synGet("syn70365484")$path) # 120hr Median CI of experimental doses.csv
 ci.48h$time <- 2
 ci.120h$time <- 5
 ci <- rbind(ci.48h, ci.120h)

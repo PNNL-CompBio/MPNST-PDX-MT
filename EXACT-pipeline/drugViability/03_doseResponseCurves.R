@@ -8,8 +8,8 @@ setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugVi
 dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
 
 #### prep data ####
-rel.conf <- read.csv("mpnst_combo_drug_response.csv") # relative viability
-musyc.scores <- read.csv("Deconvolved_musyc_20250812.csv") # musyc synergy
+rel.conf <- read.csv(synapser::synGet("syn68156852")$path) # relative viability; mpnst_combo_drug_response.csv
+musyc.scores <- read.csv(synapser::synGet("syn68736713")$path) # musyc synergy; was: Deconvolved_musyc_20250812.csv
 #bliss <- read.csv("bliss.csv") # bliss synergy
 bliss <- read.csv(synapser::synGet("syn68900210")$path)
 
@@ -91,7 +91,7 @@ for (c in combos) {
 }
 
 #### single agent curves ####
-sing.conf <- read.table("mpnst_drug_response.tsv", sep="\t", header=TRUE)
+sing.conf <- read.table(synapser::synGet("syn65986622")$path, sep="\t", header=TRUE) # mpnst_drug_response.tsv
 sing.conf$X <- FALSE
 library(drc) # curve source: answer by greenjune: https://stackoverflow.com/questions/36780357/plotting-dose-response-curves-with-ggplot2-and-drc
 # Sara shared these 2 links: https://stackoverflow.com/questions/68209998/plot-drc-using-ggplot; https://forum.posit.co/t/extract-out-points-in-dose-response-curve-produced-by-drc/159433
