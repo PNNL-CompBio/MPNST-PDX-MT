@@ -240,6 +240,12 @@ colnames(ci)[1] <- "drugCombo"
 ci$drugCombo <- tolower(ci$drugCombo)
 ci <- reshape2::melt(ci, id.vars=c("drugCombo","time"), variable.name="sample", value.name="CI")
 ci$sample <- gsub("[.]","-",ci$sample)
+
+# cap abs(CI) values at 99 per Alex Larsson
+ci[ci$CI > 99,]$CI <- 99
+ci[ci$CI < -99,]$CI <- -99
+
+# switch direction so that positive values correspond to synergy across all metrics
 ci$rank <- -ci$CI # ci < 1 denotes synergy, =1: additive, <1: antagonistic
 ci$CI <- NULL
 
