@@ -49,25 +49,33 @@ if (!require(synapser, quietly = TRUE)) {
 }
 
 if (!require(PNNL.DMS.utils, quietly = TRUE)) {
-  if(!require("remotes", quietly = T)) install.packages("remotes")
+  if (!require("remotes", quietly = T)) install.packages("remotes")
   remotes::install_github("PNNL-Comp-Mass-Spec/PNNL.DMS.utils")
 }
 
 if (!require(PlexedPiper, quietly = TRUE)) {
-  if(!require("remotes", quietly = T)) install.packages("remotes")
-  remotes::install_github("PNNL-Comp-Mass-Spec/PlexedPiper")
+  if (!require("remotes", quietly = T)) install.packages("remotes")
+   remotes::install_github("PNNL-Comp-Mass-Spec/PlexedPiper")
 }
 
 if (!require(MSnSet.utils, quietly = TRUE)) {
   devtools::install_github("PNNL-Comp-Mass-Spec/MSnSet.utils")
+}
+##topgo and org.Hs.eg.db are required for PCSF
+if (!require(topGO,quietly = TRUE)) {
+  BiocManager::install('topGO')
+}
+if (!require(org.Hs.eg.db,quietly = TRUE)) {
+  BiocManager::install('org.Hs.eg.db')
 }
 
 if (!require(PCSF, quietly = TRUE)) {
   devtools::install_github("sgosline/PCSF")
 }
 
-if (!require(DMEA, quietly = TRUE)) {
-  devtools::install_github("BelindaBGarana/DMEA", build=FALSE)
+##SG: commented this since we had to install it above
+#f (!require(DMEA, quietly = TRUE)) {
+#  devtools::install_github("BelindaBGarana/DMEA", build=FALSE)
   # build=FALSE option is for Windows users, not sure if it will cause
   # issues for Mac users
-}
+#}

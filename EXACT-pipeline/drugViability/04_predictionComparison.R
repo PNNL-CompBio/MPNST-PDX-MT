@@ -1,8 +1,8 @@
 # compare synergy scores to drug sensitivity predictions
 # author: Belinda B. Garana
 library(synapser);library(ggplot2);library(RColorBrewer)
-setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
-dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
+#setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
+#dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
 synapser::synLogin()
 
 #results <- read.csv("results_viabilityBlissMusyc.csv")
@@ -30,17 +30,17 @@ shared.combos$drugCombo2 <- paste0(shared.combos$shared.drugs...2,"+",shared.com
 shared.combos <- unique(c(shared.combos$drugCombo, shared.combos$drugCombo2))
 shared.combos <- shared.combos[shared.combos %in% combos] # 22 / 26 tested combos
 
-shared.corr <- drug.corr[tolower(drug.corr$Drug) %in% tolower(drugs) & 
+shared.corr <- drug.corr[tolower(drug.corr$Drug) %in% tolower(drugs) &
                            tolower(drug.corr$DrugTreatment) %in% tolower(drugs),]
 shared.corr$drugCombo <- NA
 for (i in 1:nrow(shared.corr)) {
   d1 <- shared.corr$DrugTreatment[i]
   d2 <- shared.corr$Drug[i]
-  
+
   # make lowercase unless TNO155, IAG933, or SN38
   d1 <- ifelse(d1 %in% c("TNO155","IAG933","SN38"),d1,tolower(d1))
   d2 <- ifelse(d2 %in% c("TNO155","IAG933","SN38"),d2,tolower(d2))
-  
+
   # find right combo order (d1+d2 or d2+d1)
   temp.combo <- c(paste0(d1,"+",d2),paste0(d2,"+",d1))
   temp.combo <- temp.combo[temp.combo %in% shared.combos]
@@ -77,7 +77,7 @@ for (i in shared.combos) {
     col1 <- cols[[ds[1]]]
     col2 <- cols[[ds[2]]]
     temp.cols <- colorRampPalette(c(col1, col2))(3)
-    drug.corr.res[drug.corr.res$drugCombo == i,]$color <- temp.cols[2] 
+    drug.corr.res[drug.corr.res$drugCombo == i,]$color <- temp.cols[2]
   }
 }
 combo.cols <- drug.corr.res$color
@@ -85,26 +85,26 @@ names(combo.cols) <- drug.corr.res$drugCombo
 combo.cols <- unique(combo.cols) # 18
 drug.corr.res <- dplyr::distinct(drug.corr.res)
 
-syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", 
+syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss",
                 "Mean MuSyC Potency Score" = "meanLogAlpha",
                 "Delta AUC" = "dAUC")
 for (i in names(syn.scores)) {
   drug.corr.res$rank <- drug.corr.res[,syn.scores[i]]
   # signed
   musyc.drug.corr <- cor.test(drug.corr.res$rank, drug.corr.res$Pearson.est)
-  musyc.drug.corr$estimate # 0.2382369 
+  musyc.drug.corr$estimate # 0.2382369
   musyc.drug.corr$p.value # 1.293807e-12
   musyc.drug.corrsp <- cor.test(drug.corr.res$rank, drug.corr.res$Pearson.est,method="spearman")
   musyc.drug.corrsp$estimate # 0.2414861
   musyc.drug.corrsp$p.value # 6.260826e-13
-  
+
   musyc.drug.corr2 <- cor.test(drug.corr.res$rank, drug.corr.res$Spearman.est)
-  musyc.drug.corr2$estimate # 0.3405962 
+  musyc.drug.corr2$estimate # 0.3405962
   musyc.drug.corr2$p.value # 6.573243e-25
   musyc.drug.corr2sp <- cor.test(drug.corr.res$rank, drug.corr.res$Spearman.est,method="spearman")
-  musyc.drug.corr2sp$estimate # 0.3188854 
+  musyc.drug.corr2sp$estimate # 0.3188854
   musyc.drug.corr2sp$p.value # 7.132333e-22
-  
+
   if (musyc.drug.corr$p.value <= 0.05) {
     stats_pearson <- substitute(
       r == est * "," ~ ~"p" ~ "=" ~ p,
@@ -113,18 +113,18 @@ for (i in names(syn.scores)) {
         p = format(musyc.drug.corr$p.value, digits = 2)
       )
     )
-    ggplot(drug.corr.res, aes(x=rank, y=Pearson.est)) + # could set shape=sample but only sample is JH-2-002 
-      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+    ggplot(drug.corr.res, aes(x=rank, y=Pearson.est)) + # could set shape=sample but only sample is JH-2-002
+      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
       geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
         x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-        colour = "black", parse = TRUE, 
+        colour = "black", parse = TRUE,
         label = as.character(as.expression(stats_pearson)), size = 8
       ) +
       labs(x=i,
            y="DMEA Sensitivity Prediction")
     ggsave(paste0("drugResults_",i,"_vs_dmea_PearsonEst.pdf"),width=5,height=5)
   }
-  
+
   if (musyc.drug.corrsp$p.value <= 0.05) {
     stats_spearman <- substitute(
       rho == est * "," ~ ~"p" ~ "=" ~ p,
@@ -133,18 +133,18 @@ for (i in names(syn.scores)) {
         p = format(musyc.drug.corrsp$p.value, digits = 2)
       )
     )
-    ggplot(drug.corr.res, aes(x=rank, y=Pearson.est)) + # could set shape=sample but only sample is JH-2-002 
-      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+    ggplot(drug.corr.res, aes(x=rank, y=Pearson.est)) + # could set shape=sample but only sample is JH-2-002
+      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
       geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
         x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-        colour = "black", parse = TRUE, 
+        colour = "black", parse = TRUE,
         label = as.character(as.expression(stats_spearman)), size = 8
       ) +
       labs(x=i,
            y="DMEA Sensitivity Prediction")
     ggsave(paste0("drugResults_",i,"_vs_dmea_PearsonEst_spearman.pdf"),width=5,height=5)
   }
-  
+
   if (musyc.drug.corr2$p.value <= 0.05) {
     stats_pearson <- substitute(
       r == est * "," ~ ~"p" ~ "=" ~ p,
@@ -153,18 +153,18 @@ for (i in names(syn.scores)) {
         p = format(musyc.drug.corr2$p.value, digits = 2)
       )
     )
-    ggplot(drug.corr.res, aes(x=rank, y=Spearman.est)) + # could set shape=sample but only sample is JH-2-002 
-      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+    ggplot(drug.corr.res, aes(x=rank, y=Spearman.est)) + # could set shape=sample but only sample is JH-2-002
+      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
       geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
         x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-        colour = "black", parse = TRUE, 
+        colour = "black", parse = TRUE,
         label = as.character(as.expression(stats_pearson)), size = 8
       ) +
       labs(x=i,
            y="DMEA Sensitivity Prediction")
     ggsave(paste0("drugResults_",i,"_vs_dmea_SpearmanEst.pdf"),width=5,height=5)
   }
-  
+
   if (musyc.drug.corr2sp$p.value <= 0.05) {
     stats_spearman <- substitute(
       rho == est * "," ~ ~"p" ~ "=" ~ p,
@@ -173,33 +173,33 @@ for (i in names(syn.scores)) {
         p = format(musyc.drug.corr2sp$p.value, digits = 2)
       )
     )
-    ggplot(drug.corr.res, aes(x=rank, y=Spearman.est)) + # could set shape=sample but only sample is JH-2-002 
-      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+    ggplot(drug.corr.res, aes(x=rank, y=Spearman.est)) + # could set shape=sample but only sample is JH-2-002
+      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
       geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
         x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-        colour = "black", parse = TRUE, 
+        colour = "black", parse = TRUE,
         label = as.character(as.expression(stats_spearman)), size = 8
       ) +
       labs(x=i,
            y="DMEA Sensitivity Prediction")
     ggsave(paste0("drugResults_",i,"_vs_dmea_SpearmanEst_spearman.pdf"),width=5,height=5)
   }
-  
+
   # abs drug corr
   musyc.drug.corr <- cor.test(drug.corr.res$rank, abs(drug.corr.res$Pearson.est))
-  musyc.drug.corr$estimate # 0.2382369 
+  musyc.drug.corr$estimate # 0.2382369
   musyc.drug.corr$p.value # 1.293807e-12
   musyc.drug.corrsp <- cor.test(drug.corr.res$rank, abs(drug.corr.res$Pearson.est),method="spearman")
   musyc.drug.corrsp$estimate # 0.2414861
   musyc.drug.corrsp$p.value # 6.260826e-13
-  
+
   musyc.drug.corr2 <- cor.test(drug.corr.res$rank, abs(drug.corr.res$Spearman.est))
-  musyc.drug.corr2$estimate # 0.3405962 
+  musyc.drug.corr2$estimate # 0.3405962
   musyc.drug.corr2$p.value # 6.573243e-25
   musyc.drug.corr2sp <- cor.test(drug.corr.res$rank, abs(drug.corr.res$Spearman.est),method="spearman")
-  musyc.drug.corr2sp$estimate # 0.3188854 
+  musyc.drug.corr2sp$estimate # 0.3188854
   musyc.drug.corr2sp$p.value # 7.132333e-22
-  
+
   if (musyc.drug.corr$p.value <= 0.05) {
     stats_pearson <- substitute(
       r == est * "," ~ ~"p" ~ "=" ~ p,
@@ -208,18 +208,18 @@ for (i in names(syn.scores)) {
         p = format(musyc.drug.corr$p.value, digits = 2)
       )
     )
-    ggplot(drug.corr.res, aes(x=rank, y=abs(Pearson.est))) + # could set shape=sample but only sample is JH-2-002 
-      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+    ggplot(drug.corr.res, aes(x=rank, y=abs(Pearson.est))) + # could set shape=sample but only sample is JH-2-002
+      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
       geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
         x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-        colour = "black", parse = TRUE, 
+        colour = "black", parse = TRUE,
         label = as.character(as.expression(stats_pearson)), size = 8
       ) +
       labs(x=i,
            y="Absolute DMEA Sensitivity Prediction")
     ggsave(paste0("drugResults_",i,"_vs_dmea_absPearsonEst.pdf"),width=5,height=5)
   }
-  
+
   if (musyc.drug.corrsp$p.value <= 0.05) {
     stats_spearman <- substitute(
       rho == est * "," ~ ~"p" ~ "=" ~ p,
@@ -228,18 +228,18 @@ for (i in names(syn.scores)) {
         p = format(musyc.drug.corrsp$p.value, digits = 2)
       )
     )
-    ggplot(drug.corr.res, aes(x=rank, y=abs(Pearson.est))) + # could set shape=sample but only sample is JH-2-002 
-      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+    ggplot(drug.corr.res, aes(x=rank, y=abs(Pearson.est))) + # could set shape=sample but only sample is JH-2-002
+      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
       geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
         x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-        colour = "black", parse = TRUE, 
+        colour = "black", parse = TRUE,
         label = as.character(as.expression(stats_spearman)), size = 8
       ) +
       labs(x=i,
            y="Absolute DMEA Sensitivity Prediction")
     ggsave(paste0("drugResults_",i,"_vs_dmea_absPearsonEst_spearman.pdf"),width=5,height=5)
   }
-  
+
   if (musyc.drug.corr2$p.value <= 0.05) {
     stats_pearson <- substitute(
       r == est * "," ~ ~"p" ~ "=" ~ p,
@@ -248,18 +248,18 @@ for (i in names(syn.scores)) {
         p = format(musyc.drug.corr2$p.value, digits = 2)
       )
     )
-    ggplot(drug.corr.res, aes(x=rank, y=abs(Spearman.est))) + # could set shape=sample but only sample is JH-2-002 
-      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+    ggplot(drug.corr.res, aes(x=rank, y=abs(Spearman.est))) + # could set shape=sample but only sample is JH-2-002
+      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
       geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
         x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-        colour = "black", parse = TRUE, 
+        colour = "black", parse = TRUE,
         label = as.character(as.expression(stats_pearson)), size = 8
       ) +
       labs(x=i,
            y="Absolute DMEA Sensitivity Prediction")
     ggsave(paste0("drugResults_",i,"_vs_dmea_absSpearmanEst.pdf"),width=5,height=5)
   }
-  
+
   if (musyc.drug.corr2sp$p.value <= 0.05) {
     stats_spearman <- substitute(
       rho == est * "," ~ ~"p" ~ "=" ~ p,
@@ -268,16 +268,16 @@ for (i in names(syn.scores)) {
         p = format(musyc.drug.corr2sp$p.value, digits = 2)
       )
     )
-    ggplot(drug.corr.res, aes(x=rank, y=abs(Spearman.est))) + # could set shape=sample but only sample is JH-2-002 
-      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+    ggplot(drug.corr.res, aes(x=rank, y=abs(Spearman.est))) + # could set shape=sample but only sample is JH-2-002
+      geom_point(aes(color=drugCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
       geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
         x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-        colour = "black", parse = TRUE, 
+        colour = "black", parse = TRUE,
         label = as.character(as.expression(stats_spearman)), size = 8
       ) +
       labs(x=i,
            y="Absolute DMEA Sensitivity Prediction")
-    ggsave(paste0("drugResults_",i,"_vs_dmea_absSpearmanEst_spearman.pdf"),width=5,height=5) 
+    ggsave(paste0("drugResults_",i,"_vs_dmea_absSpearmanEst_spearman.pdf"),width=5,height=5)
   }
 }
 
@@ -298,8 +298,8 @@ any(grepl("CSF1R", moa.df$Drug_set, ignore.case=TRUE)) # FALSE
 #   moa.combos <- c(moa.combos, paste0(moa1,"+",moa2))
 # }
 
-shared.moa.df <- moa.df[tolower(moa.df$DrugTreatment) %in% tolower(drugs) & 
-                          tolower(moa.df$Drug_set) %in% tolower(shared.moas) & 
+shared.moa.df <- moa.df[tolower(moa.df$DrugTreatment) %in% tolower(drugs) &
+                          tolower(moa.df$Drug_set) %in% tolower(shared.moas) &
                           moa.df$MPNST %in% results$sample,]
 shared.moa.df$moa <- NA
 for (d in shared.drugs[shared.drugs %in% shared.moa.df$DrugTreatment]) {
@@ -339,19 +339,19 @@ shared.moa.res <- dplyr::distinct(shared.moa.res) # 96 rows
 write.csv(shared.moa.res, "moa_dmea_vs_synergy.csv", row.names = FALSE)
 synapser::synStore(synapser::File("moa_dmea_vs_synergy.csv", parent="syn68258288"))
 
-syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", 
+syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss",
                 "Mean MuSyC Potency Score" = "meanLogAlpha",
                 "Delta AUC" = "dAUC")
 for (i in names(syn.scores)) {
   shared.moa.res$rank <- shared.moa.res[,syn.scores[i]]
   # signed
   musyc.drug.corr <- cor.test(shared.moa.res$rank, shared.moa.res$NES)
-  musyc.drug.corr$estimate # 0.2382369 
+  musyc.drug.corr$estimate # 0.2382369
   musyc.drug.corr$p.value # 1.293807e-12
   musyc.drug.corrsp <- cor.test(shared.moa.res$rank, shared.moa.res$NES,method="spearman")
   musyc.drug.corrsp$estimate # 0.2414861
   musyc.drug.corrsp$p.value # 6.260826e-13
-  
+
   stats_pearson <- substitute(
     r == est * "," ~ ~"p" ~ "=" ~ p,
     list(
@@ -359,17 +359,17 @@ for (i in names(syn.scores)) {
       p = format(musyc.drug.corr$p.value, digits = 2)
     )
   )
-  ggplot(shared.moa.res, aes(x=rank, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+  ggplot(shared.moa.res, aes(x=rank, y=NES)) + # could set shape=sample but only sample is JH-2-002
+    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE, 
+      colour = "black", parse = TRUE,
       label = as.character(as.expression(stats_pearson)), size = 8
     ) +
     labs(x=i,
          y="DMEA Sensitivity Prediction")
   ggsave(paste0("moaResults_",i,"_vs_dmea_NES.pdf"),width=5,height=5)
-  
+
   stats_spearman <- substitute(
     rho == est * "," ~ ~"p" ~ "=" ~ p,
     list(
@@ -377,25 +377,25 @@ for (i in names(syn.scores)) {
       p = format(musyc.drug.corrsp$p.value, digits = 2)
     )
   )
-  ggplot(shared.moa.res, aes(x=rank, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+  ggplot(shared.moa.res, aes(x=rank, y=NES)) + # could set shape=sample but only sample is JH-2-002
+    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE, 
+      colour = "black", parse = TRUE,
       label = as.character(as.expression(stats_spearman)), size = 8
     ) +
     labs(x=i,
          y="DMEA Sensitivity Prediction")
   ggsave(paste0("moaResults_",i,"_vs_dmea_NES_spearman.pdf"),width=5,height=5)
-  
+
   # abs drug corr
   musyc.drug.corr <- cor.test(shared.moa.res$rank, abs(shared.moa.res$NES))
-  musyc.drug.corr$estimate # 0.2382369 
+  musyc.drug.corr$estimate # 0.2382369
   musyc.drug.corr$p.value # 1.293807e-12
   musyc.drug.corrsp <- cor.test(shared.moa.res$rank, abs(shared.moa.res$NES),method="spearman")
   musyc.drug.corrsp$estimate # 0.2414861
   musyc.drug.corrsp$p.value # 6.260826e-13
-  
+
   stats_pearson <- substitute(
     r == est * "," ~ ~"p" ~ "=" ~ p,
     list(
@@ -403,17 +403,17 @@ for (i in names(syn.scores)) {
       p = format(musyc.drug.corr$p.value, digits = 2)
     )
   )
-  ggplot(shared.moa.res, aes(x=rank, y=abs(NES))) + # could set shape=sample but only sample is JH-2-002 
-    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+  ggplot(shared.moa.res, aes(x=rank, y=abs(NES))) + # could set shape=sample but only sample is JH-2-002
+    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE, 
+      colour = "black", parse = TRUE,
       label = as.character(as.expression(stats_pearson)), size = 8
     ) +
     labs(x=i,
          y="Absolute DMEA Sensitivity Prediction")
   ggsave(paste0("moaResults_",i,"_vs_dmea_absNES.pdf"),width=5,height=5)
-  
+
   stats_spearman <- substitute(
     rho == est * "," ~ ~"p" ~ "=" ~ p,
     list(
@@ -421,11 +421,11 @@ for (i in names(syn.scores)) {
       p = format(musyc.drug.corrsp$p.value, digits = 2)
     )
   )
-  ggplot(shared.moa.res, aes(x=rank, y=abs(NES))) + # could set shape=sample but only sample is JH-2-002 
-    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+  ggplot(shared.moa.res, aes(x=rank, y=abs(NES))) + # could set shape=sample but only sample is JH-2-002
+    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE, 
+      colour = "black", parse = TRUE,
       label = as.character(as.expression(stats_spearman)), size = 8
     ) +
     labs(x=i,
@@ -433,7 +433,7 @@ for (i in names(syn.scores)) {
   ggsave(paste0("moaResults_",i,"_vs_dmea_absNES_spearman.pdf"),width=5,height=5)
 }
 
-syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss", 
+syn.scores <- c("Maximum Bliss Synergy Score" = "maxBliss",
                 "Mean MuSyC Potency Score" = "meanLogAlpha",
                 "Delta AUC" = "dAUC")
 shared.moa.res2 <- shared.moa.res[shared.moa.res$sig,]
@@ -441,12 +441,12 @@ for (i in names(syn.scores)) {
   shared.moa.res2$rank <- shared.moa.res2[,syn.scores[i]]
   # signed
   musyc.drug.corr <- cor.test(shared.moa.res2$rank, shared.moa.res2$NES)
-  musyc.drug.corr$estimate # 0.2382369 
+  musyc.drug.corr$estimate # 0.2382369
   musyc.drug.corr$p.value # 1.293807e-12
   musyc.drug.corrsp <- cor.test(shared.moa.res2$rank, shared.moa.res2$NES,method="spearman")
   musyc.drug.corrsp$estimate # 0.2414861
   musyc.drug.corrsp$p.value # 6.260826e-13
-  
+
   stats_pearson <- substitute(
     r == est * "," ~ ~"p" ~ "=" ~ p,
     list(
@@ -454,17 +454,17 @@ for (i in names(syn.scores)) {
       p = format(musyc.drug.corr$p.value, digits = 2)
     )
   )
-  ggplot(shared.moa.res2, aes(x=rank, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+  ggplot(shared.moa.res2, aes(x=rank, y=NES)) + # could set shape=sample but only sample is JH-2-002
+    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE, 
+      colour = "black", parse = TRUE,
       label = as.character(as.expression(stats_pearson)), size = 8
     ) +
     labs(x=i,
          y="DMEA Sensitivity Prediction")
   ggsave(paste0("moaResults_",i,"_vs_dmea_sigNES.pdf"),width=5,height=5)
-  
+
   stats_spearman <- substitute(
     rho == est * "," ~ ~"p" ~ "=" ~ p,
     list(
@@ -472,25 +472,25 @@ for (i in names(syn.scores)) {
       p = format(musyc.drug.corrsp$p.value, digits = 2)
     )
   )
-  ggplot(shared.moa.res2, aes(x=rank, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+  ggplot(shared.moa.res2, aes(x=rank, y=NES)) + # could set shape=sample but only sample is JH-2-002
+    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE, 
+      colour = "black", parse = TRUE,
       label = as.character(as.expression(stats_spearman)), size = 8
     ) +
     labs(x=i,
          y="DMEA Sensitivity Prediction")
   ggsave(paste0("moaResults_",i,"_vs_dmea_sigNES_spearman.pdf"),width=5,height=5)
-  
+
   # abs drug corr
   musyc.drug.corr <- cor.test(shared.moa.res2$rank, abs(shared.moa.res2$NES))
-  musyc.drug.corr$estimate # 0.2382369 
+  musyc.drug.corr$estimate # 0.2382369
   musyc.drug.corr$p.value # 1.293807e-12
   musyc.drug.corrsp <- cor.test(shared.moa.res2$rank, abs(shared.moa.res2$NES),method="spearman")
   musyc.drug.corrsp$estimate # 0.2414861
   musyc.drug.corrsp$p.value # 6.260826e-13
-  
+
   stats_pearson <- substitute(
     r == est * "," ~ ~"p" ~ "=" ~ p,
     list(
@@ -498,17 +498,17 @@ for (i in names(syn.scores)) {
       p = format(musyc.drug.corr$p.value, digits = 2)
     )
   )
-  ggplot(shared.moa.res2, aes(x=rank, y=abs(NES))) + # could set shape=sample but only sample is JH-2-002 
-    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+  ggplot(shared.moa.res2, aes(x=rank, y=abs(NES))) + # could set shape=sample but only sample is JH-2-002
+    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE, 
+      colour = "black", parse = TRUE,
       label = as.character(as.expression(stats_pearson)), size = 8
     ) +
     labs(x=i,
          y="Absolute DMEA Sensitivity Prediction")
   ggsave(paste0("moaResults_",i,"_vs_dmea_absSigNES.pdf"),width=5,height=5)
-  
+
   stats_spearman <- substitute(
     rho == est * "," ~ ~"p" ~ "=" ~ p,
     list(
@@ -516,11 +516,11 @@ for (i in names(syn.scores)) {
       p = format(musyc.drug.corrsp$p.value, digits = 2)
     )
   )
-  ggplot(shared.moa.res2, aes(x=rank, y=abs(NES))) + # could set shape=sample but only sample is JH-2-002 
-    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) + 
+  ggplot(shared.moa.res2, aes(x=rank, y=abs(NES))) + # could set shape=sample but only sample is JH-2-002
+    geom_point(aes(color=moaCombo), show.legend =TRUE) + theme_minimal() + scale_color_manual(values=combo.cols, breaks=names(combo.cols),labels=names(combo.cols)) +
     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE, 
+      colour = "black", parse = TRUE,
       label = as.character(as.expression(stats_spearman)), size = 8
     ) +
     labs(x=i,
@@ -591,11 +591,11 @@ stats_pearson <- substitute(
     p = format(moa.med.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
   labs(x="Median Delta AUC",color="MOA Combo",
@@ -610,11 +610,11 @@ stats_spearman <- substitute(
     p = format(moa.med.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.med, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
   labs(x="Median Delta AUC", color="MOA Combo",
@@ -630,11 +630,11 @@ stats_pearson <- substitute(
     p = format(moa.med.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.med, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.med, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
   labs(x="Median Delta AUC",color="MOA Combo",
@@ -649,11 +649,11 @@ stats_spearman <- substitute(
     p = format(moa.med.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.med, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.med, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
   labs(x="Median Delta AUC", color="MOA Combo",
@@ -669,11 +669,11 @@ stats_pearson <- substitute(
     p = format(moa.med.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.med, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.med, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
   labs(x="Median Log Alpha",color="MOA Combo",
@@ -688,11 +688,11 @@ stats_spearman <- substitute(
     p = format(moa.med.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.med, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.med, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
   labs(x="Median Log Alpha", color="MOA Combo",
@@ -708,11 +708,11 @@ stats_pearson <- substitute(
     p = format(moa.med.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.med, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.med, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
   labs(x="Median Max Bliss",color="MOA Combo",
@@ -727,11 +727,11 @@ stats_spearman <- substitute(
     p = format(moa.med.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.med, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.med, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
   labs(x="Median Max Bliss", color="MOA Combo",
@@ -768,11 +768,11 @@ stats_pearson <- substitute(
     p = format(moa.mean.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.mean, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.mean, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
   labs(x="Mean Delta AUC",color="MOA Combo",
@@ -787,11 +787,11 @@ stats_spearman <- substitute(
     p = format(moa.mean.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.mean, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.mean, aes(x=dAUC, y=absNES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
   labs(x="Mean Delta AUC", color="MOA Combo",
@@ -807,11 +807,11 @@ stats_pearson <- substitute(
     p = format(moa.mean.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.mean, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.mean, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
   labs(x="Mean Delta AUC",color="MOA Combo",
@@ -826,11 +826,11 @@ stats_spearman <- substitute(
     p = format(moa.mean.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.mean, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.mean, aes(x=dAUC, y=meanLogAlpha)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
   labs(x="Mean Delta AUC", color="MOA Combo",
@@ -846,11 +846,11 @@ stats_pearson <- substitute(
     p = format(moa.mean.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.mean, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.mean, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
   labs(x="Mean Log Alpha",color="MOA Combo",
@@ -865,11 +865,11 @@ stats_spearman <- substitute(
     p = format(moa.mean.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.mean, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.mean, aes(x=meanLogAlpha, y=NES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
   labs(x="Mean Log Alpha", color="MOA Combo",
@@ -885,11 +885,11 @@ stats_pearson <- substitute(
     p = format(moa.mean.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.mean, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.mean, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_pearson)), size = 8
   ) +
   labs(x="Mean Max Bliss",color="MOA Combo",
@@ -904,11 +904,11 @@ stats_spearman <- substitute(
     p = format(moa.mean.cor$p.value, digits = 2)
   )
 )
-ggplot(moa.mean, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002 
-  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() + 
+ggplot(moa.mean, aes(x=maxBliss, y=NES)) + # could set shape=sample but only sample is JH-2-002
+  geom_point(aes(color=moaComboShort), show.legend =TRUE) + theme_minimal() +
   geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
     x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-    colour = "black", parse = TRUE, 
+    colour = "black", parse = TRUE,
     label = as.character(as.expression(stats_spearman)), size = 8
   ) +
   labs(x="Mean Max Bliss", color="MOA Combo",
