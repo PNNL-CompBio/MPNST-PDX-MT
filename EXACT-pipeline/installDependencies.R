@@ -1,14 +1,17 @@
 ## install dependencies if needed
 # from CRAN
+
 install.packages(c("plyr","dplyr","readxl","plotly","stringr","tidyr","knitr",
                    "pheatmap","ggplot2","tidyverse","reticulate","patchwork",
                    "data.table","scales","tibble","reshape2","ggrepel",
                    "RColorBrewer","ggcorrplot","fmsb"))
 
+
 # from Bioconductor
 if (!require("BiocManager", quietly = TRUE)) {
   install.packages("BiocManager")
 }
+
 
 if (!require("Biostrings", quietly = TRUE)) {
   BiocManager::install("Biostrings")
@@ -19,18 +22,28 @@ if (!require("amlresistancenetworks", quietly = TRUE)) {
   remotes::install_github("https://github.com/PNNL-CompBio/amlresistancenetworks")
 }
 
+
+##SG: panSEA requires DMEA
+if(!require(DMEA, quietly=TRUE))
+   BiocManager::install("DMEA")
+
+##SG: panSEA requires multtest
+if(!require(multtest, quietly=TRUE))
+  BiocManager::install("multtest")
+
 if (!require(panSEA, quietly = TRUE)) {
   if (!require("devtools", quietly = TRUE))
     install.packages("devtools")
-  
-  devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
+##SG removing tie handling since it breaks
+#  devtools::install_github("PNNL-CompBio/panSEA", "add-tie-handling")
+  devtools::install_github("PNNL-CompBio/panSEA")
 }
 
 if (!require(synapser, quietly = TRUE)) {
   if (!require("remotes", quietly = TRUE)) {
     install.packages("remotes")
   }
-  
+
   # Install the latest version of synapser (automatically installs compatible dependency versions)
   remotes::install_cran("synapser", repos = c("http://ran.synapse.org", "https://cloud.r-project.org"))
 }
