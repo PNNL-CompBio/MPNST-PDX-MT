@@ -4,7 +4,6 @@ library(reshape2);library(RColorBrewer);library(ggcorrplot)
 library(fmsb);library(stats);library(synapser)
 # author: Belinda B. Garana
 #setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
-#dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
 
 #rel.conf <- read.csv("mpnst_combo_drug_response.csv")
 rel.conf <- read.csv(synapser::synGet("syn68156852")$path)
@@ -66,7 +65,7 @@ mean.conf$time <- as.numeric(mean.conf$time)/24
 # }
 # write.csv(musyc.scores, "Deconvolved_musyc_20250812.csv", row.names=FALSE) # duplicated and changed name to musyc.csv for synapse
 # #musyc.scores <- read.csv("Deconvolved_musyc_20250812.csv")
-musyc.scores <- read.csv(synapser::synGet("syn68736713")$path)|>
+musyc.scores <- read.csv(synapser::synGet("syn68736713")$path) |>
   tidyr::separate(sample,into=c('sample','time'),sep='_')
 
 musyc.scores$time <- sapply(musyc.scores$time,function(x) ifelse(x=='48hours',2,5))
@@ -112,10 +111,10 @@ ggplot(musyc.scores, aes(x=sample, y=reorder(drugCombo, meanLogAlpha), fill=mean
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Mean\nLog|Alpha|")
 ggsave("musyc_meanLogAlpha_heatmap.pdf", width=5,height=4)
 
-# bliss.musyc <- merge(bliss, musyc.scores, by=c("drugCombo","sample","time"))
-# max.bliss <- plyr::ddply(bliss, .(drugCombo, sample, time), summarize,
-#                          maxBliss = max(Bliss_synergy),
-#                          medianBliss = median(Bliss_synergy)) # 125
+ bliss.musyc <- merge(bliss, musyc.scores, by=c("drugCombo","sample","time"))
+ max.bliss <- plyr::ddply(bliss, .(drugCombo, sample, time), summarize,
+                          maxBliss = max(Bliss_synergy),
+                          medianBliss = median(Bliss_synergy)) # 125
 # write.csv(max.bliss,"maxBliss.csv", row.names=FALSE)
 
 mean.conf$conc1 <- mean.conf$drug1.conc
@@ -205,14 +204,14 @@ ggsave("bliss_maxSynergyTested_heatmap.pdf", width=4.5,height=4)
 #
 
 ##NEXT CHUNK commented by SG
-# max.bliss$maxBliss <- as.numeric(max.bliss$maxBliss)
-# max.bliss <- max.bliss[!is.na(max.bliss$maxBliss),]
-# maxAbsBliss <- max(abs(max.bliss$maxBliss)) # 65.87242
-# minMaxBliss <- min(max.bliss$maxBliss) # 0
-# ggplot(max.bliss, aes(x=sample, y=reorder(drugCombo, maxBliss), fill=maxBliss)) + geom_tile(stat="identity") +
-#   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
-#   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Max Bliss")
-# ggsave("bliss_maxSynergy_heatmap.pdf", width=4.5,height=4)
+ max.bliss$maxBliss <- as.numeric(max.bliss$maxBliss)
+ max.bliss <- max.bliss[!is.na(max.bliss$maxBliss),]
+ maxAbsBliss <- max(abs(max.bliss$maxBliss)) # 65.87242
+ minMaxBliss <- min(max.bliss$maxBliss) # 0
+ ggplot(max.bliss, aes(x=sample, y=reorder(drugCombo, maxBliss), fill=maxBliss)) + geom_tile(stat="identity") +
+   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
+   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Max Bliss")
+ ggsave("bliss_maxSynergy_heatmap.pdf", width=4.5,height=4)
 
 # minNonZeroBliss <- min(max.bliss[max.bliss$maxBliss != 0,]$maxBliss) # 0
 # ggplot(max.bliss[max.bliss$maxBliss != 0,], aes(x=sample, y=reorder(drugCombo, maxBliss), fill=log10(maxBliss))) + geom_tile(stat="identity") +
@@ -259,7 +258,8 @@ ci$rank <- -ci$CI # ci < 1 denotes synergy, =1: additive, <1: antagonistic
 ci$CI <- NULL
 
 # get delta AUC
-dauc <- read.csv(file.path(dataPath,"dAUC.csv"))
+#SG updated to synapse
+dauc <- read.csv(syn$get('syn69978141')$path)##file.path(dataPath,"dAUC.csv"))
 colnames(dauc) <- colnames(ci)
 dauc$time <- as.numeric(sub("h","",dauc$time))/24
 
