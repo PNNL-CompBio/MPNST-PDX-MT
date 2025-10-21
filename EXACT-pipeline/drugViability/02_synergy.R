@@ -5,6 +5,8 @@ library(fmsb);library(stats);library(synapser)
 # author: Belinda B. Garana
 #setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
 
+synapser::synLogin()
+
 #rel.conf <- read.csv("mpnst_combo_drug_response.csv")
 rel.conf <- read.csv(synapser::synGet("syn68156852")$path)
 musyc.scores <- read.csv(synapser::synGet("syn68736713")$path) # was: musyc_20250812.csv
@@ -13,15 +15,17 @@ musyc.scores <- read.csv(synapser::synGet("syn68736713")$path) # was: musyc_2025
 bliss <- data.frame()
 
 #dir.create("bliss")
-blissFiles <- synapser::as.list(synapser::synGetChildren('syn68639935', list("file"), sortBy = 'NAME'))
-for (i in 1:length(blissFiles)){
-  test.bliss <- read.csv(synapser::synGet(blissFiles[[i]]$id)$path)
-  bliss <- rbind(bliss, test.bliss)
-}
-bliss$drugCombo <- paste0(bliss$drug1, "+", bliss$drug2)
-bliss$sample <- bliss$PDX
-bliss$time <- bliss$timePoint..hr./24
-write.csv(bliss, "bliss.csv", row.names=FALSE)
+##SG Alex uploaded a file we dont need to concatenate
+bliss <- read.csv(synapser::synGet('syn68900210')$path)
+# blissFiles <- synapser::as.list(synapser::synGetChildren('syn68639935', list("file"), sortBy = 'NAME'))
+# for (i in 1:length(blissFiles)){
+#   test.bliss <- read.csv(synapser::synGet(blissFiles[[i]]$id)$path)
+#   bliss <- rbind(bliss, test.bliss)
+# }
+# bliss$drugCombo <- paste0(bliss$drug1, "+", bliss$drug2)
+# bliss$sample <- bliss$PDX
+# bliss$time <- bliss$timePoint..hr./24
+# write.csv(bliss, "bliss.csv", row.names=FALSE)
 #bliss <- read.csv("bliss.csv")
 
 # calculate mean and sd for each drug & dose combo, mpnst, time combo; also preserve sample and chr8q columns
@@ -101,6 +105,8 @@ for (i in 1:nrow(musyc.scores)) {
 }
 maxLogAlpha <- max(musyc.scores$meanLogAlpha)
 musyc.scores$drugCombo <- paste0(musyc.scores$drug1_name,'+',musyc.scores$drug2_name)
+##remove combos requested by alex (SG)
+musyc.scores <- subset(musyc.scores,!drugCombo%in%c("selumetinib+nazartinib","mirdametinib+nazartinib","avutometinib+defactinib"))
 # ggplot(musyc.scores, aes(x=sample, y=reorder(drugCombo, meanLogAlpha), fill=meanLogAlpha)) + geom_tile(stat="identity") +
 #   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(0,8)) +
 #   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Mean\nLog|Alpha|")
