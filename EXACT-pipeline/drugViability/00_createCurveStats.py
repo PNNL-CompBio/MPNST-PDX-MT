@@ -146,7 +146,7 @@ syn.store(sc.File('viability_curves.tsv',parentId='syn52369034'))
 if len(comboMulti) > 0:
     print("compiling multi combos: ", len(comboMulti))
     fulltab = pd.concat(comboMulti)
-    fulltab = fulltab[fulltab['drugThreeName'].isna()]
+    # fulltab = fulltab[fulltab['drugThreeName'].isna()]
     
     # replace blanks with 0 values
     fulltab['drugOneConcentration'].fillna(0, inplace=True)
