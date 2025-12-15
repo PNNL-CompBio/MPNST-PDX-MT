@@ -31,7 +31,8 @@ multidose = []
 comboMulti = []
 for index,row in comboFiles.iterrows():
   #print(row['id'])
-  dfile = pd.read_csv(syn.get(row['id']).path)
+  dfile_raw = pd.read_csv(syn.get(row['id']).path)
+  dfile = dfile_raw.drop(dfile_raw.index[dfile_raw.isna().all(axis=1)])
   if all(dfile['dataSubtype'] == 'processed'):
       dfile['improve_sample_id'] = row['specimenID']
       if pd.isna(row['specimenID']):
@@ -44,9 +45,8 @@ for index,row in comboFiles.iterrows():
       drug2 = dfile['drugTwoName'].dropna().unique()[0]
       dfile['drugTwoName'] = dfile['drugTwoName'].fillna(drug2)#.fillna(drug2, inplace=True)
 
-      dfile_clean = dfile.drop(dfile.index[dfile.isna().all(axis=1)])
-      if all(dfile_clean['drugOneName'] == drug1) & all(dfile_clean['drugTwoName'] == drug2):
-          comboMulti.append(dfile_clean)
+      if all(dfile['drugOneName'] == drug1) & all(dfile['drugTwoName'] == drug2):
+          comboMulti.append(dfile)
               
 for index,row in singleFiles.iterrows():
   #print(row['id'])
