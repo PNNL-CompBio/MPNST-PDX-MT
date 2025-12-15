@@ -103,7 +103,7 @@ if len(multidose) > 0:
     ##fit curve
     script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/coderbuild/utils/fit_curve.py'
     if not os.path.exists("fit_curve.py"):
-      subprocess.run(['wget',script])
+      subprocess.run(['wget',script, '-O', 'fit_curve.py'])
     #subprocess.run(['python3','-m','pip','install','matplotlib']) # due to matplotlib error
     subprocess.run(['python3','fit_curve.py','--input','mpnst_drug_response.tsv','--output','mpnstDrugOutput'])
     #runpy.run_path("fit_curve.py") # replaces subprocess call
@@ -215,11 +215,11 @@ if len(comboMulti) > 0:
     fulltab.to_csv('mpnst_combo_drug_response_forCurves.tsv',sep='\t')
     
     ##fit curve
-    #if not os.path.exists("fit_curve.py"):
-    script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/coderbuild/utils/fit_curve.py'
-    subprocess.run(['wget',script])
+    if not os.path.exists("fit_curve.py"):
+      script='https://raw.githubusercontent.com/PNNL-CompBio/coderdata/refs/heads/main/coderbuild/utils/fit_curve.py'
+      subprocess.run(['wget',script, '-O', 'fit_curve.py'])
     #subprocess.run(['python3','-m','pip','install','matplotlib']) # due to matplotlib error
-    subprocess.run(['python3','fit_curve.py','--input','mpnst_combo_drug_response_forCurves.tsv','--output','mpnstDrugComboOutput'])
+    subprocess.run(['python','fit_curve.py','--input','mpnst_combo_drug_response_forCurves.tsv','--output','mpnstDrugComboOutput'])
     #runpy.run_path("fit_curve.py") # replaces subprocess call
     #os.getcwd()
     otab = pd.read_csv('mpnstDrugComboOutput.0',sep='\t')
