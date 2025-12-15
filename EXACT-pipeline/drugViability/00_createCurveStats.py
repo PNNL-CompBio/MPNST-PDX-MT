@@ -43,8 +43,10 @@ for index,row in comboFiles.iterrows():
       dfile['drugOneName'] = dfile['drugOneName'].fillna(drug1)#.fillna(drug1, inplace=True)
       drug2 = dfile['drugTwoName'].dropna().unique()[0]
       dfile['drugTwoName'] = dfile['drugTwoName'].fillna(drug2)#.fillna(drug2, inplace=True)
-      if all(dfile['drugOneName'] == drug1) & all(dfile['drugTwoName'] == drug2):
-          comboMulti.append(dfile)
+
+      dfile_clean = dfile.drop(dfile.index[dfile.isna().all(axis=1)])
+      if all(dfile_clean['drugOneName'] == drug1) & all(dfile_clean['drugTwoName'] == drug2):
+          comboMulti.append(dfile_clean)
               
 for index,row in singleFiles.iterrows():
   #print(row['id'])
