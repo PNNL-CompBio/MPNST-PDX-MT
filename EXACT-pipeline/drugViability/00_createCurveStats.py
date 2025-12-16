@@ -8,28 +8,49 @@ import os
 import subprocess
 from datetime import date
 #import runpy
-##this is a pain, need to move to file
 
-
-# __STUDY_TYPE__ = "combo"
-# __STUDY_TYPE__ = "mek+egfr"
-__STUDY_TYPE__ = "single"
-
-if __STUDY_TYPE__ == "combo":
-   in_data_folder_id = 'syn66330226'
-   result_folder_id = 'syn52369040'
-   combination_treatment = True
-elif __STUDY_TYPE__ == "mek+egfr":
-   in_data_folder_id = 'syn71857386'
-   result_folder_id = 'syn71857385'
-   combination_treatment = True
-elif __STUDY_TYPE__ == 'single':
-   in_data_folder_id = 'syn65473019'
-   result_folder_id = 'syn52369034'
-   combination_treatment = False
 
 
 def main():
+    """
+    Main script calling the individual curve fitting & drug response
+    metric calculations.
+    """
+
+    """
+    Define the "study" below i.e. uncomment the __STUDY_TYPE__ line for
+    which of the studies the curve fitting and calculation of drug
+    response metrics should be calculated
+    """
+    # __STUDY_TYPE__ = "combo"
+    # __STUDY_TYPE__ = "mek+egfr"
+    __STUDY_TYPE__ = "single"
+
+    """
+    The lines below define which synapse id data and result files are / 
+    should be hosted.
+    """
+    if __STUDY_TYPE__ == "combo":
+        in_data_folder_id = 'syn66330226'
+        result_folder_id = 'syn52369040'
+        combination_treatment = True
+    elif __STUDY_TYPE__ == "mek+egfr":
+        in_data_folder_id = 'syn71857386'
+        result_folder_id = 'syn71857385'
+        combination_treatment = True
+    elif __STUDY_TYPE__ == 'single':
+        in_data_folder_id = 'syn65473019'
+        result_folder_id = 'syn52369034'
+        combination_treatment = False
+    else:
+        raise ValueError(
+            "f{__STUDY_TYPE__} is not a valid value for __STUDY_TYPE__."
+            "Please make sure to choose accepted value."
+            )
+
+    """
+    Calls to the functions that contain the logic.
+    """
     if combination_treatment:
         combination_agent_trial(in_data_folder_id, result_folder_id)
 
@@ -38,6 +59,21 @@ def main():
 
 
 def single_agent_trial(in_data_folder_id: str, result_folder_id: str) -> None:
+    """
+    Helper function collecting the processing logic to single agent 
+    studies
+
+    Parameters
+    ----------
+    in_data_folder_id : str
+        synapse id for folder that contains all datafiles for ingestion
+    result_folder_id : str
+        synapse id for folder that resul files will be stored to
+
+    Returns
+    -------
+    None
+    """
 
     syn = sc.login()
 
@@ -160,6 +196,21 @@ def single_agent_trial(in_data_folder_id: str, result_folder_id: str) -> None:
 
 
 def combination_agent_trial(in_data_folder_id: str, result_folder_id: str) -> None:
+    """
+    Helper function collecting the processing logic to multi agent / 
+    drug combination studies
+
+    Parameters
+    ----------
+    in_data_folder_id : str
+        synapse id for folder that contains all datafiles for ingestion
+    result_folder_id : str
+        synapse id for folder that resul files will be stored to
+
+    Returns
+    -------
+    None
+    """
 
     syn = sc.login()
 
