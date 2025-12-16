@@ -94,7 +94,8 @@ def single_agent_trial(in_data_folder_id: str, result_folder_id: str) -> None:
 
     for index,row in singleFiles.iterrows():
         #print(row['id'])
-        dfile = pd.read_csv(syn.get(row['id']).path)
+        dfile_raw = pd.read_csv(syn.get(row['id']).path)
+        dfile = dfile_raw.drop(dfile_raw.index[dfile_raw.isna().all(axis=1)])
         if all(dfile['dataSubtype'] == 'processed'):
             dfile['improve_sample_id'] = row['specimenID']
             if pd.isna(row['specimenID']):
