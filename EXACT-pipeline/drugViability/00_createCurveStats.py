@@ -30,55 +30,55 @@ singledose = []
 multidose = []
 comboMulti = []
 for index,row in comboFiles.iterrows():
-  #print(row['id'])
-  dfile_raw = pd.read_csv(syn.get(row['id']).path)
-  dfile = dfile_raw.drop(dfile_raw.index[dfile_raw.isna().all(axis=1)])
-  if all(dfile['dataSubtype'] == 'processed'):
-      dfile['improve_sample_id'] = row['specimenID']
-      if pd.isna(row['specimenID']):
-        dfile['improve_sample_id'] = dfile['sampleName']
-      dfile = dfile.reset_index()
-      
-      # replace nan with drug 1 or 2 names as appropriate
-      drug1 = dfile['drugOneName'].dropna().unique()[0]
-      dfile['drugOneName'] = dfile['drugOneName'].fillna(drug1)#.fillna(drug1, inplace=True)
-      drug2 = dfile['drugTwoName'].dropna().unique()[0]
-      dfile['drugTwoName'] = dfile['drugTwoName'].fillna(drug2)#.fillna(drug2, inplace=True)
+    #print(row['id'])
+    dfile_raw = pd.read_csv(syn.get(row['id']).path)
+    dfile = dfile_raw.drop(dfile_raw.index[dfile_raw.isna().all(axis=1)])
+    if all(dfile['dataSubtype'] == 'processed'):
+        dfile['improve_sample_id'] = row['specimenID']
+        if pd.isna(row['specimenID']):
+            dfile['improve_sample_id'] = dfile['sampleName']
+        dfile = dfile.reset_index()
+        
+        # replace nan with drug 1 or 2 names as appropriate
+        drug1 = dfile['drugOneName'].dropna().unique()[0]
+        dfile['drugOneName'] = dfile['drugOneName'].fillna(drug1)#.fillna(drug1, inplace=True)
+        drug2 = dfile['drugTwoName'].dropna().unique()[0]
+        dfile['drugTwoName'] = dfile['drugTwoName'].fillna(drug2)#.fillna(drug2, inplace=True)
 
-      if all(dfile['drugOneName'] == drug1) & all(dfile['drugTwoName'] == drug2):
-          comboMulti.append(dfile)
+        if all(dfile['drugOneName'] == drug1) & all(dfile['drugTwoName'] == drug2):
+            comboMulti.append(dfile)
               
 for index,row in singleFiles.iterrows():
-  #print(row['id'])
-  dfile = pd.read_csv(syn.get(row['id']).path)
-  if all(dfile['dataSubtype'] == 'processed'):
-      dfile['improve_sample_id'] = row['specimenID']
-      if pd.isna(row['specimenID']):
-        dfile['improve_sample_id'] = dfile['sampleName']
-      dfile = dfile.reset_index()
-      
-      ##get counts of drugs to only keep drugs with >1 dose for curve fitting
-      if "drugName" in dfile.columns:
-          dcounts = dfile.groupby("drugName").count().reset_index()
-          #print(dcounts)
-          if any(dcounts['concentration']>1):
-              #print("multi")
-              more = dcounts[dcounts['concentration']>1]['drugName']
-              #print(list(set(more)))
-              tempMulti = dfile[dfile['drugName'].isin(list(set(more)))]
-              #print(tempMulti)
-              multidose.append(tempMulti)
-              #print(len(multidose))
-          
-          ## also get single data points
-          if any(dcounts['concentration']==1):
-              #print("single")
-              sings = dcounts[dcounts['concentration']==1]['drugName']
-              #print(list(set(sings)))
-              tempSingle = dfile[dfile['drugName'].isin(list(set(sings)))]
-              #print(tempSingle)
-              singledose.append(tempSingle)
-              #print(len(singledose))
+    #print(row['id'])
+    dfile = pd.read_csv(syn.get(row['id']).path)
+    if all(dfile['dataSubtype'] == 'processed'):
+        dfile['improve_sample_id'] = row['specimenID']
+        if pd.isna(row['specimenID']):
+            dfile['improve_sample_id'] = dfile['sampleName']
+        dfile = dfile.reset_index()
+        
+        ##get counts of drugs to only keep drugs with >1 dose for curve fitting
+        if "drugName" in dfile.columns:
+            dcounts = dfile.groupby("drugName").count().reset_index()
+            #print(dcounts)
+            if any(dcounts['concentration']>1):
+                #print("multi")
+                more = dcounts[dcounts['concentration']>1]['drugName']
+                #print(list(set(more)))
+                tempMulti = dfile[dfile['drugName'].isin(list(set(more)))]
+                #print(tempMulti)
+                multidose.append(tempMulti)
+                #print(len(multidose))
+            
+            ## also get single data points
+            if any(dcounts['concentration']==1):
+                #print("single")
+                sings = dcounts[dcounts['concentration']==1]['drugName']
+                #print(list(set(sings)))
+                tempSingle = dfile[dfile['drugName'].isin(list(set(sings)))]
+                #print(tempSingle)
+                singledose.append(tempSingle)
+                #print(len(singledose))
 
 ##first fit multidose curves...
 #os.chdir("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability/")
