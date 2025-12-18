@@ -2,14 +2,25 @@
 pull data and run curve fitting code
 '''
 
+from dataclasses import dataclass
+
 import pandas as pd
 import synapseclient as sc
 import os
 import subprocess
 from datetime import date
+import sys
 #import runpy
 
 
+@dataclass
+class Study:
+    """Data class to capture crutial study information"""
+    name: str
+    data_folder_synapse_id: str
+    result_folder_synapse_id: str
+    combination_agent_trial: bool
+    
 
 def main():
     """
@@ -18,44 +29,63 @@ def main():
     """
 
     """
-    Define the "study" below i.e. uncomment the __STUDY_TYPE__ line for
-    which of the studies the curve fitting and calculation of drug
-    response metrics should be calculated
+    The lines below setup the studies with the respective synapse ids
+    pointing to the folders that contain the data files, as well as the
+    synapse folder where results should be stored.
+
+    To include another seperate study, add another `Study` object
+    (including the defined class variables) into the dict(k,v) with the
+    study name as key k and the `Study` object as value v 
     """
-    # __STUDY_TYPE__ = "combo"
-    # __STUDY_TYPE__ = "mek+egfr"
-    __STUDY_TYPE__ = "single"
+    studies = {
+        'combo': Study(
+            name='combo',
+            data_folder_synapse_id='syn66330226',
+            result_folder_synapse_id='syn52369040',
+            combination_agent_trial=True,
+        ),
+        'mek+egfr': Study(
+            name='mek+egfr',
+            data_folder_synapse_id='syn71857386',
+            result_folder_synapse_id='syn71857385',
+            combination_agent_trial=True,
+        ),
+        'single': Study(
+            name='single',
+            data_folder_synapse_id='syn65473019',
+            result_folder_synapse_id='syn52369034',
+            combination_agent_trial=False,
+        ),    
+    }
 
     """
-    The lines below define which synapse id data and result files are / 
-    should be hosted.
+    Define for which of the studies (see the `studies` dictionary above)
+    the analysis should be run. This is a simple list of keys / names.
+    This can be as little as `studies_to_run = ['study_name'] to run
+    only one study analysis. 
     """
-    if __STUDY_TYPE__ == "combo":
-        in_data_folder_id = 'syn66330226'
-        result_folder_id = 'syn52369040'
-        combination_treatment = True
-    elif __STUDY_TYPE__ == "mek+egfr":
-        in_data_folder_id = 'syn71857386'
-        result_folder_id = 'syn71857385'
-        combination_treatment = True
-    elif __STUDY_TYPE__ == 'single':
-        in_data_folder_id = 'syn65473019'
-        result_folder_id = 'syn52369034'
-        combination_treatment = False
-    else:
-        raise ValueError(
-            "f{__STUDY_TYPE__} is not a valid value for __STUDY_TYPE__."
-            "Please make sure to choose accepted value."
+    studies_to_run = ['combo', 'mek+egfr', 'single']
+
+    """
+    Calls to the functions that contain the analysis logic.
+    """
+    for study_name in studies_to_run:
+        if study_name in studies:
+            study = studies[study_name]
+        else:
+            print(f'Study "{study_name}" not defined!', file=sys.stderr)
+            continue
+        
+        if study.combination_agent_trial:
+            combination_agent_trial(
+                study.data_folder_synapse_id,
+                study.result_folder_synapse_id
             )
-
-    """
-    Calls to the functions that contain the logic.
-    """
-    if combination_treatment:
-        combination_agent_trial(in_data_folder_id, result_folder_id)
-
-    elif not combination_treatment:
-        single_agent_trial(in_data_folder_id, result_folder_id)
+        elif not study.combination_agent_trial:
+            single_agent_trial(
+                study.data_folder_synapse_id,
+                study.result_folder_synapse_id
+            )
 
 
 def single_agent_trial(in_data_folder_id: str, result_folder_id: str) -> None:
@@ -86,8 +116,6 @@ def single_agent_trial(in_data_folder_id: str, result_folder_id: str) -> None:
     singleFiles = singleFiles.asDataFrame()
     # remove data from 2025-01-22 due to different method where media was refreshed
     singleFiles = singleFiles[~singleFiles.name.str.contains("250122.csv")]
-
-###pull files
 
     singledose = []
     multidose = []
@@ -372,9 +400,9 @@ def combination_agent_trial(in_data_folder_id: str, result_folder_id: str) -> No
     """
     store 2 agent combination results to synapse
     """
-    syn.store(sc.File('mpnst_combo_drug_response.csv', parentId=f'{result_folder_id}'))
-    syn.store(sc.File('mpnstDrugComboOutput.txt', parentId=f'{result_folder_id}'))
-    syn.store(sc.File('mpnstDrugComboMatrix.tsv', parentId=f'{result_folder_id}'))
+    # syn.store(sc.File('mpnst_combo_drug_response.csv', parentId=f'{result_folder_id}'))
+    # syn.store(sc.File('mpnstDrugComboOutput.txt', parentId=f'{result_folder_id}'))
+    # syn.store(sc.File('mpnstDrugComboMatrix.tsv', parentId=f'{result_folder_id}'))
 
     #syn.store(sc.File('mpnst_combo_drug_response_forCurves.tsv',parentId=result_folder_id))
 
