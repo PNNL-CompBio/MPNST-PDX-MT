@@ -2,28 +2,28 @@
 rm(list=ls())
 library(plyr);library(dplyr);library(synapser);library(data.table);library(ggplot2);library(patchwork)
 synapser::synLogin()
-setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code")
+#setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/RNAseq/synapse_based_code")
 dir.create("similarity")
 setwd("similarity")
 
 
-DMEAdotPlots <- function(dot.df,  title="", fname, min.width = 5, min.height = 4, 
-                         maxAbsNES = max(abs(dot.df[,color])), 
+DMEAdotPlots <- function(dot.df,  title="", fname, min.width = 5, min.height = 4,
+                         maxAbsNES = max(abs(dot.df[,color])),
                          maxLogFDR = max(dot.df[,size]), x.order=sort(unique(dot.df$DrugTreatment)),
                          colorLab = "NES", width=NULL, height=NULL) {
-  dot.plot <- ggplot2::ggplot(dot.df, ggplot2::aes(x = DrugTreatment, y = reorder(Drug_set, NES), 
-                                                   color = NES, size = minusLogFDR)) + 
+  dot.plot <- ggplot2::ggplot(dot.df, ggplot2::aes(x = DrugTreatment, y = reorder(Drug_set, NES),
+                                                   color = NES, size = minusLogFDR)) +
     facet_grid(Time ~ MPNST) + ggplot2::geom_point() +
     #ggplot2::scale_y_discrete(limits = y.order) +
     ggplot2::scale_x_discrete(limits = x.order) +
-    scale_color_gradient2(low="blue",high="red", mid="grey", 
+    scale_color_gradient2(low="blue",high="red", mid="grey",
                           limits=c(-maxAbsNES, maxAbsNES)) +
-    theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) + 
-    ggplot2::labs(color = "NES", size = "-log(FDR)", title=title) +  
+    theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) +
+    ggplot2::labs(color = "NES", size = "-log(FDR)", title=title) +
     theme(axis.title=element_blank(), plot.title=element_text(hjust=0.5, face="bold"),
           axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
     geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
-  customHeight <- ifelse(is.null(height), ifelse(length(unique(dot.df$Drug_set))/5 < min.height, min.height, length(unique(dot.df$Drug_set))/5), height) 
+  customHeight <- ifelse(is.null(height), ifelse(length(unique(dot.df$Drug_set))/5 < min.height, min.height, length(unique(dot.df$Drug_set))/5), height)
   customWidth <- ifelse(is.null(width), min.width, width)
   ggplot2::ggsave(paste0(fname,".pdf"), dot.plot, width=customWidth, height=customHeight)
   ggplot2::ggsave(paste0(fname,"_taller.pdf"), dot.plot, width=customWidth, height=(customHeight+1))
@@ -31,7 +31,7 @@ DMEAdotPlots <- function(dot.df,  title="", fname, min.width = 5, min.height = 4
   ggplot2::ggsave(paste0(fname,"_evenWiderTaller.pdf"), dot.plot, width=(customWidth+3), height=(customHeight+3))
   ggplot2::ggsave(paste0(fname,"_evenTaller.pdf"), dot.plot, width=customWidth, height=(customHeight+3))
   ggplot2::ggsave(paste0(fname,"_evenWider.pdf"), dot.plot, width=(customWidth+3), height=(customHeight+2))
-  
+
   if (all(grepl(" inhibitor", unique(dot.df$Drug_set)))) {
     dot.df$Inhibitor <- sub(" inhibitor", "", dot.df$Drug_set)
     dot.plot <- ggplot2::ggplot(
@@ -44,17 +44,17 @@ DMEAdotPlots <- function(dot.df,  title="", fname, min.width = 5, min.height = 4
       ggplot2::geom_point() +
       #ggplot2::scale_y_discrete(limits = sigOrder2) +
       ggplot2::scale_x_discrete(limits = x.order) +
-      scale_color_gradient2(low="blue",high="red", mid="grey", 
+      scale_color_gradient2(low="blue",high="red", mid="grey",
                             limits=c(-maxAbsNES, maxAbsNES)) +
-      theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) + 
-      ggplot2::labs(color = "NES", size = "-log(FDR)",title=title) +  
+      theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) +
+      ggplot2::labs(color = "NES", size = "-log(FDR)",title=title) +
       theme(axis.title=element_blank(), plot.title=element_text(hjust=0.5, face="bold"),
             axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
       geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21)
     ggplot2::ggsave(paste0(fname,"_inhibitors.pdf"), dot.plot, width=(min.width-1), height=customHeight)
     ggplot2::ggsave(paste0(fname,"_inhibitors_wider.pdf"), dot.plot, width=min.width, height=customHeight)
     ggplot2::ggsave(paste0(fname,"_inhibitors_evenWider.pdf"), dot.plot, width=(min.width+1), height=customHeight)
-  } 
+  }
   # else if (customHeight<49) {
   #   ggplot2::ggsave(paste0(fname,"_wider.pdf"), dot.plot, width=(min.width+1), height=customHeight)
   #   ggplot2::ggsave(paste0(fname,"_widerTaller.pdf"), dot.plot, width=(min.width+1), height=(customHeight+1))
@@ -116,7 +116,7 @@ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
                   "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
-                  #"Irinotecan" = "TOP inhibitor", 
+                  #"Irinotecan" = "TOP inhibitor",
                   "Verteporfin" = "YAP inhibitor")
 
 # also have version matching PRISM drug moa sets
@@ -127,7 +127,7 @@ drug.info2 <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibito
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
                   "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "Topoisomerase inhibitor",
-                  #"Irinotecan" = "Topoisomerase inhibitor", 
+                  #"Irinotecan" = "Topoisomerase inhibitor",
                   "Verteporfin" = "YAP inhibitor")
 
 all(tested.drugs %in% names(drug.info)) # TRUE
@@ -148,18 +148,18 @@ drug.targets <- list()
 # there is no "TAZ" gene based on grepl
 for (i in names(drug.info)) {
   cat(i,"\n")
-  
+
   # set default targets
   temp.moa <- drug.info[[i]]
   drug.targets[[i]] <- gen.drug.targets[[temp.moa]]
-  
+
   # try to get specific targets from PRISM
   if (tolower(i) %in% tolower(drug.target.info$name)) {
     cat("in PRISM\n")
     prism.targets <- unique(unlist(strsplit(na.omit(drug.target.info[tolower(drug.target.info$name) == tolower(i),c("name","target")])$target, ", ")[[1]]))
     if (all(!is.na(prism.targets))) {
       cat("targets in PRISM\n")
-      drug.targets[[i]] <- prism.targets  
+      drug.targets[[i]] <- prism.targets
     }
   }
 }
@@ -172,10 +172,10 @@ for (i in names(drug.info)){
   temp.targets <- data.frame()
   temp.diffexp <- diffexp[diffexp$hgnc_symbol != "" & diffexp$Drug == i,]
   for (j in drug.targets[[i]]) {
-    temp.targets <- rbind(temp.targets, na.omit(temp.diffexp[startsWith(j,temp.diffexp$hgnc_symbol),])) 
+    temp.targets <- rbind(temp.targets, na.omit(temp.diffexp[startsWith(j,temp.diffexp$hgnc_symbol),]))
   }
   if (nrow(temp.targets) > 0) {
-    measured.targets[[i]] <- temp.targets 
+    measured.targets[[i]] <- temp.targets
     max.effect[max.effect$Drug == i,]$Timepoint <- levels(temp.targets$Timepoint)[temp.targets[which.max(abs(temp.targets$log2FoldChange)),]$Timepoint]
     max.effect[max.effect$Drug == i,]$Gene <- temp.targets[which.max(abs(temp.targets$log2FoldChange)),]$hgnc_symbol
     max.effect[max.effect$Drug == i,]$Log2FC <- temp.targets[which.max(abs(temp.targets$log2FoldChange)),]$log2FoldChange
@@ -196,7 +196,7 @@ sig.sens <- na.omit(sens[sens$sig,])
 nSig.sens <- plyr::ddply(sig.sens, .(Drug_set), summarize,
                          nSigDrugs = length(unique(DrugTreatment)),
                          nSigMPNST = length(unique(MPNST)))
-allSig.sens <- nSig.sens[nSig.sens$nSigDrugs == max(nSig.sens$nSigDrugs) & 
+allSig.sens <- nSig.sens[nSig.sens$nSigDrugs == max(nSig.sens$nSigDrugs) &
                            nSig.sens$nSigMPNST == max(nSig.sens$nSigMPNST),]$Drug_set # 14 drugs in all 3 MPNST
 dot.df <- plyr::ddply(sig.sens[sig.sens$Drug_set %in% allSig.sens,], .(Drug_set, Time), summarize,
                       medianNES = median(NES),
@@ -204,26 +204,26 @@ dot.df <- plyr::ddply(sig.sens[sig.sens$Drug_set %in% allSig.sens,], .(Drug_set,
 dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
 maxAbsNES <- max(abs(dot.df$medianNES)) # 4.52
 maxLogFDR <- max(dot.df$sdNES) # 4
-dot.plot <- ggplot2::ggplot(dot.df, ggplot2::aes(x = Time, y = reorder(Drug_set, medianNES), 
-                                                 color = medianNES, size = sdNES)) + 
+dot.plot <- ggplot2::ggplot(dot.df, ggplot2::aes(x = Time, y = reorder(Drug_set, medianNES),
+                                                 color = medianNES, size = sdNES)) +
   ggplot2::geom_point() + ggplot2::scale_x_discrete(limits = c("8h","24h")) +
-  scale_color_gradient2(low="blue",high="red", mid="grey", 
+  scale_color_gradient2(low="blue",high="red", mid="grey",
                         limits=c(-maxAbsNES, maxAbsNES)) +
-  theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) + 
-  ggplot2::labs(color = "Median NES", size = "SD NES", title="DMEA") +  
+  theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) +
+  ggplot2::labs(color = "Median NES", size = "SD NES", title="DMEA") +
   theme(axis.title=element_blank(), plot.title=element_text(hjust=0.5, face="bold"),
         axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
   geom_point(data = dot.df, col = "black", stroke = 1.5, shape = 21)
 customHeight <- ifelse(length(unique(dot.df$Drug_set))/10 < 2, 2, length(unique(dot.df$Drug_set))/10)
 ggplot2::ggsave("DMEA_dotPlot.pdf", dot.plot, width=4, height=customHeight)
 
-dot.plot <- ggplot2::ggplot(dot.df, ggplot2::aes(x = Time, y = reorder(Drug_set, -medianNES), 
-                                                 color = medianNES, size = sdNES)) + 
+dot.plot <- ggplot2::ggplot(dot.df, ggplot2::aes(x = Time, y = reorder(Drug_set, -medianNES),
+                                                 color = medianNES, size = sdNES)) +
   ggplot2::geom_point() + ggplot2::scale_x_discrete(limits = c("8h","24h")) +
-  scale_color_gradient2(low="blue",high="red", mid="grey", 
+  scale_color_gradient2(low="blue",high="red", mid="grey",
                         limits=c(-maxAbsNES, maxAbsNES)) +
-  theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) + 
-  ggplot2::labs(color = "Median NES", size = "SD NES", title="DMEA") +  
+  theme_classic(base_size=12) + scale_size_continuous(limits=c(0,maxLogFDR)) +
+  ggplot2::labs(color = "Median NES", size = "SD NES", title="DMEA") +
   theme(axis.title=element_blank(), plot.title=element_text(hjust=0.5, face="bold"),
         axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
   geom_point(data = dot.df, col = "black", stroke = 1.5, shape = 21)
@@ -251,8 +251,8 @@ dot.df$DrugTreatment <- dot.df$Drug
 dot.df$NES <- dot.df$log2FoldChange
 maxAbsNES <- ceiling(max(abs(na.omit(dot.df$NES)))) # 5
 maxAbsP <- ceiling(max(na.omit(dot.df$minusLogFDR))) # 209
-DMEAdotPlots(dot.df, 
-             fname = paste0("DUSP6","_diffexp_dotPlot"), 
+DMEAdotPlots(dot.df,
+             fname = paste0("DUSP6","_diffexp_dotPlot"),
              maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP,
              colorLab="Log2FC", width=12, height=3)
 
@@ -280,9 +280,9 @@ dot.df$NES <- dot.df$score
 dot.df$minusLogFDR <- -log10(dot.df$padj)
 maxAbsNES <- ceiling(max(abs(na.omit(dot.df$NES)))) # 16
 maxAbsP <- ceiling(max(na.omit(dot.df$minusLogFDR))) # 51
-DMEAdotPlots(dot.df, 
-             fname = paste0("SP1","_TF_dotPlot"), 
-             maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP, 
+DMEAdotPlots(dot.df,
+             fname = paste0("SP1","_TF_dotPlot"),
+             maxAbsNES = maxAbsNES, maxLogFDR = maxAbsP,
              width=12, height=3,
              colorLab="Score")
 
@@ -305,7 +305,7 @@ dot.df$Drug_set <- sub("HALLMARK_","",dot.df$feature)
 dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
 maxAbsNES <- max(abs(dot.df$NES)) # 3.26
 maxLogFDR <- max(dot.df$minusLogFDR) # 4
-DMEAdotPlots(dot.df, 
-             fname = paste0("GSEA_dotPlot"), 
-             maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR, 
+DMEAdotPlots(dot.df,
+             fname = paste0("GSEA_dotPlot"),
+             maxAbsNES = maxAbsNES, maxLogFDR = maxLogFDR,
              width=12, height=4)

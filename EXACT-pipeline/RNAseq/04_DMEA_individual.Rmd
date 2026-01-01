@@ -210,6 +210,8 @@ synapser::synStore(synapser::File("DMEA_correlations.csv", parent=synapse_id))
 ```
 
 ### plot number of correlated drugs, enriched MOAs
+
+
 ```{r plot # of results, echo = FALSE}
 ## drug mechanisms
 # prep data
@@ -232,7 +234,7 @@ drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=timepoints)
 dmea.sens.df$Time <- factor(dmea.sens.df$Time, levels=timepoints)
 all.drugs <- levels(dmea.sens.df$DrugTreatment)
 all.drugs <- all.drugs[all.drugs %in% dmea.sens.df$DrugTreatment]
-all.moas <- sort(names(drug.info)[names(drug.info) %in% dmea.sens.df$DrugTreatment])
+all.moas <- sort(names(drug.info)[drug.info %in% dmea.sens.df$DrugTreatment]) #SG edit#names(drug.info)[names(drug.info) %in% dmea.sens.df$DrugTreatment])
 drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
 names(drugCol) <- all.drugs
 
@@ -264,26 +266,28 @@ for (i in 1:length(drug.info)) {
 
 # generate plot
 nMOAs$moa <- factor(nMOAs$moa, levels=sort(na.omit(unique(nMOAs$moa))))
-nMOA.plot <- ggplot2::ggplot(nMOAs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=moa)) +
-  geom_boxplot(width=0.2, alpha = 0) + 
-  scale_color_manual(limits=all.drugs, values=drugCol) +
+nMOA.plot <- ggplot2::ggplot(nMOAs, aes(x=Time, y=N)) +#violin(alpha=0) +
+  geom_bar(stat='identity',aes(fill=DrugTreatment), position='dodge')+#, shape=moa)) +
+ # geom_boxplot(width=0.2, alpha = 0) + 
+  scale_fill_manual(limits=all.drugs, values=drugCol) +
   labs(x="Time (Hours)", y="# of Enriched Drug Mechanisms",
        color = "Drug Treatment", shape = "Mechanism") +
-  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+  #scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
   theme_classic(base_size=12) +
   theme(legend.box="horizontal") + facet_wrap(~MPNST)
 ggplot2::ggsave("N_enrichedDrugMechanisms.pdf", nMOA.plot, width=5.5, height=4)
 
+##NOTE (SG): overall means just the sum across all different samples not the actual enrichment
 nMOAs.overall$moa <- factor(nMOAs.overall$moa, levels=sort(na.omit(unique(nMOAs.overall$moa))))
-nMOA.plot.overall <- ggplot2::ggplot(nMOAs.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=moa)) +
-  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+nMOA.plot.overall <- ggplot2::ggplot(nMOAs.overall, aes(x=Time, y=N)) +#+ geom_violin(alpha=0) +
+  geom_bar(aes(fill=DrugTreatment), position='dodge',stat='identity') +#, shape=moa)) +
+  #geom_boxplot(width=0.2, alpha = 0) + 
+    scale_fill_manual(limits=all.drugs, values=drugCol) +
   labs(x="Time (Hours)", y="# of Enriched Drug Mechanisms",
        color = "Drug Treatment", shape = "Mechanism") +
   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
-ggplot2::ggsave("N_enrichedDrugMechanisms_overall.pdf", nMOA.plot.overall, width=5.5, height=4)
+#ggplot2::ggsave("N_enrichedDrugMechanisms_overall.pdf", nMOA.plot.overall, width=5.5, height=4)
 
 ## drugs
 # prep data
@@ -315,22 +319,24 @@ for (i in 1:length(drug.info)) {
 # generate plot
 #nDrugs$Time <- factor(nDrugs$Time, levels=timepoints)
 nDrugs$moa <- factor(nDrugs$moa, levels=sort(na.omit(unique(nDrugs$moa))))
-nDrug.plot <- ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=moa)) + scale_color_manual(limits=all.drugs, values=drugCol) +
-  geom_boxplot(width=0.2, alpha = 0) + 
+nDrug.plot <- ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + #geom_violin(alpha=0) +
+  geom_bar(stat='identity',position = 'dodge',aes(fill=DrugTreatment)) +#, shape=moa)) + 
+  scale_fill_manual(limits=all.drugs, values=drugCol) +
+ # geom_boxplot(width=0.2, alpha = 0) + 
   scale_y_continuous(trans="log10") + labs(x="Time (Hours)", y="Log(# of Correlated Drugs)",
-                                           color = "Drug Treatment", shape = "Mechanism") +
-  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
+                                           color = "Drug Treatment") +# shape = "Mechanism") +
+  #scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + 
+  theme_classic(base_size=12) +
   theme(legend.box="horizontal") + facet_wrap(~MPNST)
 ggplot2::ggsave("N_correlatedDrugs.pdf", nDrug.plot, width=5.5, height=4)
 
 #nDrugs.overall$Time <- factor(nDrugs.overall$Time, levels=timepoints)
 nDrugs.overall$moa <- factor(nDrugs.overall$moa, levels=sort(na.omit(unique(nDrugs.overall$moa))))
-nDrug.plot.overall <- ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=moa)) + scale_color_manual(limits=all.drugs, values=drugCol) +
-  geom_boxplot(width=0.2, alpha = 0) + 
+nDrug.plot.overall <- ggplot2::ggplot(nDrugs, aes(x=Time, y=N)) + #geom_violin(alpha=0) +
+  geom_barplot(position='dodge', stat='identity', aes(fill=DrugTreatment)) + scale_fill_manual(limits=all.drugs, values=drugCol) +
+#  geom_boxplot(width=0.2, alpha = 0) + 
   scale_y_continuous(trans="log10") + labs(x="Time (Hours)", y="Log(# of Correlated Drugs)",
-                                           color = "Drug Treatment", shape = "Mechanism") +
+                                           fill = "Drug Treatment") + #, shape = "Mechanism") +
   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
 ggplot2::ggsave("N_correlatedDrugs_overall.pdf", nDrug.plot.overall, width=5.5, height=4)
@@ -383,7 +389,7 @@ dot.plot <- ggplot2::ggplot(
 ) +
   ggplot2::geom_point() +
   ggplot2::scale_y_discrete(limits = setOrder) +
-  ggplot2::scale_x_discrete(limits=names(inputFace)) +
+ # ggplot2::scale_x_discrete(limits=names(inputFace)) +
   scale_color_gradient2(low="blue",high="red", mid="grey", 
                         limits=c(-maxAbsNES, maxAbsNES)) +
   #viridis::scale_color_viridis() +
@@ -403,7 +409,7 @@ ggplot2::ggsave("Enriched_MOAs_dotPlot.pdf", dot.plot, width=10, height=20)
 ```
 
 ### plot top correlated drugs, enriched MOAs
-```{r plot top results, echo = FALSE}
+```{r plot top results, echo = FALSE, eval = FALSE}
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA_individual")
 setwd(dmea.path)
@@ -557,7 +563,8 @@ inputFace <- rep("plain", length(inputDrugs))
 names(inputFace) <- inputDrugs
 inputFace[drugsInValidTopSets] <- "bold"
 
-dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% names(drug.info),]
+dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% validTopSets,]
+dot.df <- dot.df[dot.df$DrugTreatment %in% drugsInValidTopSets,]
 dot.df$Time <- factor(dot.df$Time, levels=timepoints)
 if (any(dot.df$FDR_q_value == 0)) {
   dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
@@ -573,8 +580,8 @@ dot.plot <- ggplot2::ggplot(
   )
 ) +
   ggplot2::geom_point() +
-  ggplot2::scale_y_discrete(limits = setOrder) +
-  ggplot2::scale_x_discrete(limits=names(inputFace)) +
+ # ggplot2::scale_y_discrete(limits = setOrder) +
+#  ggplot2::scale_x_discrete(limits=names(inputFace)) +
   scale_color_gradient2(low="blue",high="red", mid="grey", 
                         limits=c(-maxAbsNES, maxAbsNES)) +
   #viridis::scale_color_viridis() +
@@ -584,8 +591,8 @@ dot.plot <- ggplot2::ggplot(
     y = "Drug Mechanism (Output)",
     color = "NES", size = "-log(FDR)"
   ) + 
-  theme(axis.text.y=element_text(face=setFace), 
-        axis.text.x=element_text(face=inputFace,
+  theme(#axis.text.y=element_text(face=setFace), 
+        axis.text.x=element_text(#face=inputFace,
           angle=45, vjust=1, hjust=1),
         legend.box="horizontal") +
   geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +

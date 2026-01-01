@@ -73,6 +73,16 @@ if (!require(PCSF, quietly = TRUE)) {
   devtools::install_github("sgosline/PCSF")
 }
 
+##SG: require biomaRt
+if (!require(biomaRt, quietly = TRUE)) {
+  BiocManager::install('biomaRt')
+}
+
+#SG require deseq
+if (!require(DESeq2, quietly = TRUE)) {
+  Biocmanager::install('DESeq2')
+}
+
 ##SG: commented this since we had to install it above
 #f (!require(DMEA, quietly = TRUE)) {
 #  devtools::install_github("BelindaBGarana/DMEA", build=FALSE)

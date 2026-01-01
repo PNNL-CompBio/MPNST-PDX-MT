@@ -24,6 +24,10 @@ JH-2
 | 3 | B | DMSO, DEC, IFO, IRI, OLA, TRAB |
 | 3 | C | CAP, DOX | # no DMSO?
 
+WU-225
+| batch | date | Treatment
+| 4 | | xxx
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -33,19 +37,6 @@ library(readr);library(readxl)
 synLogin()
 
 
-library(RColorBrewer)
-n <- 15
-cols=c(brewer.pal(8,'Dark2'),brewer.pal(n-8,'Set2'))
- 
-pie(rep(1,n), col=sample(cols, n))
-
-drugnames<-list(DMSO='DMSO',MIR='Mirdametinib',CAP='Capmatinib',DEC='Decitabine',IFO='Ifosfamide',
-                   OLA='Olaparib',PAL='Palbociclib',RIB='Ribociclib',TNO='TNO155',VOR='Vorinostat',
-                   RMC='RMC4630',SEL='Selumetinib',TRA='Trametinib',TRAB='Trabectedin',DOX='Doxorubicin')
-
-names(cols)<-unlist(drugnames)
-   
-tcolors=c(`8h`='white',`24h`='darkgrey')
   
 ```
 
@@ -54,72 +45,7 @@ Created a helper function to get RNASeq data. Currently this uses the file names
 
 ```{r rnaseq}
 ##currently this function pulls all data manually and parses the file names. 
-rnaSeqTab<-getRNASeq<-function(){
-  ##metadata query first queries file view for all files - in this case i do counts.sf files, but you can also query by data type
-  manifest <- synapser::synTableQuery("select * from syn52369043 where name like '%quant.genes.sf'")$filepath
-  manifest <- readr::read_csv(manifest)|>dplyr::select(name,id,specimenID)
-  
-  batch1metadata<-readr::read_csv(synGet('syn64608368')$path)|>
-    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
-    distinct()
-  batch2metadata<-readr::read_csv(synGet('syn66302373')$path)|>
-    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
-    distinct()
-  batch3metadata <- read.csv(synGet("syn66050299")$path)|> # was syn6559564 before 20250415
-    dplyr::select(specimenID,individualID,Drug,Timepoint,Full_name,Date,Proceeded_id)|>
-    distinct()
-  batch3metadata$specimenID <- sub("-", "_", batch3metadata$specimenID)
-  batch4metadata<-readxl::read_excel(synGet('syn68080392')$path)|>
-    dplyr::select(`Label on Cap`,Drug,Timepoint,`Individual ID`)|>
-    distinct()
-  batch4metadata$individualID <- batch4metadata$`Individual ID`
-  batch4metadata$Timepoint <- sub("HR","h",batch4metadata$Timepoint)
-  batch4metadata$Timepoint <- sub(" h","h",batch4metadata$Timepoint)
-  colnames(batch4metadata)[1] <- "specimenID"
-  batch4metadata$name <- paste0(batch4metadata$specimenID,"_quant.genes.sf")
-  batch4metadata$Date <- "B4"
-  batch4metadata$Full_name <- batch4metadata$Drug
-  
-  ##METDATA - replace with annotations 
-  mn2_b1<-manifest|>
-    dplyr::right_join(batch1metadata)|>
-    dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
-  
-  mn2_b2<-manifest|>
-    tidyr::separate(name,into=c('Proceeded_id','sf'),sep='_quant.genes.')|>
-    dplyr::select(-specimenID)|>
-    dplyr::right_join(batch2metadata)|>
-    dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
-  
-  jh2002_b3 <- manifest|>
-    dplyr::filter(stringr::str_starts(name, "B3_"))
-  jh2002_b3$specimenID <- sub(".quant.genes.sf","",jh2002_b3$name) # filenames used to end in _quant.genes.sf before April 2, 2025
-  jh2002_b3 <- merge(jh2002_b3, batch3metadata, by="specimenID", all=TRUE) |> 
-    dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
-  
-  wu225_b4 <- manifest|>
-    dplyr::filter(stringr::str_starts(name, "B4-"))
-  wu225_b4$individualID <- "WU-225"
-  wu225_b4$specimenID <- sub("_quant.genes.sf","",wu225_b4$name)
-  wu225_b4 <- merge(wu225_b4, as.data.frame(batch4metadata), by=c("name","specimenID","individualID"), all=TRUE) |> 
-    dplyr::select(id,specimenID,individualID,Drug,Full_name,Timepoint,Date)
-  
-  
-  allmeta<-rbind(mn2_b1,mn2_b2,jh2002_b3,wu225_b4)
-  if (any(is.na(allmeta$id))) {
-    warning("missing synIDs for ", paste(allmeta[is.na(allmeta$id),]$specimenID, collapse=" ")) 
-    allmeta <- allmeta[!is.na(allmeta$id),]
-  }
-  
-  mtab<-do.call(rbind,lapply(allmeta$id,function(x){
-    readr::read_tsv(synapser::synGet(x)$path)|>
-      dplyr::mutate(id=x)
-  }))|>left_join(allmeta)
-  mtab$Drug <- sub(" ","",mtab$Drug)
-  mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(ifelse(x%in%names(drugnames),drugnames[[x]],x))))
-  
-  return(mtab)
-}
+source('downloadCorrectRNASeq.R')
 ```
 
 ### Collect latest data
@@ -128,44 +54,8 @@ We can now call our RNASeq helper function defined above to get data and visuali
 
 
 ```{r data, echo=FALSE,warning=FALSE,message=FALSE}
-rnaseqdata<-rnaSeqTab()|>
-  tidyr::separate(Name,into=c('ensembl_gene_id','version'),remove=FALSE)
+rnaseqdata<-read.csv(synapser::synGet('syn64398049')$path)
 
-# change "MN2" to "MN-2", "untreated" to "DMSO", "VIR" to "Vorinostat", 
-# "IRI" to "Irinotecan", "RMC-4630" to "RMC4630", "Capmetinib" to "Capmatinib"
-rnaseqdata[rnaseqdata$individualID=="MN2",]$individualID <- "MN-2"
-rnaseqdata[rnaseqdata$Drug=="untreated",]$Drug <- "DMSO"
-rnaseqdata[rnaseqdata$Drug=="VIR",]$Drug <- "Vorinostat"
-rnaseqdata[rnaseqdata$Drug=="IRI",]$Drug <- "Irinotecan"
-rnaseqdata[rnaseqdata$Drug=="RMC-4630",]$Drug <- "RMC4630"
-rnaseqdata[rnaseqdata$Drug=="Capmetinib",]$Drug <- "Capmatinib"
-
-print(paste("Got RNASeq from",length(unique(rnaseqdata$id)),'samples across',length(unique(rnaseqdata$Drug)),'drugs and',length(unique(rnaseqdata$Timepoint)),'timepoints'))
-
-if (file.exists('map.csv')) {
-  map <- read.csv('map.csv')
-} else {
-  library(biomaRt)
-  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-  map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
-  write.csv(map, 'map.csv', row.names = FALSE) 
-}
-
-rnaseqgenes<-rnaseqdata|>left_join(map)|>
-  subset(hgnc_symbol!="")|>
-  dplyr::group_by(hgnc_symbol,Date,id,Drug,Timepoint,individualID)|>
-  summarize(TPM=sum(TPM),NumReads=sum(NumReads))
-```
-
-
-Here we do some pre-processing by removing lowly abundant transcripts and then plot to PCA.
-
-Open questions:
-- are there any outliers to remove?
-- are there any sample swaps here?
-
-```{r plots and normaliztion}
-library(ggplot2)
 zeroes<-rnaseqdata|>
   subset(NumReads<3)|>
   group_by(Name)|>
@@ -176,213 +66,9 @@ toremove<-subset(zeroes,zvals>samps/2)
 
 reduced.data<-subset(rnaseqdata,!Name%in%toremove$Name)
 
-##first do some pretty PCA
-tpm<-reduced.data|>
-  dplyr::select(Name,id,TPM)|>
-  tidyr::pivot_wider(names_from=id,values_from=TPM)|>
-  tibble::column_to_rownames('Name')|>
-  as.matrix()
-
-numReads<-reduced.data|>
-  dplyr::select(Name,id,NumReads)|>
-  tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
-  tibble::column_to_rownames('Name')|>
-  as.matrix()
-
-sampmeta<-rnaseqdata|>
-  dplyr::select(id,specimenID,Timepoint,Drug,Date,individualID)|>
-  distinct()
-sampmeta$indDate <- paste0(sampmeta$individualID, ", ",sampmeta$Date)
-
-pcs<-prcomp(log2(0.0001+tpm),scale=TRUE,center=TRUE)
-
-pcvals<-pcs$rotation|>
-  as.data.frame()|>
-  dplyr::select(PC1,PC2)|>
-  tibble::rownames_to_column('id')|>
-  left_join(sampmeta)
-pcvals$Timepoint <- factor(pcvals$Timepoint, c("0h", "8h", "24h"))
-
- ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,shape=Timepoint))+geom_point(size=4)+
-   facet_grid(~indDate)+scale_color_discrete()
- ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,shape=Timepoint))+geom_point(aes(size=4))+facet_grid(~Date)+scale_color_manual(values=cols)
-
- ggsave('batched_pca.png',width=12,height=6)
- 
- ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,shape=Timepoint))+geom_point(size=4)+
-   facet_grid(~individualID)+scale_color_discrete()
- ggsave('batched_pca_noDates.png',width=12,height=6)
- 
-  ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,alpha=Timepoint, shape=indDate))+geom_point(size=4)+
-   scale_alpha_discrete(range=c(0.1,1))+scale_color_discrete()
- ggsave('batched_pca_noFacet.png',width=8,height=8)
- 
- drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
-                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
-                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
-                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
-                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
-                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
-                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
- drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(drug.info),"Set3"))(length(drug.info)) # need color ramp for >12 colors
- drugCol <- c("black", drugCol)
-names(drugCol) <- c("DMSO", names(drug.info))
- ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,alpha=Timepoint, shape=individualID))+geom_point(size=4)+
-   scale_alpha_discrete(range=c(0.2,1))+scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol))
- ggsave('batched_pca_noFacet_noDates.png',width=8,height=8)
-  ggplot(pcvals,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol))
- ggsave('batched_pca_noFacet_noDates_sizeTime.png',width=8,height=8)
- 
- ggplot(pcvals[pcvals$Date %in% c("B", "C"),],aes(x=PC1,y=PC2,col=Drug,alpha=Timepoint, shape=indDate))+geom_point(size=4)+
-   scale_alpha_discrete(range=c(0.1,1))+scale_color_discrete()
- ggsave('batched_pca_noFacet_datesBC.png',width=8,height=6)
- 
 ```
 
-### Batch correction
-
-Clearly there is a batch effect so it will be good to correct for this to enable facile comparisons across datasets. 
-
-TODO: put the SVA code here and upload a corrected file to synapse
-
-```{r batch correct, echo=TRUE, warning=FALSE, message=FALSE}
-#library(sva)
-##now to remove the batches for date while still correcting for drug and time
-library("DESeq2")
-library('limma')
-
-counts<-reduced.data|>
-  dplyr::select(Name,id,NumReads)|>
-  tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
-  tibble::column_to_rownames('Name')|>
-  as.matrix()
-
-
-sampmeta$Date=as.factor(sampmeta$Date)
-dds<-DESeqDataSetFromMatrix(countData = round(counts),
-                              colData = sampmeta,
-                              design = ~ Drug+Date+Timepoint )
-
-
-
-dds<-DESeq(dds)
-
-#lets look at both rlog and vsd as transformations
-vsd <- vst(dds, blind=FALSE)
-
-mat <- assay(vsd)
-mm <- model.matrix(~Timepoint+Drug, colData(vsd))
-mat <- limma::removeBatchEffect(mat, batch=vsd$Date, design=mm)
-assay(vsd) <- mat
-
-
-plotPCA(vsd,intgroup='Timepoint')
-ggsave('bcorrected_pca_time.pdf')
-
-plotPCA(vsd,intgroup='Date')
-ggsave('bcorrected_pca_date.pdf')
-
-cols=c("black",brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
-
-plotPCA(vsd,intgroup='Drug')+
-  scale_color_manual(values=drugCol,breaks=names(drugCol))+theme_minimal()+
-  labs(color="Drug")
-ggsave('bcorrected_pca_drug.pdf', width=5,height=5)
-
-pca.df <- plotPCA(vsd,intgroup=c('Drug','individualID','Timepoint','Date'),returnData=TRUE)
-pca.df$Drug <- droplevels(pca.df$Drug) # didn't work
-pca.df$Drug <- factor(pca.df$Drug, levels=c("DMSO",names(drug.info)))
-pca.df[grepl("DMSO",pca.df$group),]$Drug <- "DMSO"
-pca.df$Timepoint <- factor(pca.df$Timepoint, c("0h","8h","24h"))
-ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol))
- ggsave('batchCorrected_pca_noFacet_noDates_sizeTime.png',width=8,height=8)
- 
-
- ggplot(pca.df,aes(x=PC1,y=PC2,col=Drug,shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() + facet_wrap(.~Timepoint) +
-   scale_color_manual(values=drugCol, breaks=names(drugCol))
- ggsave('batchCorrected_pca_noFacet_noDates_facetTime_diffColors.pdf',width=10,height=8)
- 
- ggplot(pca.df[pca.df$Drug!="Irinotecan",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
-   scale_y_continuous(limits=c(-40,40))
- ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors.pdf',width=8,height=8)
- 
- ggplot(pca.df[pca.df$Timepoint=="0h",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
-   scale_y_continuous(limits=c(-40,40))
- ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0.pdf',width=8,height=8)
- 
- ggplot(pca.df[pca.df$Timepoint!="24h",],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +
-   scale_y_continuous(limits=c(-40,40))
- ggsave('batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0or8.pdf',width=8,height=8)
- 
- mpnst <- na.omit(unique(pca.df$individualID))
- for (m in mpnst) {
-   ggplot(pca.df[pca.df$individualID==m,],aes(x=PC1,y=PC2,col=Drug,shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() + facet_wrap(.~Timepoint) + scale_shape_manual(values=c(16,17), breaks=c("JH-2-002","MN-2")) +
-   scale_color_manual(values=drugCol, breaks=names(drugCol))
- ggsave(paste0(m,'_batchCorrected_pca_noFacet_noDates_facetTime_diffColors.pdf'),width=10,height=8)
- 
-    ggplot(pca.df[pca.df$individualID==m,],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) + scale_shape_manual(values=c(16,17), breaks=c("JH-2-002","MN-2")) +
-   scale_y_continuous(limits=c(-40,40))
- ggsave(paste0(m,'_batchCorrected_pca_noFacet_noDates_sizeTime_diffColors.pdf'),width=8,height=8)
- 
- ggplot(pca.df[pca.df$Timepoint=="0h" & pca.df$individualID==m,],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +scale_shape_manual(values=c(16,17), breaks=c("JH-2-002","MN-2")) +
-   scale_y_continuous(limits=c(-40,40))
- ggsave(paste0(m,'_batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0.pdf'),width=8,height=8)
- 
- ggplot(pca.df[pca.df$Timepoint!="24h" & pca.df$individualID==m,],aes(x=PC1,y=PC2,col=Drug,size=Timepoint, shape=individualID))+geom_point()+
-   scale_color_discrete() + labs(shape="MPNST") + theme_minimal() +
-   scale_color_manual(values=drugCol, breaks=names(drugCol)) + scale_x_continuous(limits=c(-40,40)) +scale_shape_manual(values=c(16,17), breaks=c("JH-2-002","MN-2")) +
-   scale_y_continuous(limits=c(-40,40))
- ggsave(paste0(m,'_batchCorrected_pca_noFacet_noDates_sizeTime_diffColors_t0or8.pdf'),width=8,height=8)
- }
-
-##cortab
-md=colData(vsd)[,c('Drug','Timepoint','Date')]
-corvsd=cor(assay(vsd),use='pairwise.complete.obs')
-pheatmap::pheatmap(corvsd,annotation_row=md,annotation_col=md)
-
-##now add the VSD counts to the table
-vtab<-assay(vsd)|>as.data.frame()|>
-  tibble::rownames_to_column('Name')|>
-  tidyr:::pivot_longer(starts_with('syn'),names_to='id',values_to='VSD_batchCorrected')
-
-rnaseqdata2<-rnaseqdata|>
-  left_join(vtab)
-
-
-rnaseqgenes<-rnaseqdata2|>left_join(map)|>
-  subset(hgnc_symbol!="")|>
-  dplyr::group_by(hgnc_symbol,Date,id,Drug,Timepoint)|>
-  summarize(TPM=sum(TPM),NumReads=sum(NumReads),VSD_batchCorrected=sum(VSD_batchCorrected))
-
-###now we add in the corrected VSD values as well
-readr::write_csv(rnaseqdata2,file='rnaseqcounts.csv')
-readr::write_csv(rnaseqgenes,file='rnaseqcounts_hgnc.csv')
-
-synFile <- synapser::File('rnaseqcounts.csv', parent = 'syn64004220')
-synapser::synStore(synFile)
-synFile <- synapser::File('rnaseqcounts_hgnc.csv', parent = 'syn64004220')
-synapser::synStore(synFile)
-
-```
-### Differential expression
+### Differential expression across all MPNST
 
 Let's compute the differential expression of each drug/time point compared with DMSO. This analysis is at the core of what we're doing - trying to determine what changes are happening at each time point. 
 
@@ -397,6 +83,13 @@ counts<-reduced.data|>
   tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
   tibble::column_to_rownames('Name')|>
   as.matrix()
+
+
+sampmeta <- reduced.data |>
+  dplyr::select(id,specimenID, individualID, Drug,Date,Timepoint)|>
+  distinct()
+
+sampmeta$Date=as.factor(sampmeta$Date)
 
 temp.drugs <- unique(sampmeta$Drug)
 temp.drugs <- temp.drugs[temp.drugs != "DMSO"]
@@ -465,7 +158,9 @@ levs=sumstats[which(sumstats$direction=='up'&sumstats$Timepoint=='8h'),'Drug']
 sumstats$Drug=factor(sumstats$Drug,levels=levs$Drug)
  sumstats|>
    mutate(genedir=ifelse(direction=='down',-1*numgenes,numgenes))|>
- ggplot(aes(x=direction,y=numgenes,fill=Drug))+geom_bar(stat='identity',position='dodge')+scale_fill_manual(values=cols)+coord_flip()+facet_grid(~Timepoint)
+ ggplot(aes(x=direction,y=numgenes,fill=Drug))+geom_bar(stat='identity',position='dodge')+
+   #scale_fill_manual(values=cols)+
+   coord_flip()+facet_grid(~Timepoint)
  
  ggsave('diffExresults.pdf')
  
@@ -480,24 +175,6 @@ sumstats$Drug=factor(sumstats$Drug,levels=levs$Drug)
    distinct()|>
    tidyr::unite(Drug,Timepoint,col='sample',sep='_',remove=FALSE)|>
    tibble::column_to_rownames('sample')
- 
-dgenes<-diffex|>
-  tidyr::separate(Gene,sep="\\.",into=c('ensembl_gene_id','Version'))
-
-if (file.exists('map.csv')) {
-  map <- read.csv('map.csv')
-} else {
-  library(biomaRt)
-  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-  map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
-  write.csv(map, 'map.csv', row.names = FALSE) 
-}
-diffex_gene<-dgenes|>left_join(map)
-##let's save this back to synapse for future reference
-readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
-synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn64004220')
-synapser::synStore(synFile)
-
 
 drugscounts<-subset(dgenes,signif)|>group_by(ensembl_gene_id,Timepoint,direction)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))|>
   left_join(map)|>

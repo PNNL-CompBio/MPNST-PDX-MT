@@ -13,7 +13,7 @@ if (!require(panSEA)) {
   if (!require("devtools", quietly = TRUE))
   install.packages("devtools")
   
-  devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
+  devtools::install_github("PNNL-CompBio/panSEA", "add-tie-handling")
 }
 
 library(plyr);library(dplyr);library(ggplot2); library(patchwork)
@@ -40,7 +40,7 @@ saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
 ```
 
 ## run GSEA
-```{r GSEA, echo = FALSE}
+```{r GSEA, echo = FALSE, warning = FALSE, message=FALSE}
 # GSEA NES > 0: pathways up-regulated in treated vs. untreated samples
 synapse_id <- "syn65916546"
 timepoints <- na.omit(unique(diffexp$Timepoint))
@@ -176,6 +176,13 @@ dot.plot
 ggplot2::ggsave("enrichedPathways_dotPlot.pdf", dot.plot, width=10, height=8) 
 ```
 
+### plot correlation of pathways across time points
+
+we want to know if specific pathways are anti
+```{r which pathways are correlated}
+
+```
+
 ### plot top enriched pathways
 ```{r plot top results, echo = FALSE}
 library(plyr);library(dplyr);library(ggplot2); library(poolr)
@@ -190,7 +197,7 @@ setwd(gsea.path)
 #         axis.line=element_blank()) + labs(fill="Drug Mechanism")
 # ggplot2::ggsave("MOA_annotations.pdf", pathway.plot, width=6,height=3)
 
-n.top.list <- c(1, 2, 3, 5)
+n.top.list <- 5# c(1, 2, 3, 5)
 for (n.top in n.top.list) {
   ### top result(s) for each drug
   topSigpathway <- data.frame()
@@ -245,7 +252,7 @@ library(plyr);library(dplyr);library(ggplot2)
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
 setwd(gsea.path)
 
-n.top.list <- c(1, 2, 3, 5)
+n.top.list <- 5#c(1, 2, 3, 5)
 for (moa in all.pathways) {
   temp.drugs <- names(drug.info[drug.info == moa])
   for (n.top in n.top.list) {
@@ -383,13 +390,13 @@ setwd(gsea.path)
 gsea.df <- read.csv("GSEA_results_Hallmark.csv")
 genemat<-gsea.df[gsea.df$FDR_q_value < 0.25 & 
                            gsea.df$p_value < 0.05,]|>
-  dplyr::select(Gene_set,NES,DrugTreatment,Time)|>
+  dplyr::select(Feature_set, NES, DrugTreatment, Time) |> #Gene_set,NES,DrugTreatment,Time)|>
   subset(!is.na(NES))|> 
   tidyr::unite(Time,DrugTreatment,col='condition')|>
   tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
-  tibble::column_to_rownames('Gene_set')|>
+  tibble::column_to_rownames('Feature_set')|> # 'Gene_set')|>
   as.matrix()
-genecor<-cor(genemat,use='pairwise.complete.obs')
+genecor<-cor(genemat,use='pairwise.complete.obs', method ='s')
 write.csv(genecor,"sigGSEACorr.csv")
 
 annot <- as.data.frame(rownames(genecor)) |> 
@@ -427,11 +434,11 @@ pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=
 dev.off()
 
 genemat<-gsea.df|>
-  dplyr::select(Gene_set,NES,DrugTreatment,Time)|>
+  dplyr::select(Feature_set,NES,DrugTreatment,Time)|>
   subset(!is.na(NES))|> 
   tidyr::unite(Time,DrugTreatment,col='condition')|>
   tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
-  tibble::column_to_rownames('Gene_set')|>
+  tibble::column_to_rownames('Feature_set')|>
   as.matrix()
 genecor<-cor(genemat,use='pairwise.complete.obs')
 write.csv(genecor,"GSEACorr.csv")

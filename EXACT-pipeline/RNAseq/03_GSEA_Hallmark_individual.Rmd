@@ -5,6 +5,7 @@ date: "2025-01-14"
 output: html_document
 ---
 
+This document evaluates the gene set enrichment results of individual samples (rather than pooling across samples). 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -40,14 +41,14 @@ saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
 ```
 
 ## run GSEA
-```{r GSEA, echo = FALSE}
+```{r GSEA, echo = FALSE, warning=FALSE, message=FALSE}
 # GSEA NES > 0: pathways up-regulated in treated vs. untreated samples
 synapse_id <- "syn69910857"
 timepoints <- na.omit(unique(diffexp$Timepoint))
 base.path <- getwd()
 gsea.path <- file.path(base.path, "GSEA_Hallmark_individual")
 dir.create("GSEA_Hallmark_individual")
-
+mpnst<-unique(diffexp$individualID) ##ADDed by SG
 gsea <- list()
 for (i in timepoints) {
   # filter for time
@@ -147,10 +148,11 @@ for (i in all.pathways) {
 
 # generate plot
 npathways$pathway <- factor(npathways$pathway, levels=sort(na.omit(unique(npathways$pathway))))
-npathway.plot <- ggplot2::ggplot(npathways, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=pathway)) +
-  geom_boxplot(width=0.2, alpha = 0) + 
-  scale_color_manual(limits=all.drugs, values=drugCol) +
+npathway.plot <- ggplot2::ggplot(npathways, aes(x=Time, y=N)) + #geom_violin(alpha=0) +
+  #geom_point(aes(color=DrugTreatment, shape=pathway)) +
+  #geom_boxplot(width=0.2, alpha = 0) + 
+  ggplot2::geom_bar(aes(fill=DrugTreatment), position='dodge', stat='identity')+
+  scale_fill_manual(limits=all.drugs, values=drugCol) +
   labs(x="Time (Hours)", y="# of Enriched Pathways",
        color = "Drug Treatment", shape = "Mechanism") +
   scale_shape_manual(values=1:length(all.pathways), breaks=all.pathways) + 
@@ -159,9 +161,11 @@ npathway.plot <- ggplot2::ggplot(npathways, aes(x=Time, y=N)) + geom_violin(alph
 ggplot2::ggsave("N_enrichedPathways.pdf", npathway.plot, width=5.5, height=4)
 
 npathways.overall$pathway <- factor(npathways.overall$pathway, levels=sort(na.omit(unique(npathways.overall$pathway))))
-npathway.plot.overall <- ggplot2::ggplot(npathways.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=pathway)) +
-  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+npathway.plot.overall <- ggplot2::ggplot(npathways.overall, aes(x=Time, y=N)) + #geom_violin(alpha=0) +
+#  geom_point(aes(color=DrugTreatment, shape=pathway)) +
+  #geom_boxplot(width=0.2, alpha = 0) + 
+  ggplot2::geom_bar(aes(fill=DrugTreatment), position='dodge', stat='identity')+
+  scale_fill_manual(limits=all.drugs, values=drugCol) +
   labs(x="Time (Hours)", y="# of Enriched Pathways",
        color = "Drug Treatment", shape = "Mechanism") +
   scale_shape_manual(values=1:length(all.pathways), breaks=all.pathways) + theme_classic(base_size=12) +
@@ -348,11 +352,6 @@ library(ComplexHeatmap)
 gsea.path <- file.path(getwd(),"GSEA_Hallmark_individual")
 setwd(gsea.path)
 gsea.df <- read.csv("GSEA_results_Hallmark.csv")
-# inspired by: https://jokergoo.github.io/ComplexHeatmap-reference/book/upset-plot.html#upset-making-the-plot
-# moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
-# myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
-# names(myCol) <- names(drug.info)
-# moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
 
 for (m in mpnst) {
   # generate list of significant results
@@ -419,24 +418,39 @@ for (m in mpnst) {
 ```
 
 ### correlations
+
+plots heatmap of pathway correlations across time points
 ```{r correlations, echo=FALSE}
+
+
 library(RColorBrewer);library(pheatmap)
+
+# inspired by: https://jokergoo.github.io/ComplexHeatmap-reference/book/upset-plot.html#upset-making-the-plot
+ #moa.info2 <- moa.info2[order(unique(unlist(drug.info))),]
+ #myCol <- as.list(RColorBrewer::brewer.pal(length(drug.info), "Set3"))
+ #names(myCol) <- names(drug.info)
+ #moaAnnotation <- ComplexHeatmap::HeatmapAnnotation(Mechanism = moa.info2$moa, col = myCol, which="row")
+
 gsea.path <- file.path(getwd(),"GSEA_Hallmark_individual")
 setwd(gsea.path)
 gsea.df <- read.csv("GSEA_results_Hallmark.csv")
+gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)
+
 genemat<-gsea.df[gsea.df$FDR_q_value < 0.25 & 
                            gsea.df$p_value < 0.05,]|>
-  dplyr::select(Gene_set,NES,DrugTreatment,Time)|>
+  dplyr::select(Gene_set,NES,DrugTreatment) |>#,Time)|>
   subset(!is.na(NES))|> 
-  tidyr::unite(Time,DrugTreatment,col='condition')|>
-  tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
+  #tidyr::unite(Time,DrugTreatment,col='condition')|>
+  tidyr::pivot_wider(names_from=DrugTreatment,values_from=NES,values_fn=mean,values_fill=0.0)|>
   tibble::column_to_rownames('Gene_set')|>
   as.matrix()
-genecor<-cor(genemat,use='pairwise.complete.obs')
+genecor<-cor(genemat,use='pairwise.complete.obs', method='pearson')
 write.csv(genecor,"sigGSEACorr.csv")
 
-annot <- as.data.frame(rownames(genecor)) |> 
-  tidyr::separate('rownames(genecor)',into=c('Timepoint','Drug'),sep='_')
+annot <- as.data.frame(list(`Drug`=rownames(genecor))) #|> 
+#  tidyr::separate('rownames(genecor)',into=c('Timepoint','Drug'),sep='_')
+annot$Drug[which(annot$Drug=='Trabectidin')]<-'Trabectedin'
+annot <- unique(annot)
 drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
                   "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
@@ -446,42 +460,46 @@ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
                   "Irinotecan" = "TOP inhibitor")
 drug.info.df <- as.data.frame(t(as.data.frame(drug.info)))
-drug.info.df$Drug <- rownames(drug.info.df)
+#drug.info.df$Drug <- rownames(drug.info.df)
 colnames(drug.info.df)[1] <- "MOA"
-annot <- merge(annot, drug.info.df, by="Drug", all.x=TRUE)
-rownames(annot) <- paste0(annot$Timepoint, "_", annot$Drug)
-annot <- annot[rownames(genecor),c('Timepoint','Drug','MOA')]
-annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
-annot$MOA <- factor(annot$MOA, levels=unique(annot$MOA))
-annot$Drug <- factor(annot$Drug, levels=unique(annot$Drug))
+annot <- drug.info.df#merge(annot, drug.info.df, by="Drug", all.x=TRUE)
+#rownames(annot) <- paste0(annot$Timepoint, "_", annot$Drug)
+#annot <- annot[rownames(genecor),c('Drug','MOA')]
+#annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
+#annot$MOA <- factor(annot$MOA, levels=unique(annot$MOA))
+#rownames(annot) <- annot$Drug
+#annot$Drug <- factor(annot$Drug, levels=unique(annot$Drug))
+#rown
 cols=c(brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
-names(cols) <- names(drug.info)
+names(cols) <- setdiff(names(drug.info),'Irinotican')
 cols <- cols[levels(annot$Drug)]
 moa.cols <- RColorBrewer::brewer.pal(length(unique(annot$MOA)),"Set3")
-names(moa.cols) <- levels(annot$MOA)
+names(moa.cols) <- unique(annot$MOA)
 annot.colors = list(MOA = moa.cols,
-                    Drug = cols,
+                    #Drug = cols,
                     Timepoint = c("8h" = "#FFFFFF", "24h" = "#000000"))
 
 graphics.off()
-pdf("sigGSEACorr.pdf",width=6,height=4.5)
-pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
-         show_colnames=FALSE, show_rownames=FALSE)
+pdf("sigGSEACorr.pdf",width=8,height=6)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors, 
+         cellwidth = 10, cellheight=10, clustering_method='ward') #,
+#         show_colnames=FALSE, show_rownames=FALSE, legend=TRUE)
 dev.off()
 
 genemat<-gsea.df|>
-  dplyr::select(Gene_set,NES,DrugTreatment,Time)|>
+  dplyr::select(Gene_set,NES,DrugTreatment) |>#,Time)|>
   subset(!is.na(NES))|> 
-  tidyr::unite(Time,DrugTreatment,col='condition')|>
-  tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
+ # tidyr::unite(Time,DrugTreatment,col='condition')|>
+  tidyr::pivot_wider(names_from=DrugTreatment,values_from=NES,values_fn=mean,values_fill=0.0)|>
   tibble::column_to_rownames('Gene_set')|>
   as.matrix()
-genecor<-cor(genemat,use='pairwise.complete.obs')
+genecor<-cor(genemat,use='pairwise.complete.obs', method='pearson')
 write.csv(genecor,"GSEACorr.csv")
 graphics.off()
-pdf("GSEACorr.pdf",width=6,height=4.5)
+pdf("GSEACorr.pdf",width=8,height=6)
 pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
-         show_colnames=FALSE, show_rownames=FALSE)
+         cellwidth = 10, cellheight=10, clustering_method='ward')
+         #show_colnames=FALSE, show_rownames=FALSE)
 dev.off()
 ```
 
@@ -498,17 +516,21 @@ mek.hdac.sig <- c()
 for (t in unique(gsea.df$Time)) {
   for (m in unique(gsea.df$MPNST)) {
     mek.sig <- unique(gsea.df[gsea.df$DrugTreatment %in% 
-                                c("Mirdametinib","Trametinib","Selumetinib") &
+                                c("Mirdametinib") &#,"Trametinib","Selumetinib") &
                                 gsea.df$sig & gsea.df$Time==t &
                                 gsea.df$MPNST==m,]$Gene_set)
     hdac.sig <- unique(gsea.df[gsea.df$DrugTreatment =="Vorinostat" &
                                  gsea.df$sig & gsea.df$Time==t &
                                 gsea.df$MPNST==m,]$Gene_set)
-    mek.hdac.sig <- unique(c(mek.hdac.sig,mek.sig[mek.sig %in% hdac.sig]))
+    dna.sig <- unique(gsea.df[gsea.df$DrugTreatment =='Doxorubicin' &
+                                gsea.df$sig & gsea.df$Time==t &
+                                gsea.df$MPNST==m,]$Gene_set)
+    
+    mek.hdac.sig <- unique(c(mek.hdac.sig,union(mek.sig, union(hdac.sig,dna.sig))))#mek.sig[mek.sig %in% hdac.sig]))
   }
 }
 dot.df <- gsea.df[gsea.df$DrugTreatment %in% 
-                      c("Mirdametinib","Vorinostat","Trametinib","Selumetinib") &
+                      c("Mirdametinib","Vorinostat",'Doxorubicin')&#"Trametinib","Selumetinib") &
                       gsea.df$Gene_set %in% mek.hdac.sig,]
 
 dot.df$Time <- factor(dot.df$Time, levels=c("8h","24h"))
@@ -526,7 +548,7 @@ dot.plot <- ggplot2::ggplot(
   )
 ) +
   ggplot2::geom_point() +
-  ggplot2::scale_x_discrete(limits=c("Vorinostat","Mirdametinib","Selumetinib","Trametinib")) +
+  ggplot2::scale_x_discrete(limits=c("Vorinostat","Mirdametinib","Doxorubicin")) +#"Selumetinib","Trametinib")) +
   scale_color_gradient2(low="blue",high="red", mid="grey", 
                         limits=c(-maxAbsNES, maxAbsNES)) +
   #viridis::scale_color_viridis() +
