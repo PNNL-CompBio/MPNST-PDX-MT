@@ -1,5 +1,5 @@
 ---
-title: "GSEA"
+title: "GSEA on pooled samples"
 author: "Belinda B. Garana"
 date: "2025-01-14"
 output: html_document
@@ -8,92 +8,23 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-# load packages
-if (!require(panSEA)) {
-  if (!require("devtools", quietly = TRUE))
-  install.packages("devtools")
-  
-  devtools::install_github("PNNL-CompBio/panSEA", "add-tie-handling")
-}
+
 
 library(plyr);library(dplyr);library(ggplot2); library(patchwork)
 library(synapser);library(panSEA); library(data.table); 
-library(RColorBrewer); library(ComplexHeatmap)
-
+ library(ComplexHeatmap)
+source("plottingParameters.R")
 ```
 
-## load inputs
-```{r load inputs, echo = FALSE}
-synapser::synLogin()
-# RNA-seq data with HGNC symbols
-diffexp <- read.csv(synapser::synGet('syn64397743')$path)
-diffexp <- na.omit(diffexp[diffexp$hgnc_symbol!="",
-                           c("hgnc_symbol", "log2FoldChange", "Drug", 
-                             "Timepoint")])
-diffexp$log2FoldChange <- as.numeric(diffexp$log2FoldChange)
-diffexp <- diffexp[diffexp$Drug != "Irinotecan",] # since irinotecan isn't metabolically active
 
-# get gene sets: Hallmark (H)
-gmt.Hallmark <- as.data.frame(msigdbr::msigdbr(collection = "H"))
-gmt.Hallmark <- DMEA::as_gmt(gmt.Hallmark, element.names="gene_symbol", set.names="gs_name") # 196 gene sets
-saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
-```
-
-## run GSEA
-```{r GSEA, echo = FALSE, warning = FALSE, message=FALSE}
-# GSEA NES > 0: pathways up-regulated in treated vs. untreated samples
-synapse_id <- "syn65916546"
-timepoints <- na.omit(unique(diffexp$Timepoint))
-base.path <- getwd()
-gsea.path <- file.path(base.path, "GSEA_Hallmark")
-dir.create("GSEA_Hallmark")
-
-gsea <- list()
-for (i in timepoints) {
-  # filter for time
-  time.deg <- diffexp[diffexp$Timepoint == i,]
-  
-  # prep inputs for each drug
-  drug.diffexp <- list()
-  hall.gmts <- list()
-  all.drugs <- na.omit(unique(time.deg$Drug))
-  for (j in all.drugs) {
-    temp.deg <- na.omit(dplyr::distinct(
-      time.deg[time.deg$Drug == j,c("hgnc_symbol","log2FoldChange")]))
-    colnames(temp.deg) <- c("Gene", "Log2FC")
-    if (any(duplicated(temp.deg$Gene))) {
-      temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
-                              Log2FC = mean(Log2FC))
-    }
-    drug.diffexp[[j]] <- temp.deg
-    hall.gmts[[j]] <- gmt.Hallmark
-  }
-  
-  # also run analysis for each drug
-  hallResults <- panSEA::mGSEA(drug.diffexp, gmt=hall.gmts,
-                               types = names(drug.diffexp))
-  temp.gsea.df <- hallResults$compiled.results$result
-  temp.gsea.df$Collection <- "Hallmark"
-  colnames(temp.gsea.df)[1] <- "DrugTreatment"
-  gsea[[as.character(i)]] <- temp.gsea.df
-}
-setwd(gsea.path)
-gsea.df <- data.table::rbindlist(gsea, use.names=TRUE, idcol="Time")
-write.csv(gsea.df,"GSEA_results_Hallmark.csv", row.names = FALSE)
-synapser::synStore(synapser::File("GSEA_results_Hallmark.csv", parent=synapse_id))
-```
 
 ### plot number of enriched pathways
+
 ```{r plot # of results, echo = FALSE}
 # prep data
-drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
-                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
-                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
-                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
-                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
-                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
-                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+synapser::synLogin()
+
+
 base.path <- getwd()
 gsea.path <- file.path(base.path, "GSEA_Hallmark")
 setwd(gsea.path)
@@ -168,7 +99,7 @@ dot.plot <- ggplot2::ggplot(
   theme_minimal(base_size=12) +
   ggplot2::labs(color = "NES", size = "-log(FDR)") + 
   theme(axis.title=element_blank(), 
-        axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1,color=classCol[all.drugs])) +
   geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
   facet_grid(.~Time)
 dot.plot
@@ -176,12 +107,6 @@ dot.plot
 ggplot2::ggsave("enrichedPathways_dotPlot.pdf", dot.plot, width=10, height=8) 
 ```
 
-### plot correlation of pathways across time points
-
-we want to know if specific pathways are anti
-```{r which pathways are correlated}
-
-```
 
 ### plot top enriched pathways
 ```{r plot top results, echo = FALSE}
@@ -235,7 +160,7 @@ for (n.top in n.top.list) {
                           limits=c(-maxAbsNES, maxAbsNES)) +
     theme_minimal(base_size=12) +
     ggplot2::labs(color = "NES", size = "-log(FDR)") + 
-    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1,color=classCol[all.drugs]),
           axis.title = element_blank()) +
     geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
     facet_grid(.~Time)
@@ -247,7 +172,9 @@ for (n.top in n.top.list) {
 ```
 
 ### plot top enriched pathways for each drug MOA
-```{r plot top results per MOA, echo = FALSE}
+
+We dont need this anymore.
+```{r plot top results per MOA, echo = FALSE, eval=FALSE}
 library(plyr);library(dplyr);library(ggplot2)
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
 setwd(gsea.path)
@@ -383,6 +310,7 @@ if (length(sigList) > 1) {
 ```
 
 ### correlations
+
 ```{r correlations, echo=FALSE}
 library(RColorBrewer);library(pheatmap)
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
@@ -401,29 +329,22 @@ write.csv(genecor,"sigGSEACorr.csv")
 
 annot <- as.data.frame(rownames(genecor)) |> 
   tidyr::separate('rownames(genecor)',into=c('Timepoint','Drug'),sep='_')
-drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
-                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
-                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
-                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
-                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
-                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
-                  "Irinotecan" = "TOP inhibitor")
+
 drug.info.df <- as.data.frame(t(as.data.frame(drug.info)))
 drug.info.df$Drug <- rownames(drug.info.df)
 colnames(drug.info.df)[1] <- "MOA"
-annot <- merge(annot, drug.info.df, by="Drug", all.x=TRUE)
+annot <- merge(annot, drug.df, by="Drug", all.x=TRUE)
 rownames(annot) <- paste0(annot$Timepoint, "_", annot$Drug)
-annot <- annot[rownames(genecor),c('Timepoint','Drug','MOA')]
+annot <- annot[rownames(genecor),c('Timepoint','Drug','MOA','Class')]
 annot$Timepoint <- factor(annot$Timepoint, levels=c("8h","24h"))
 annot$MOA <- factor(annot$MOA, levels=unique(annot$MOA))
 annot$Drug <- factor(annot$Drug, levels=unique(annot$Drug))
-cols=c(brewer.pal(8,'Dark2'),brewer.pal(15-8,'Set2'))
-names(cols) <- names(drug.info)
-cols <- cols[levels(annot$Drug)]
-moa.cols <- RColorBrewer::brewer.pal(length(unique(annot$MOA)),"Set3")
-names(moa.cols) <- levels(annot$MOA)
-annot.colors = list(MOA = moa.cols,
+#annot$Class <- factor(drug.class)
+names(classCol)<-unlist(drug.class)
+names(moaCol)<-unlist(drug.info)
+
+annot.colors = list(Class = classCol,
+                    MOA = moaCol,
                     Drug = cols,
                     Timepoint = c("8h" = "#FFFFFF", "24h" = "#000000"))
 
@@ -444,12 +365,12 @@ genecor<-cor(genemat,use='pairwise.complete.obs')
 write.csv(genecor,"GSEACorr.csv")
 graphics.off()
 pdf("GSEACorr.pdf",width=6,height=4.5)
-pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
-         show_colnames=FALSE, show_rownames=FALSE)
+pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors)#,
+#         show_colnames=FALSE, show_rownames=FALSE)
 dev.off()
 ```
 
-```{r shared results MEK and HDAC, echo=FALSE}
+```{r shared results MEK and HDAC, echo=FALSE, eval=FALSE}
 library(ggplot2); library(synapser)
 synapser::synLogin()
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
@@ -506,7 +427,7 @@ ggplot2::ggsave("MEK_HDAC_Pathways_dotPlot_MPNST.pdf",
                 height=ifelse(length(mek.hdac.sig)<2,2,length(mek.hdac.sig)/2)) 
 ```
 
-```{r shared results mirda and vorin, echo=FALSE}
+```{r shared results mirda and vorin, echo=FALSE, eval=FALSE}
 library(ggplot2); library(synapser)
 synapser::synLogin()
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
@@ -663,23 +584,14 @@ write.csv(edges3, "mirdaVen_diffexpLeads_sigInBoth_target_edges.csv", row.names=
 ```
 
 ``` {r shared / unique results, echo=FALSE}
-library(ggplot2); library(synapser); library(plyr);library(dplyr)
-synapser::synLogin()
+
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
 setwd(gsea.path)
 gsea.df <- read.csv("GSEA_results_Hallmark.csv")
 gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)
 print(length(unique(na.omit(gsea.df[gsea.df$sig,]$Gene_set))))
 
-# add MOAs
-drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor",
-                  "Trabectedin" = "Chemotherapy", "Ifosfamide" = "DNA alkylating agent",
-                  "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
-                  "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
-                  "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
-                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
-                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
-                  "Verteporfin" = "YAP inhibitor")
+
 red.drug.info <- drug.info[names(drug.info) %in% gsea.df$DrugTreatment]
 gsea.df$moa <- NA
 for (i in names(red.drug.info)) {

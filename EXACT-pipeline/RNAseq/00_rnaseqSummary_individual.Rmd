@@ -53,7 +53,7 @@ source('downloadCorrectRNASeq.R')
 We can now call our RNASeq helper function defined above to get data and visualize overall. Currently this pulls all data with a `quants.genes.sf` file but can be adjusted. 
 
 
-```{r data, echo=FALSE,warning=FALSE,message=FALSE}
+```{r collect data, echo=FALSE,warning=FALSE,message=FALSE}
 
   rnaseqdata <- rnaSeqTab()
   rnaseqgenes <- addGeneNames(rnaseqdata)
@@ -67,7 +67,7 @@ Open questions:
 - are there any outliers to remove?
 - are there any sample swaps here?
 
-```{r plots and normaliztion}
+```{r clean up data}
 library(ggplot2)
 zeroes<-rnaseqdata|>
   subset(NumReads<3)|>
@@ -99,8 +99,8 @@ numReads<-reduced.data|>
 ### Batch correction
 
 Clearly there is a batch effect so it will be good to correct for this to enable facile comparisons across datasets. 
-
-TODO: put the SVA code here and upload a corrected file to synapse
+This will upload two files to synapse: one with the full batch corrected data,
+another with the values collapse by gene name
 
 ```{r batch correct, echo=TRUE, warning=FALSE, message=FALSE}
 #library(sva)
@@ -108,9 +108,9 @@ TODO: put the SVA code here and upload a corrected file to synapse
 
 
 counts<-reduced.data|>
-  dplyr::select(Name,id,NumReads)|>
+  dplyr::select(Name,id,NumReads) |>
   tidyr::pivot_wider(names_from=id,values_from=NumReads)|>
-  tibble::column_to_rownames('Name')|>
+  tibble::column_to_rownames('Name') |>
   as.matrix()
 
 sampmeta <- reduced.data |>
@@ -147,10 +147,12 @@ vtab<-assay(vsd)|>as.data.frame()|>
   tidyr:::pivot_longer(starts_with('syn'),names_to='id',values_to='VSD_batchCorrected')
 
 rnaseqdata2<-rnaseqdata|>
-  left_join(vtab)
+  left_join(vtab)|>
+  tidyr::separate(Name, into=c('ensembl_gene_id','ver'),sep='\\.')
 
 
-rnaseqgenes<-rnaseqdata2|>left_join(map)|>
+rnaseqgenes<-rnaseqdata2|>
+  left_join(map)|>
   subset(hgnc_symbol!="")|>
   dplyr::group_by(hgnc_symbol,Date,id,Drug,Timepoint)|>
   summarize(TPM=sum(TPM),NumReads=sum(NumReads),VSD_batchCorrected=sum(VSD_batchCorrected))
@@ -165,13 +167,12 @@ synFile <- synapser::File('rnaseqcounts_hgnc.csv', parent = 'syn64004220')
 synapser::synStore(synFile)
 
 ```
+
 ### Differential expression
 
-Let's compute the differential expression of each drug/time point compared with DMSO. This analysis is at the core of what we're doing - trying to determine what changes are happening at each time point. 
-
-- Which drugs are causing the greatest changes?
-- Which time points are causing the greatest changes?
-- TBD: how do these changes vary across samples?
+Let's compute the differential expression of each drug/time point compared with DMSO. 
+This analysis is at the core of what we're doing - trying to determine what 
+changes are happening at each time point. 
 
 ```{r diffex, echo=FALSE,warning=FALSE,message=FALSE}
 library("DESeq2")
@@ -225,18 +226,9 @@ diffex<-diffexCalls|>
   mutate(signif=padj<0.05)|>
   mutate(direction=ifelse(log2FoldChange>0,'up','down'))
 
-
 dgenes<-diffex|>
   tidyr::separate(Gene,sep="\\.",into=c('ensembl_gene_id','Version'))
 
- if (file.exists('map.csv')) {
-    map <- read.csv('map.csv')
-  } else {
-    library(biomaRt)
-    ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-    map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
-    write.csv(map, 'map.csv', row.names = FALSE)
-  }
 
 diffex_gene<-dgenes|>left_join(map)
 ##let's save this back to synapse for future reference
@@ -257,7 +249,7 @@ ggplot(sumstats,aes(x=Drug,y=numgenes,fill=direction))+facet_grid(individualID~T
 ggplot(sumstats,aes(x=Drug,y=Timepoint,size=numgenes,col=Drug))+geom_point()+facet_grid(individualID~direction)+
   scale_size(range=c(1,15))+scale_color_discrete()+coord_flip()
 
- ggsave('diffExresults.pdf')
+# ggsave('diffExresults.pdf')
  
  ###lets look at correlation across drugs
  dmat<-diffex|>dplyr::select(Gene,log2FoldChange,Drug,Timepoint)|>

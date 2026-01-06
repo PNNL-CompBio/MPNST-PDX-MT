@@ -47,10 +47,23 @@ time and drugs.
 
 ## Figure 3B: Gene set enrichment analysis (GSEA) across samples
 
-Figure 3B, Table S3: 03_GSEA.Rmd
+Figure 3B, Table S3: 03_GSEA_Hallmark.Rmd
 - Pulls: differential expression for time and drug pairs (syn64397743)
 - Uploads: enrichment of MSigDB hallmark gene sets for 
 time and drug pairs (syn68702141)
+
+## Figure 3C Transcription factor activity
+01_tfEnrichment.Rmd
+- Pulls: counts crosstabs (syn64398049 and syn64398051); 
+differential expression for time and drug pairs (syn64397743)
+- Uploads: transcription factor activity for time and drug pairs (syn69911032)
+
+
+## NOT RUN: 
+01_tfEnrichment_individual.Rmd
+- Pulls: counts crosstabs (syn64398049 and syn64398051); 
+differential expression for MPNST, time, and drug pairs (syn69910880)
+- Uploads: transcription factor activity for MPNST, time, and drug pairs (syn64420968)
 
 ## Figure 4A: Gene set correlation across all samples 
 Table S3: 03_GSEA_individual.Rmd
@@ -59,17 +72,12 @@ Table S3: 03_GSEA_individual.Rmd
 - Uploads: enrichment of MSigDB hallmark gene sets for 
 MPNST, time, and drug pairs (syn69910859)
 
-## Transcription factor activity
-01_tfEnrichment.Rmd
-- Pulls: counts crosstabs (syn64398049 and syn64398051); 
-differential expression for time and drug pairs (syn64397743)
-- Uploads: transcription factor activity for time and drug pairs (syn69911032)
+## Figure 4B:
+hand drawn network of targets and TFs
 
-01_tfEnrichment_individual.Rmd
-- Pulls: counts crosstabs (syn64398049 and syn64398051); 
-differential expression for MPNST, time, and drug pairs (syn69910880)
-- Uploads: transcription factor activity for MPNST, time, and drug pairs (syn64420968)
+## Figure 4C: predicted target expression across three combinations
 
+## Figure 4D DMEA prediction
 
 ## Drug mechanism enrichment analysis (DMEA)
 Figure 4C, Table S4: 04_DMEA.Rmd

@@ -1,5 +1,16 @@
 ##functions to analyze RNASeq data
 
+
+if (file.exists('map.csv')) {
+  map <- read.csv('map.csv')
+} else {
+  library(biomaRt)
+  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+  map<-getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters ='ensembl_gene_id', values =unique(rnaseqdata$ensembl_gene_id), mart = ensembl)
+  write.csv(map, 'map.csv', row.names = FALSE)
+}
+
+
 rnaSeqTab<-getRNASeq<-function(){
   ##metadata query first queries file view for all files - in this case i do counts.sf files, but you can also query by data type
   ##Yang needs to update this!!
@@ -63,7 +74,7 @@ rnaSeqTab<-getRNASeq<-function(){
       dplyr::mutate(id=x)
   }))|>left_join(allmeta)
   mtab$Drug <- sub(" ","",mtab$Drug)
-  mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(ifelse(x%in%names(drugnames),drugnames[[x]],x))))
+#  mtab$Drug<-unlist(sapply(mtab$Drug,function(x) return(ifelse(x%in%names(drugnames),drugnames[[x]],x))))
 
   return(mtab)
 }
