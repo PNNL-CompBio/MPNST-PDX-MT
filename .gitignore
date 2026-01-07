@@ -75,3 +75,6 @@ RNAseq/synapse_based_code/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_
 *.log
 *.cys
 /exp_1
+
+# Exception for requirements
+!*requirements.txt
