@@ -173,7 +173,7 @@ allcontrast$padj<-p.adjust(allcontrast$p_value)
 allcontrast<-allcontrast|>mutate(signif=(padj<0.01))
 subset(allcontrast,padj<0.01)|>
   ggplot(aes(x=source,y=score,size=signif,col=Drug,shape=as.factor(Timepoint)))+
-  geom_point()+coord_flip()+facet_grid(.~Timepoint)+scale_color_manual(values=cols)
+  geom_point()+coord_flip()+facet_grid(.~Timepoint)+scale_color_manual(values=drugCol)
 
 readr::write_csv(allcontrast,file='tfEstimatesEnsGenesByTime.csv')
 sf <-synapser::File('tfEstimatesEnsGenesByTime.csv',parentId='syn64693461')
@@ -199,13 +199,14 @@ corval<-mat|>tibble::column_to_rownames('source')|>cor(use='pairwise.complete.ob
 
 cortab<-corval|>
   as.data.frame()|>
- tibble::rownames_to_column('drug_exp1')|>tidyr::pivot_longer(contains('h'),names_to='drug_exp2',values_to='cor')|>
+ tibble::rownames_to_column('drug_exp1')|>
+  tidyr::pivot_longer(contains('h'),names_to='drug_exp2',values_to='cor')|>
   arrange(cor)
 
 print(cortab)
-
+tcolors=list(`8h`='lightgrey',`24h`='darkgrey')
 #md$Date=as.factor(md$Date)
-pheatmap(corval,annotation_row = md,annotation_col=md,annotation_colors=list(Drug=cols,Timepoint=tcolors))
+pheatmap(corval,annotation_row = md)#,annotation_col=md,annotation_colors=list(Drug=drugCol,Timepoint=tcolors))
 
 pcs<-mat|>tibble::column_to_rownames('source')|>as.matrix()|>prcomp()
 

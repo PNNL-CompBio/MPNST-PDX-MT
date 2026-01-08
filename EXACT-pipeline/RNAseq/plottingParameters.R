@@ -18,10 +18,10 @@ drug.info <- list(DMSO = "DMSO", "Palbociclib" = "CDK inhibitor", "Ribociclib" =
 #                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
 
 
-moaCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drug.class)),"Paired"))(length(unique(drug.class))) # need color ramp for >12 colors
-names(moaCol) <- unique(drug.class)
-moaCol <-  moaCol[unlist(drug.class)] ##spread it out
-names(moaCol) <- names(drug.class)
+moaCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drug.info)),"Paired"))(length(unique(drug.info))) # need color ramp for >12 colors
+names(moaCol) <- unique(drug.info)
+moaCol <-  moaCol[unlist(drug.info)] ##spread it out
+names(moaCol) <- names(drug.info)
 
 
 drug.class <- list(Trametinib = "MEK1/2i", Mirdametinib="MEK1/2i",

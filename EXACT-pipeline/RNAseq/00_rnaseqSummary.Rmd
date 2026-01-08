@@ -132,7 +132,11 @@ diffex_gene<-dgenes|>left_join(map)
 readr::write_csv(diffex_gene,file='totalRNASeqDiffExtoDate.csv')
 synFile <- synapser::File('totalRNASeqDiffExtoDate.csv', parent = 'syn64004220')
 synapser::synStore(synFile)
+```
 
+## Do some plots
+
+```{r plot pooled differential expression}
 
 sumstats<-diffex|>subset(signif)|>
   group_by(Drug,Timepoint,direction)|>
@@ -179,7 +183,8 @@ sumstats$Drug=factor(sumstats$Drug,levels=levs$Drug)
    tidyr::unite(Drug,Timepoint,col='sample',sep='_',remove=FALSE)|>
    tibble::column_to_rownames('sample')
 
-drugscounts<-subset(dgenes,signif)|>group_by(ensembl_gene_id,Timepoint,direction)|>summarize(ndrugs=n())|>arrange(desc(ndrugs))|>
+drugscounts<-subset(dgenes,signif)|>group_by(ensembl_gene_id,Timepoint,direction)|>
+  summarize(ndrugs=n())|>arrange(desc(ndrugs))|>
   left_join(map)|>
   subset(hgnc_symbol!='')
 
@@ -187,5 +192,5 @@ drugscounts<-subset(dgenes,signif)|>group_by(ensembl_gene_id,Timepoint,direction
 ggplot(drugscounts,aes(x=ndrugs,fill=direction))+geom_bar(position='dodge')+ggtitle('Number of drugs with shared differentially expressed genes')
 
 ```
-Most genes are only differentially expressed upon a single drug treatment, but some are shared with other drugs. Targeting these canonical responders might be effective, but what if we can find distinct genes changing?
+
 

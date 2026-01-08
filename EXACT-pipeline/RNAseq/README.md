@@ -1,8 +1,16 @@
 # RNASeq EXACT analysis
 
-We use the RNA-sequencing data to identify drugs that target similar pathways.
+We use the RNA-sequencing data to identify drugs that target similar pathways. Given the 
+dependencies across the analyses we recommend running them in order. 
 
-## Assemble batches
+
+
+## Differential expression
+
+For each drug and sample, we calculate the difference between treated and 
+DMSO samples. 
+
+### Assemble batches
 
 First we assemble the batches, download into a single file, and handle renaming
 and batch correction.
@@ -11,11 +19,6 @@ and batch correction.
 2. batch2: Other drugs on MN2
 3. batch3: Other drugs on JH-2-002
 4. batch4: WU-225
-
-## Differential expression
-
-For each drug and sample, we calculate the difference between treated and 
-DMSO samples. 
 
 All data is downloaded via `downloadCorrectRNASeq.R` and processed through
 two separate pipelines:
@@ -38,25 +41,35 @@ This produces another table S2: 00_rnaseqSummary.Rmd
 - Uploads:differential expression for time and drug pairs (syn64397743)
 
 
-## Figure 3A: Comparison of differential expression across drugs
+### Figure 3A: Comparison of differential expression across drugs
 This file counts how many genes are differentially expressed across
 time and drugs.
 
 02_compareRNASeqAnalyses.Rmd
 - Pulls: differential expression for time and drug pairs (syn64397743)
 
-## Figure 3B: Gene set enrichment analysis (GSEA) across samples
+## TF Target analysis
+We then compute the TF active using decoupler
+
+### Figure 3B Transcription factor activity
+01_tfEnrichment.Rmd
+- Pulls: counts crosstabs (syn64398049 and syn64398051); 
+differential expression for time and drug pairs (syn64397743)
+- Uploads: transcription factor activity for time and drug pairs (syn69911032)
+
+
+
+## Gene set enrichment analysis
+
+We run the GSEA analysis using cancer hallmarks across both individual and 
+pooled samples using the `03a_runGSEA.R` script. This will store
+the results in individual directories for ploting. 
+### Figure 3C: Gene set enrichment analysis (GSEA) across samples
 
 Figure 3B, Table S3: 03_GSEA_Hallmark.Rmd
 - Pulls: differential expression for time and drug pairs (syn64397743)
 - Uploads: enrichment of MSigDB hallmark gene sets for 
 time and drug pairs (syn68702141)
-
-## Figure 3C Transcription factor activity
-01_tfEnrichment.Rmd
-- Pulls: counts crosstabs (syn64398049 and syn64398051); 
-differential expression for time and drug pairs (syn64397743)
-- Uploads: transcription factor activity for time and drug pairs (syn69911032)
 
 
 ## NOT RUN: 
