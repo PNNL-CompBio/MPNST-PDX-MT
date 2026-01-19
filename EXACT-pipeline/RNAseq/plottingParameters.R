@@ -14,8 +14,8 @@ drug.info <- list(DMSO = "DMSO", "Palbociclib" = "CDK inhibitor", "Ribociclib" =
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
                   "Olaparib" = "PARP inhibitor", "RMC-4630" = "SHP2 inhibitor",
-                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor")#,
-#                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor")
+                  "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor", "IAG933" = "YAP inhibitor")
 
 
 moaCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drug.info)),"Paired"))(length(unique(drug.info))) # need color ramp for >12 colors
@@ -28,8 +28,10 @@ drug.class <- list(Trametinib = "MEK1/2i", Mirdametinib="MEK1/2i",
                    Selumetinib = "MEK1/2i", TNO155="SHP2i", `RMC-4630`="SHP2i",
                    Palbociclib= "CDK4/6i",Ribociclib= "CDK4/6i",Decitabine= "DNMTi",
                    Olaparib= "PARPi",Vorinostat= "HDACi",Capmatinib= "c-Meti",
-                   #Verteporfin	= "TEADi",IAG933= "TEADi",Pexidartinib= "CSFRi",
-                   Doxorubicin= "chemotherapy",Ifosfamide= "chemotherapy",`SN-38`	= "chemotherapy",
+                   #Verteporfin	= "TEADi",IAG933= "TEADi",
+                   #Pexidartinib= "CSFRi",
+                   Doxorubicin= "TOP2i",Ifosfamide= "DNA alkylating",
+                   #`SN-38`	= "TOP1i",
                    Trabectedin	= "chemotherapy")
 
 

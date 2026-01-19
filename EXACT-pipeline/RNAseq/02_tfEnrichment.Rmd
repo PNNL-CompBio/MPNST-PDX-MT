@@ -279,7 +279,7 @@ ggplot2::ggsave("N_enrichedTFs_overall.pdf", ntf.plot.overall, width=5.5, height
 ### plot all enriched TFs
 ```{r plot all results, echo = FALSE}
 
-moaCol <- moaCol[intersect(names(moaCol),allcontrast$Drug)]
+moaCol <- classCol[intersect(names(classCol),allcontrast$Drug)]
 tf.path <- file.path(getwd(),"TF")
 setwd(tf.path)
 topSets <- unique(allcontrast[allcontrast$signif,]$source)
@@ -345,23 +345,23 @@ Now we have a visualization of the transcriptional mechanisms behind these plots
 ### plot top enriched pathways
 dont need this analysis
 
-```{r plot top results, echo = FALSE, eval=FALSE}
+```{r plot top results, echo = FALSE}
 library(plyr);library(dplyr);library(ggplot2);library(poolr)
 tf.path <- file.path(getwd(),"TF")
 setwd(tf.path)
 
-#moa.info2 <- dplyr::distinct(ntfs[,c("Drug","moa")])
-moa.info2 <- as.data.frame(t(as.data.frame(drug.info[names(drug.info) %in% unique(allcontrast$Drug)])))
-colnames(moa.info2) <- "moa"
-moa.info2$Drug <- rownames(moa.info2)
-moaPal <- scales::hue_pal()(length(unique(moa.info2$moa)))
-names(moaPal) <- unique(moa.info2$moa)
-# create tile plot for drug pathway annotations
-  moa.plot <- ggplot2::ggplot(moa.info2, aes(x=Drug,y=1, fill=moa)) + 
-  geom_tile() + scale_x_discrete(limits=all.drugs) + theme_classic(base_size=12) +
-  theme(axis.ticks=element_blank(), axis.text = element_blank(), axis.title=element_blank(),
-        axis.line=element_blank()) + labs(fill="Drug Mechanism") + scale_color_manual(values=moaPal, breaks=names(moaPal))
-ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
+# #moa.info2 <- dplyr::distinct(ntfs[,c("Drug","moa")])
+# moa.info2 <- as.data.frame(t(as.data.frame(drug.info[names(drug.info) %in% unique(allcontrast$Drug)])))
+# colnames(moa.info2) <- "moa"
+# moa.info2$Drug <- rownames(moa.info2)
+# moaPal <- scales::hue_pal()(length(unique(moa.info2$moa)))
+# names(moaPal) <- unique(moa.info2$moa)
+# # create tile plot for drug pathway annotations
+#   moa.plot <- ggplot2::ggplot(moa.info2, aes(x=Drug,y=1, fill=moa)) + 
+#   geom_tile() + scale_x_discrete(limits=all.drugs) + theme_classic(base_size=12) +
+#   theme(axis.ticks=element_blank(), axis.text = element_blank(), axis.title=element_blank(),
+#         axis.line=element_blank()) + labs(fill="Drug Mechanism") + scale_color_manual(values=moaPal, breaks=names(moaPal))
+# ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
 
 n.top.list <- c(1, 2, 3, 5)
 tested.drugs <- all.drugs[all.drugs %in% allcontrast$Drug]
@@ -375,12 +375,14 @@ for (n.top in n.top.list) {
   }
   length(unique(topSigpathway$source)) # 20
   dot.df <- allcontrast[allcontrast$source %in% unique(topSigpathway$source),]
-  
+  com <-grep('_',dot.df$source)
+  if(length(com)>0)
+    dot.df <- dot.df[-com,]
+
   mean.results <- plyr::ddply(dot.df, .(source), summarize,
                               score = mean(score, na.rm=TRUE))
   setOrder <- mean.results[order(mean.results$score),]$source
-  drugOrder <- unlist(drug.info)
-  
+  drugOrder <- intersect(names(classCol), dot.df$Drug)
   dot.df$Timepoint <- factor(dot.df$Timepoint, levels=timepoints)
   dot.df$minusLogFDR <- -log10(dot.df$padj)
   maxAbsscore <- ceiling(max(abs(dot.df$score)))
@@ -393,13 +395,14 @@ for (n.top in n.top.list) {
   ) +
     ggplot2::geom_point() +
     ggplot2::scale_y_discrete(limits = setOrder) +
-    ggplot2::scale_x_discrete(limits=tested.drugs) +
+    ggplot2::scale_x_discrete(limits=drugOrder) +
     scale_color_gradient2(low="blue",high="red", mid="grey", 
                           limits=c(-maxAbsscore, maxAbsscore)) +
     #viridis::scale_color_viridis() +
     theme_minimal(base_size=12) +
     ggplot2::labs(color = "Score", size = "-log(FDR)") + 
-    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1),
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1,
+                                   color=classCol[drugOrder]),
           axis.title = element_blank()) +
     geom_point(data = subset(dot.df, signif), col = "black", stroke = 1.5, shape = 21) +
     facet_grid(.~Timepoint)

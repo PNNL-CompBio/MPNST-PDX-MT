@@ -296,6 +296,7 @@ drugOrder <- rownames(drug.df)
 #  ylab("# of Differentially\nExpressed Genes")
 #ggsave("nSigDEGs.pdf", Nbar, width=10, height=2)
 
+drugOrder = names(drug.class)
 Ndegs <- plyr::ddply(na.omit(diffex_genes[diffex_genes$signif,]), .(Timepoint, Drug),summarize,
                      n=length(unique(hgnc_symbol)))
 Ndegs$Timepoint <- factor(Ndegs$Timepoint, levels=c("8h","24h"))
