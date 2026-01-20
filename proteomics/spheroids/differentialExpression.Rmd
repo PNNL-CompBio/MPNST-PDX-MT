@@ -1,0 +1,234 @@
+---
+title: "Spheroid Proteomics Differential Expression Analysis"
+author:
+  - name: "Yannick Mahlich"
+    affiliation: "Pacific Northwest National Laboratory"
+date: "`r Sys.Date()`"
+output:
+  html_notebook:
+    toc: true
+---
+
+## Library & Data import
+
+The notebook itself relies on a number of R libraries to import and analyze the
+proteomics data. Library imports are not shown here, but include packages like:
+
+- synapser
+- readxl
+- limma
+
+```{r imports, echo=FALSE, results='hide'}
+library(synapser)
+library(readxl)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(matrixStats)
+```
+
+Next the import the proteomics for the global proteomics abundance from spheroids.
+The data file is located on synapse and is stored as Excel sheet.
+
+```{r import-proteomics-data, results='hide'}
+synapseFileID = "syn72245489"
+
+tmp <- synapser::synLogin(silent = TRUE)
+fileEntity <- synapser::synGet(synapseFileID)
+proteomicsData <- read_xlsx(fileEntity$path, sheet = 1)
+tmp <- synapser::synLogout()
+```
+
+Finally we retrieve the metadata for the experiments from synapse.
+The experimental setup pools proteins from several wells into one MS/MS run to
+attain better proteomics coverage.
+The information which wells were pooled together is contained in the metadata
+table, specifically it contains the description of which chemical agent was used
+on the spheroids in the drug response experiment and at which timepoint the
+sample was extracted.
+Sheet 2 of the Excel document retrieved from synapes contains the mapping that
+describes which DIA run is associated to which drug and sampling time point.
+
+```{r import-meta-data, results='hide'}
+synapseFileID = "syn72245597"
+
+tmp <- synapser::synLogin(silent = TRUE)
+fileEntity <- synapser::synGet(synapseFileID)
+proteomicsMeta <- read_xlsx(fileEntity$path, sheet = 2)
+tmp <- synapser::synLogout()
+```
+
+## Data preparation
+
+Before running the actual differential expression analysis we need to first
+clean the data. This consits of several steps:
+
+- Matching DIA run identifiers to chemical agent & sample time descriptor
+- Missingness removal (i.e. exclude genes from consideration that weren't
+  detected in a certain fraction of MS/MS runs)
+- remove additional identifier columns (move into separate DataFrame)
+- log2 transform the abundance / intensity data
+- impute missing values (media center based on other readouts for the protein)
+
+### Column renaming and general cleanup
+
+Steps of the data cleanup process are:
+
+- creating a "look up vector" for the renaming 
+- renaming the columns with skipping of columns not in the look up vector via
+  `any_of()`
+- move additional identifier columns into seperate DF, and keep one we can use
+  for a potential later enrichment analysis
+```{r data-cleanup}
+# creating a "look up vector" based on the metadata table
+colNameVec <- setNames(proteomicsMeta$sample, proteomicsMeta$condition)
+
+# using the look up vector to rename column
+proteomicsDataClean <- proteomicsData %>% 
+  dplyr::rename(dplyr::any_of(colNameVec))
+
+# moving "unnecessary columns" into seperate DataFrame
+
+proteomicsMapping <- proteomicsDataClean[0:4]
+proteomicsDataClean <- proteomicsDataClean %>%
+  column_to_rownames(., var = "Protein.Names") %>%
+  within(., rm('Protein.Group', 'Genes', 'First.Protein.Description'))
+
+
+head(proteomicsDataClean)
+```
+### Missingness removal
+Next we perform a missingness removal i.e. we remove proteins from consideration
+that aren't detected in at least xx% of the MS/MS DIA readouts
+
+*This is currently a place holder. Needs confirmation!*
+
+```{r missingness-removal, eval=FALSE}
+proteomicsDataClean <- proteomicsDataClean[rowSums(is.na(proteomicsDataClean)) <= 3,]
+head(proteomicsDataClean)
+```
+
+### log2 transform data and impute missing data
+Following the removal of proteins with high missingness across the different
+experiments, we will convert all columns to numeric such that we can
+subsequently log2 transform each value.
+
+```{r log-transform}
+
+proteomicsDataClean <- proteomicsDataClean %>%
+  mutate(across(everything(), as.numeric)) %>% # turn everything numeric
+  log2(.) # log transform all cells
+
+head(proteomicsDataClean)
+```
+
+### Imputation of NAs - mean protein abundance
+The next step in the data preparation is to peform imputation for missing
+protein abundances i.e. proteins that were not detected by the DIA workflow.
+To this end we first calculate the mean protein abundance per protein across all
+experiments.
+Then we iterate over all columns and use the `coalesce()` function to set a any
+cell that is NA to the mean of the row calculated prior.
+Finally we remove the temporary column that had the mean values stored.
+
+```{r impute-mean, eval=FALSE}
+proteomicsDataClean <- proteomicsDataClean %>%
+  mutate(imputeVal = rowMeans(., na.rm = TRUE)) %>% # calculate mean abundance per protein 
+  mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>% # iterate over all columns and set N/As to mean
+  within(., rm('imputeVal')) # remove 'imputeVal' column
+
+head(proteomicsDataClean)
+```
+
+### Alternative imputation via minimum protein abundance
+Alternatively to the imputation above we can also calculate the minimum of the
+protein abundances across all DIA measurements.
+Note that this method is currently not used in the notebook.
+To use minimum based imputation set cell `eval=TRUE` (and add `eval=FALSE`
+above).
+```{r impute-minimum, eval=FALSE}
+proteomicsDataClean <- proteomicsDataClean %>%
+  rowwise %>%
+  mutate(imputeVal = min(c_across(), na.rm = TRUE)) %>% # calculate median abundance per protein 
+  mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>% # iterate over all columns and set N/As to median
+  within(., rm('imputeVal')) # remove 'imputeVal' column
+
+head(proteomicsDataClean)
+```
+
+### Imputation via minimum protein abundance of sample
+The last possible way to impute that we implement is to calculate the minimum
+protein abundance within a sample (e.g. one replicate of one experiment).
+For now this is the implementation of imputation that we will use.
+
+The implementation makes use of the `colMins` function from the `matrixStats`
+package to calculate a vector that records the minimal protein intensity values
+per column (sample). This vector/list is then used with `tidyr::replace_na()`
+to back fill all N/A values in a given column with the calculated column
+minimum.
+```{r impute-sample-minimum}
+sampleMins <- colMins(
+  as.matrix(proteomicsDataClean),
+  na.rm = TRUE
+  )
+
+proteomicsDataClean <- proteomicsDataClean %>%
+  replace_na(., as.list(sampleMins))
+
+head(proteomicsDataClean)
+```
+
+### Averaging protein abundances across replicates
+Since we want to do differential expression analysis and limma needs multiple 
+replicates per condition the averaging below won't be needed. For now we will
+keep the code, but not execute it.
+```{r dereplication, eval=FALSE}
+experiments <- gsub("_r[123]$", "", colnames(proteomicsDataClean)) %>% unique()
+for (experiment in experiments) {
+  proteomicsDataClean <- proteomicsDataClean %>%
+    rownames_to_column(., 'proteins') %>%
+    rowwise %>%
+    mutate(., "{experiment}" := mean(c_across(starts_with(experiment)))) %>%
+    select(., !starts_with(paste0(experiment, "_"))) %>%
+    column_to_rownames(., 'proteins')
+}
+head(proteomicsDataClean)
+```
+
+## Differential Expression analysis
+With all the data imported we can focus on the actual differential expression
+analysis.
+
+To that end we will first define some helper functions that will make use of the
+limma package to calculate said differential expression results.
+
+### Function definitions
+```{r limma-diffex}
+
+getDiffExprTable <- function(data, x, y) {
+  if (!is.data.frame(data)){
+    stop("Argument 'data' must be data.frame", call. = FALSE)
+  }
+  if (!is.vector(x)){
+    stop("Argument 'x' must be vector", call. = FALSE)
+  }
+  if (!is.vector(y)){
+    stop("Argument 'y' must be vector", call. = FALSE)
+  }
+  
+  fac <- factor(rep(c(2, 1), c(length(y), length(x))))
+  design <- stats::model.matrix(~fac)
+  fit <- limma::lmFit(data[, c(y, x)], design)
+  fit <- limma::eBayes(fit)
+  resultTable <- limma::topTable(fit, coef = 2, number = Inf)
+  return(resultTable)
+}
+```
+
+```{r diffExp}
+x <- c('24hr_DMSO_r1', '24hr_DMSO_r2', '24hr_DMSO_r3')
+y <- c('24hr_Mirda_r1', '24hr_Mirda_r2', '24hr_Mirda_r3')
+diffExpResults <- getDiffExprTable(proteomicsDataClean, x, y)
+diffExpResults
+```
