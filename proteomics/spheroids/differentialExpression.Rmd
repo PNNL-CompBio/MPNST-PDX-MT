@@ -1,10 +1,13 @@
 ---
 title: "Spheroid Proteomics Differential Expression Analysis"
 author:
-  - name: "Yannick Mahlich"
-    affiliation: "Pacific Northwest National Laboratory"
+- name: Yannick Mahlich
+  affiliation: Pacific Northwest National Laboratory
 date: "`r Sys.Date()`"
 output:
+  html_document:
+    toc: true
+    df_print: paged
   html_notebook:
     toc: true
 ---
@@ -427,13 +430,75 @@ plot
 ```{r load-geneset, results='hide'}
 # data("msigdb")
 data("ncipid")
+data("krbpaths")
 ```
 
+Now we can ask which pathways are over-represented in both 24h and 48h time points. 
 ```{r leapR-pathway-enrichment}
 
-leapR(geneset = ncipid, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
+late_res <- leapR(geneset = krbpaths, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
       primary_column = "adj.P.Val", threshold = 0.05,
       greaterthan = FALSE)
+plot_leapr_bar(late_res,'Top pathways at 48h')
+
+early_res <- leapR(geneset = krbpaths, eset = dmso_mirda_24h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
+      primary_column = "adj.P.Val", threshold = 0.05,
+      greaterthan = FALSE)
+
+plot_leapr_bar(early_res,'Top pathways at 24h')
+
+```
+
+This shows significant pathways being altered at 48h, suggesting a more informative time point. We
+can evaluate the expression of those proteins in that pathway as well to see how they
+are expressed across time points.
+
+```{r path heatmaps}
+
+#create a table of pathways and genes by ingroup name
+sig_lates <- subset(late_res, BH_pvalue < 0.05) |>
+  tibble::rownames_to_column('Pathway') |>
+  dplyr::select(Pathway,ingroupnames)
+
+##
+plots <- lapply(unique(sig_lates$Pathway), function(path){
+  genes <- stringr::str_split(subset(sig_lates, Pathway==path)[,'ingroupnames'],
+                              pattern=', ') |>
+    unlist()
+  
+  #get the data and metadata out of the expression object
+  mat <- assay(dmso_mirda_48h)[rowData(dmso_mirda_48h)$Genes %in% genes,]
+  rownames(mat) <-  intersect(rowData(dmso_mirda_48h)$Genes,genes)
+  annot <- colData(dmso_mirda_24h)[,c('timepoint','agent','replicate')] |>
+    as.data.frame()
+  ###create heatmap with metadata
+  pheatmap::pheatmap(log10(mat),annotation_col = annot, 
+                     cluster_cols = FALSE, 
+                     main=paste0(path,' proteins from 48h enrichment'),
+                     labels_col = rep("",ncol(mat)))
+  
+})
+
 ```
 
 
+Some of these look kind of unimpressive. Maybe we should plot logFCs instead?
+
+```{r leapR by Rank}
+
+late_rank <- leapR(geneset = krbpaths, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_order", assay_name = 'proteomics', id_column = "Genes",
+      primary_columns = "logFC") |>
+  suppressWarnings()
+
+plot_leapr_bar(late_rank,'Top pathways at 48h')
+
+early_rank <- leapR(geneset = krbpaths, eset = dmso_mirda_24h, enrichment_method = "enrichment_in_order", assay_name = 'proteomics', id_column = "Genes",
+      primary_columns = "logFC") |>
+  suppressWarnings()
+
+plot_leapr_bar(early_rank,'Top pathways at 24h')
+
+```
+
+At some point we should dive into why this is the case - not a lot of agreement between
+order-based and set-based enrichment. 
