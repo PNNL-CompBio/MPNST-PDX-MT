@@ -30,6 +30,7 @@ library(ggplot2)
 library(leapR)
 library(SummarizedExperiment)
 library(ggrepel)
+library(magrittr)
 ```
 
 Next the import the proteomics for the global proteomics abundance from spheroids.
@@ -289,16 +290,55 @@ experiment <- experiment %>%
 
 ## Differential Expression analysis
 
-### Number of significant differentally expressed proteins 
-
+### PCA
 With all the data imported we can focus on the actual differential expression
 analysis.
+First we will perform a PCA analysis of the underlying proteomics data to check
+if there is meaningful signal separation of the individual treatment agents,
+as well as timepoints.
 
-We will define a significantly differentially experesed protein as a protein that
+```{r}
+principal_components <- prcomp(t(assay(experiment))) %$%
+  cbind(x, colData(experiment))
+
+plot <- (
+  ggplot(
+    principal_components,
+    aes(
+      x = PC1,
+      y = PC2,
+      col = agent,
+      shape = timepoint,
+      )
+    )
+  + geom_point(size = 2)
+  + theme_minimal()
+  + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+  + labs(
+    title = "PCA of spheroid proteomics data",
+  )
+)
+
+plot
+```
+
+The PCA demonstrates that the proteomics data indeed separates nicely based on
+both agent as well as timepoint.
+
+### Number of significant differentally expressed proteins 
+Next we will perform the actual differential expression analysis.
+We will define a significantly differentially experessed protein as a protein that
 
 - has an adjusted p-Value < 0.05
 - has a logFC >= 1 or logFC < -1
 
+We will be investigating specifically the expression differential between DMSO
+and Mirdametenib treated samples both at the 24h as well as 48h time point.
+The codeblock below performs the differential expression analyses using the
+previously defined function `calc_diff_ex`.
+The we select the proteins that show a significant differential in their
+expression between the two groups and prepare a `data.frame` for plotting the
+results.
 ```{r differential-expression-dmso-mirda}
 dmso_mirda_24h <- calc_diff_ex(experiment, group_1 = "24hr_DMSO", group_2 = "24hr_Mirda")
 dmso_mirda_48h <- calc_diff_ex(experiment, group_1 = "48hr_DMSO", group_2 = "48hr_Mirda")
@@ -318,7 +358,9 @@ dfPlot2$timepoint = '48hr'
 dfPlot <- rbind(dfPlot, dfPlot2) %>% subset(., !is.na(expression_change))
 ```
 
-```{r}
+The code block below plots the number of significantly up and down regulated
+proteins.
+```{r plot-expression-differential}
 cpalette = c('up' = '#74add1', 'down' = '#f46d43')
 
 plot <- (
@@ -336,7 +378,10 @@ plot <- (
 )
 plot
 ```
+
 ## Volcano plots of differentially expressed porteins
+Next we generate volcano plots to investigate the significant proteins further.
+For each time point one volcano plot will be generated.
 
 ### DMSO vs Mirdametenib at 24h
 ```{r volcano-plot-24h}
