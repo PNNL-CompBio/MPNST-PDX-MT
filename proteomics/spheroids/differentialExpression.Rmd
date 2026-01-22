@@ -26,6 +26,9 @@ library(dplyr)
 library(limma)
 library(tidyr)
 library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
 ```
 
 Next the import the proteomics for the global proteomics abundance from spheroids.
@@ -59,6 +62,148 @@ proteomicsMeta <- read_xlsx(fileEntity$path, sheet = 2)
 tmp <- synapser::synLogout()
 ```
 
+## Defining helper functions
+Next we will be defining some helper functions. Since we will be storing all the
+experimental results in a `SummarizedExperiment` object, those functions will
+work with said object structure.
+
+Specifically we define the following functions:
+
+- `log_transform(...)` which will take a `SummarizedExperiment` object, retrieve
+  the defined assay and log transform all intensity values and return a
+  `SummarizedExperiment` object containing the log transformed values
+- `impute_proteomics(...)` which will take a `SummarizedExeperiment` and impute
+  any missing intensity values in the defined assay. The function will return an
+  updated `SummarizedExepriment` object.
+
+```{r}
+log_transform <- function(experiment,
+                          assay = "proteomics"){
+  
+  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
+    mutate(across(everything(), as.numeric)) %>% # turn everything numeric
+    log2(.) # log transform all cells
+  
+  SummarizedExperiment::assays(
+    experiment, 
+    withDimnames = FALSE)[[assay]] <- proteomics_data 
+  return(experiment)
+}
+
+impute_proteomics <- function(experiment,
+                              assay = 'proteomics',
+                              imputation_method = 'SampMin'){
+  
+  # retrieve assay from SummarizedExperiment and make sure that all values
+  # are numeric such that we can impute
+  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
+    mutate(across(everything(), as.numeric)) # turn every cell numeric
+  
+  if(imputation_method == "SampMin") {
+    
+    # first calculates the minimum protein intensity per sample (column) using
+    # `matrixStats::colMins()`
+    sample_mins <- matrixStats::colMins(
+      as.matrix(proteomics_data),
+      na.rm = TRUE
+      )
+    # then NAs in each sample (column) to the sample minimum (stored as list)
+    proteomics_data <- proteomics_data %>%
+      replace_na(., as.list(sample_mins))
+    
+  } else if (imputation_method == "means") {
+    
+    # calculates the mean abundance of a given feature (protein) across all
+    # samples (columns) via `base::rowMeans()` stores it temporarily into a new
+    # column `imputeVal` and then iterates over all columns (excluding the newly
+    # generated column) to set N/As to the imputation value using 
+    # `dplyr::coalesce`. Finally the temporary column is removed from the data.
+    proteomics_data <- proteomics_data %>%
+      mutate(imputeVal = rowMeans(., na.rm = TRUE)) %>%
+      mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>%
+      within(., rm('imputeVal'))
+    
+  } else if (imputation_method == "median") {
+    
+    # analogous to `imputation_method == "median"`. Uses `dplyr::rowwise` with
+    # `dplyr::c_across()` in the `median()` call to achieve the same thing,
+    # except calculating the medians of a given feature across all samples. 
+    proteomics_data <- proteomics_data %>%
+      rowwise %>%
+      mutate(imputeVal = median(c_across(), na.rm = TRUE)) %>%
+      mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>%
+      within(., rm('imputeVal'))
+    
+  } else {
+    stop()
+  }
+  
+  # finally we store the imputed data back into the `SummarizedExperiment`
+  # object and return it. 
+  SummarizedExperiment::assays(
+    experiment, 
+    withDimnames = FALSE)[[assay]] <- proteomics_data 
+  return(experiment)
+  
+} 
+
+calc_diff_ex <- function(experiment,
+                         group_1,
+                         group_2,
+                         assay = "proteomics"){
+  
+  
+  
+    # retrieving the samples (column ids) of the groups we want to use for the
+    # differential expression analysis
+    samples_1 <- which(
+      SummarizedExperiment::colData(experiment)[["group"]] == group_1
+      )
+    samples_2 <- which(
+      SummarizedExperiment::colData(experiment)[["group"]] == group_2
+      ) 
+    
+    # next we set up the design matrix for the fit function used by limma to
+    # determine the differentially expressed features. The design matrix uses
+    # a factor based on the samples
+    fac <- factor(rep(c(2, 1), c(length(samples_2), length(samples_1))))
+    design <- stats::model.matrix(~fac)
+
+    # next we extract the assay of interest from the `SummarizedExperiment`
+    # object and create the differential expression result table. Note that we
+    # switch the order of groups here for `limma`
+    dat <- SummarizedExperiment::assays(experiment)[[assay]]
+    
+    result_table <- dat[, c(samples_2, samples_1)] %>%
+      limma::lmFit(., design) %>%
+      limma::eBayes(.) %>%
+      limma::topTable(., coef = 2, number = Inf, sort.by = "none")
+  
+    # The assumption is that the input `SummarizedExperiment` had only one assay
+    # associated with it, hence we will just augment the object and return it
+    # containing the results from limma.
+  
+    # comparison_name <- paste(group_1, "_vs_", group_2, sep = "")
+    # colnames_res <- paste(paste(comparison_name, 
+    #                             colnames(result_table), "limma", sep = "."))
+    # 
+    # colnames(result_table) <- colnames_res
+    result_table <- result_table %>%
+      rownames_to_column(., var="Protein.Group") %>%
+      as.tibble(.)
+
+    # This makes sure that the differential expression results for each feature
+    # are properly aligned
+    SummarizedExperiment::rowData(experiment) <- left_join(
+      as.tibble(SummarizedExperiment::rowData(experiment)),
+      result_table,
+      by = 'Protein.Group'
+      )
+  
+    return(experiment)
+}
+```
+
 ## Data preparation
 
 Before running the actual differential expression analysis we need to first
@@ -81,154 +226,121 @@ Steps of the data cleanup process are:
 - move additional identifier columns into seperate DF, and keep one we can use
   for a potential later enrichment analysis
 ```{r data-cleanup}
-# creating a "look up vector" based on the metadata table
-colNameVec <- setNames(proteomicsMeta$sample, proteomicsMeta$condition)
 
-# using the look up vector to rename column
-proteomicsDataClean <- proteomicsData %>% 
-  dplyr::rename(dplyr::any_of(colNameVec))
+proteomicsMetaClean <- proteomicsMeta %>%
+  separate_wider_regex(
+    .,
+    col = "condition",
+    c("group" = ".*", "_", "replicate" = ".*"),
+    cols_remove = FALSE
+    ) %>% 
+  separate_wider_delim(
+    .,
+    col = "group",
+    delim = "_",
+    names = c("timepoint", "agent"),
+    too_few = "align_start",
+    cols_remove = FALSE
+    )
 
-# moving "unnecessary columns" into seperate DataFrame
+proteomicsDataClean <- proteomicsData %>%
+  column_to_rownames(., var = "Protein.Group") %>%
+  within(., rm("Protein.Names", "Genes", "First.Protein.Description"))
 
-proteomicsMapping <- proteomicsDataClean[0:4]
-proteomicsDataClean <- proteomicsDataClean %>%
-  column_to_rownames(., var = "Protein.Names") %>%
-  within(., rm('Protein.Group', 'Genes', 'First.Protein.Description'))
-
+proteomicsMapping <- proteomicsData[0:4] %>%
+  separate_wider_delim(
+    .,
+    col = "Genes",
+    names = c("Genes", NA),
+    delim = ";",
+    cols_remove=TRUE,
+    too_few = "align_start",
+    too_many = "drop"
+    )
 
 head(proteomicsDataClean)
 ```
-### Missingness removal
-Next we perform a missingness removal i.e. we remove proteins from consideration
-that aren't detected in at least xx% of the MS/MS DIA readouts
 
-*This is currently a place holder. Needs confirmation!*
-
-```{r missingness-removal, eval=FALSE}
-proteomicsDataClean <- proteomicsDataClean[rowSums(is.na(proteomicsDataClean)) <= 3,]
-head(proteomicsDataClean)
+### Creation of `SummarizedExperiment` object
+Finally we are generating a `SummarizedExperiment` object that contains all of
+the prepared information.
+```{r summarized-experiment}
+experiment <- SummarizedExperiment(
+  assays = list(proteomics = proteomicsDataClean),
+  rowData = proteomicsMapping,
+  colData = proteomicsMetaClean
+)
 ```
+
 
 ### log2 transform data and impute missing data
-Following the removal of proteins with high missingness across the different
-experiments, we will convert all columns to numeric such that we can
-subsequently log2 transform each value.
+The first two things we want to do after the generation of the
+`SummarizedExperiment` object is to log2 transform all intensity values and then
+impute the missing data. We do both of those things with the previously defined
+functions.
 
-```{r log-transform}
+```{r log-transform-and-impute}
+experiment <- experiment %>%
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
 
-proteomicsDataClean <- proteomicsDataClean %>%
-  mutate(across(everything(), as.numeric)) %>% # turn everything numeric
-  log2(.) # log transform all cells
-
-head(proteomicsDataClean)
-```
-
-### Imputation of NAs - mean protein abundance
-The next step in the data preparation is to peform imputation for missing
-protein abundances i.e. proteins that were not detected by the DIA workflow.
-To this end we first calculate the mean protein abundance per protein across all
-experiments.
-Then we iterate over all columns and use the `coalesce()` function to set a any
-cell that is NA to the mean of the row calculated prior.
-Finally we remove the temporary column that had the mean values stored.
-
-```{r impute-mean, eval=FALSE}
-proteomicsDataClean <- proteomicsDataClean %>%
-  mutate(imputeVal = rowMeans(., na.rm = TRUE)) %>% # calculate mean abundance per protein 
-  mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>% # iterate over all columns and set N/As to mean
-  within(., rm('imputeVal')) # remove 'imputeVal' column
-
-head(proteomicsDataClean)
-```
-
-### Alternative imputation via minimum protein abundance
-Alternatively to the imputation above we can also calculate the minimum of the
-protein abundances across all DIA measurements.
-Note that this method is currently not used in the notebook.
-To use minimum based imputation set cell `eval=TRUE` (and add `eval=FALSE`
-above).
-```{r impute-minimum, eval=FALSE}
-proteomicsDataClean <- proteomicsDataClean %>%
-  rowwise %>%
-  mutate(imputeVal = min(c_across(), na.rm = TRUE)) %>% # calculate median abundance per protein 
-  mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>% # iterate over all columns and set N/As to median
-  within(., rm('imputeVal')) # remove 'imputeVal' column
-
-head(proteomicsDataClean)
-```
-
-### Imputation via minimum protein abundance of sample
-The last possible way to impute that we implement is to calculate the minimum
-protein abundance within a sample (e.g. one replicate of one experiment).
-For now this is the implementation of imputation that we will use.
-
-The implementation makes use of the `colMins` function from the `matrixStats`
-package to calculate a vector that records the minimal protein intensity values
-per column (sample). This vector/list is then used with `tidyr::replace_na()`
-to back fill all N/A values in a given column with the calculated column
-minimum.
-```{r impute-sample-minimum}
-sampleMins <- colMins(
-  as.matrix(proteomicsDataClean),
-  na.rm = TRUE
-  )
-
-proteomicsDataClean <- proteomicsDataClean %>%
-  replace_na(., as.list(sampleMins))
-
-head(proteomicsDataClean)
-```
-
-### Averaging protein abundances across replicates
-Since we want to do differential expression analysis and limma needs multiple 
-replicates per condition the averaging below won't be needed. For now we will
-keep the code, but not execute it.
-```{r dereplication, eval=FALSE}
-experiments <- gsub("_r[123]$", "", colnames(proteomicsDataClean)) %>% unique()
-for (experiment in experiments) {
-  proteomicsDataClean <- proteomicsDataClean %>%
-    rownames_to_column(., 'proteins') %>%
-    rowwise %>%
-    mutate(., "{experiment}" := mean(c_across(starts_with(experiment)))) %>%
-    select(., !starts_with(paste0(experiment, "_"))) %>%
-    column_to_rownames(., 'proteins')
-}
-head(proteomicsDataClean)
 ```
 
 ## Differential Expression analysis
+
 With all the data imported we can focus on the actual differential expression
 analysis.
 
-To that end we will first define some helper functions that will make use of the
-limma package to calculate said differential expression results.
+```{r differential-expression-dmso-mirda}
+dmso_mirda_24h <- calc_diff_ex(experiment, group_1 = "24hr_DMSO", group_2 = "24hr_Mirda")
+dmso_mirda_48h <- calc_diff_ex(experiment, group_1 = "48hr_DMSO", group_2 = "48hr_Mirda")
 
-### Function definitions
-```{r limma-diffex}
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Genes', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
+  logFC >= 0 ~ 'up',
+  logFC < 0 ~ 'down'
+))
+dfPlot$timepoint = "24hr"
 
-getDiffExprTable <- function(data, x, y) {
-  if (!is.data.frame(data)){
-    stop("Argument 'data' must be data.frame", call. = FALSE)
-  }
-  if (!is.vector(x)){
-    stop("Argument 'x' must be vector", call. = FALSE)
-  }
-  if (!is.vector(y)){
-    stop("Argument 'y' must be vector", call. = FALSE)
-  }
-  
-  fac <- factor(rep(c(2, 1), c(length(y), length(x))))
-  design <- stats::model.matrix(~fac)
-  fit <- limma::lmFit(data[, c(y, x)], design)
-  fit <- limma::eBayes(fit)
-  resultTable <- limma::topTable(fit, coef = 2, number = Inf)
-  return(resultTable)
-}
+dfPlot2 <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Genes', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
+  logFC >= 0 ~ 'up',
+  logFC < 0 ~ 'down'
+))
+dfPlot2$timepoint = '48hr'
+
+dfPlot <- rbind(dfPlot, dfPlot2)
 ```
 
-```{r diffExp}
-x <- c('24hr_DMSO_r1', '24hr_DMSO_r2', '24hr_DMSO_r3')
-y <- c('24hr_Mirda_r1', '24hr_Mirda_r2', '24hr_Mirda_r3')
-diffExpResults <- getDiffExprTable(proteomicsDataClean, x, y)
-diffExpResults
+```{r}
+cpalette = c('up' = '#74add1', 'down' = '#f46d43')
+
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(timepoint)
+  )
+  + geom_bar(aes(fill=expression_change), position = 'dodge2')
+  + scale_fill_manual(values = cpalette)
+  + theme_minimal()
+  + labs(
+    title = 'Differentially expressed proteins in DMSO vs. Mirdametinib',
+    fill = 'expression'
+  )
+)
+plot
 ```
+
+
+```{r}
+# data("msigdb")
+data("ncipid")
+
+```
+
+```{r}
+
+leapR(geneset = ncipid, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
+      primary_column = "adj.P.Val", threshold = 0.05,
+      greaterthan = FALSE)
+```
+
+
