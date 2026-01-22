@@ -29,6 +29,7 @@ library(matrixStats)
 library(ggplot2)
 library(leapR)
 library(SummarizedExperiment)
+library(ggrepel)
 ```
 
 Next the import the proteomics for the global proteomics abundance from spheroids.
@@ -288,26 +289,33 @@ experiment <- experiment %>%
 
 ## Differential Expression analysis
 
+### Number of significant differentally expressed proteins 
+
 With all the data imported we can focus on the actual differential expression
 analysis.
+
+We will define a significantly differentially experesed protein as a protein that
+
+- has an adjusted p-Value < 0.05
+- has a logFC >= 1 or logFC < -1
 
 ```{r differential-expression-dmso-mirda}
 dmso_mirda_24h <- calc_diff_ex(experiment, group_1 = "24hr_DMSO", group_2 = "24hr_Mirda")
 dmso_mirda_48h <- calc_diff_ex(experiment, group_1 = "48hr_DMSO", group_2 = "48hr_Mirda")
 
 dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Genes', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
-  logFC >= 0 ~ 'up',
-  logFC < 0 ~ 'down'
+  logFC >= 1 ~ 'up',
+  logFC < -1 ~ 'down'
 ))
 dfPlot$timepoint = "24hr"
 
 dfPlot2 <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Genes', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
-  logFC >= 0 ~ 'up',
-  logFC < 0 ~ 'down'
+  logFC >= 1 ~ 'up',
+  logFC < -1 ~ 'down'
 ))
 dfPlot2$timepoint = '48hr'
 
-dfPlot <- rbind(dfPlot, dfPlot2)
+dfPlot <- rbind(dfPlot, dfPlot2) %>% subset(., !is.na(expression_change))
 ```
 
 ```{r}
@@ -328,15 +336,100 @@ plot <- (
 )
 plot
 ```
+## Volcano plots of differentially expressed porteins
+
+### DMSO vs Mirdametenib at 24h
+```{r volcano-plot-24h}
+
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Genes', 'logFC', 'adj.P.Val')) %>% 
+  mutate(expression_change = case_when(
+    (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+    (logFC < -1 & adj.P.Val < 0.05) ~ 'down',
+    .default = 'not significant', 
+  )) %>%
+  mutate(labels = case_when(
+    expression_change %in% c('up', 'down') ~ Genes,
+    .default = NA
+  ))
+
+dfPlot$timepoint = "24hr"
 
 
-```{r}
-# data("msigdb")
-data("ncipid")
-
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(
+      x = logFC,
+      y = -log10(adj.P.Val),
+      col = expression_change,
+      # label = labels
+      )
+    )
+    + geom_vline(xintercept = c(-1, 1), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed')
+    + geom_point(size = .75)
+    # + geom_text_repel(max.overlaps = 10, size = 2)
+    + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + theme_minimal()
+    + labs(
+      title = 'Differentially expressed proteins in DMSO vs. Mirdametinib at 24h',
+      col = 'expression',
+      y = expression("-log"[10]*"p-Value")
+    )
+)
+plot
 ```
 
-```{r}
+### DMSO vs Mirdametenib at 48h
+```{r volcano-plot-48h}
+
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Genes', 'logFC', 'adj.P.Val')) %>% 
+  mutate(expression_change = case_when(
+    (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+    (logFC < -1 & adj.P.Val < 0.05) ~ 'down',
+    .default = 'not significant', 
+  )) %>%
+  mutate(labels = case_when(
+    expression_change %in% c('up', 'down') ~ Genes,
+    .default = NA
+  ))
+
+dfPlot$timepoint = "48hr"
+
+
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(
+      x = logFC,
+      y = -log10(adj.P.Val),
+      col = expression_change,
+      # label = labels
+      )
+    )
+    + geom_vline(xintercept = c(-1, 1), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed')
+    + geom_point(size = .75)
+    # + geom_text_repel(max.overlaps = 10, size = 2)
+    + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + theme_minimal()
+    + labs(
+      title = 'Differentially expressed proteins in DMSO vs. Mirdametinib at 48h',
+      col = 'expression',
+      y = expression("-log"[10]*"p-Value")
+    )
+)
+plot
+```
+
+## Pathway Enrichment
+
+```{r load-geneset, results='hide'}
+# data("msigdb")
+data("ncipid")
+```
+
+```{r leapR-pathway-enrichment}
 
 leapR(geneset = ncipid, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
       primary_column = "adj.P.Val", threshold = 0.05,
