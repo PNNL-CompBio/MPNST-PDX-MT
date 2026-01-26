@@ -3,8 +3,12 @@ title: "Spheroid Proteomics Differential Expression Analysis"
 author:
 - name: Yannick Mahlich
   affiliation: Pacific Northwest National Laboratory
+- name: Sara Gosline
+  affiliation: Pacific Northwest National Laboratory
 date: "`r Sys.Date()`"
 output:
+  pdf_document:
+    toc: true
   html_document:
     toc: true
     df_print: paged
@@ -312,9 +316,11 @@ plot <- (
       y = PC2,
       col = agent,
       shape = timepoint,
+      label = condition
       )
     )
   + geom_point(size = 2)
+  + geom_text_repel(max.overlaps = 10, size = 2)
   + theme_minimal()
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(

@@ -254,7 +254,11 @@ prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5
     semi_join(., proteomicsDataClean, by = "Protein.With.Phospho.Site")
 
   proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
-    
+  
+  ## Removing some samples due to potential sample mixup
+  # proteomicsDataClean %<>% select(., !c("cNF_spheroid_P_DIA_07", "cNF_spheroid_P_DIA_12", "cNF_spheroid_P_DIA_13"))
+  # proteomicsMetaClean %<>% filter(!sample %in% c("cNF_spheroid_P_DIA_07", "cNF_spheroid_P_DIA_12", "cNF_spheroid_P_DIA_13"))
+
   experiment <- SummarizedExperiment(
     assays = list(proteomics = proteomicsDataClean),
     rowData = proteomicsMapping,
@@ -313,9 +317,11 @@ plot <- (
       y = PC2,
       col = agent,
       shape = timepoint,
+      label = condition
       )
     )
   + geom_point(size = 2)
+  + geom_text_repel(max.overlaps = 10, size = 2)
   + theme_minimal()
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
@@ -347,9 +353,11 @@ plot <- (
       y = PC2,
       col = agent,
       shape = timepoint,
+      label = condition
       )
     )
   + geom_point(size = 2)
+  + geom_text_repel(max.overlaps = 10, size = 2)
   + theme_minimal()
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
