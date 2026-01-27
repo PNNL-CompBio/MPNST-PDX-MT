@@ -45,8 +45,10 @@ library(magrittr)
 Next is the import of the phospho proteomics abundances from spheroids.
 The data file is located on synapse and is stored as tsv.
 
+**Note this version of the notebook uses syn72351272v2 and syn72245597v3**
+
 ```{r import-phospho-data, results='hide'}
-synapseFileID = "syn72351272"
+synapseFileID = "syn72351272.2"
 
 tmp <- synapser::synLogin(silent = TRUE)
 fileEntity <- synapser::synGet(synapseFileID)
@@ -58,7 +60,7 @@ tmp <- synapser::synLogout()
 ```
 
 ```{r import-meta-data, results='hide'}
-synapseFileID = "syn72245597"
+synapseFileID = "syn72245597.3"
 
 tmp <- synapser::synLogin(silent = TRUE)
 fileEntity <- synapser::synGet(synapseFileID)
@@ -370,8 +372,31 @@ plot
 As can be seen, the data after missingness removal separates much better than
 the full dataset, albeit mostly by timepoint and not so much by drug.
 
-*For the remainder of the analysis we will use the dataset after missingness
-removal*
+One mayor point to mention here is that there seem to be two pairs of conditions
+that indicate that some sample swapping might have occurred during the data
+processing. Those samples are:
+
+- 24hr_Mirda_r1 & 48hr_Mirda_r1
+- 0hr_r1 & 48hr_DMSO_r3
+
+If those two sample pairs would swap their respecive lables the PCA would truly
+place all points together in space accoring to their timepoint.
+
+### Investigation into the sample discrepancy
+
+```{r sample-discrepancy}
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0)
+summary(as_tibble(assay(experiment)))
+
+```
+```{r}
+tmp <- as_tibble(assay(experiment)) %>% reframe(, n = colSums(is.na(across(everything())))) %>% cbind(., rownames(t(assay(experiment)))) %>% as_tibble()
+tmp %<>% dplyr::rename(., count_NA = n) %>% dplyr::rename(., id = `rownames(t(assay(experiment)))`)
+subset(tmp, id %in% c('cNF_spheroid_P_DIA_01', 'cNF_spheroid_P_DIA_13', 'cNF_spheroid_P_DIA_07', 'cNF_spheroid_P_DIA_12'))
+```
+```{r}
+subset(tmp, !id %in% c('cNF_spheroid_P_DIA_01', 'cNF_spheroid_P_DIA_13', 'cNF_spheroid_P_DIA_07', 'cNF_spheroid_P_DIA_12'))
+```
 
 ### Number of significant differentally expressed phospho sites 
 Next we will perform the actual differential expression analysis.
