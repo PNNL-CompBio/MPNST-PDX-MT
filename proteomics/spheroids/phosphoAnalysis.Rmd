@@ -48,7 +48,7 @@ The data file is located on synapse and is stored as tsv.
 **Note this version of the notebook uses syn72351272v2 and syn72245597v3**
 
 ```{r import-phospho-data, results='hide'}
-synapseFileID = "syn72351272.2"
+synapseFileID = "syn72351272"
 
 tmp <- synapser::synLogin(silent = TRUE)
 fileEntity <- synapser::synGet(synapseFileID)
@@ -60,11 +60,13 @@ tmp <- synapser::synLogout()
 ```
 
 ```{r import-meta-data, results='hide'}
-synapseFileID = "syn72245597.3"
+synapseFileID = "syn72245597"
 
 tmp <- synapser::synLogin(silent = TRUE)
 fileEntity <- synapser::synGet(synapseFileID)
 proteomicsMeta <- read_xlsx(fileEntity$path, sheet = 3)
+##try altnerate naming
+proteomicsMeta = data.frame(proteomicsMeta,altSample=colnames(proteomicsData)[7:21])
 tmp <- synapser::synLogout()
 ```
 
@@ -229,7 +231,8 @@ prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5
       names = c("timepoint", "agent"),
       too_few = "align_start",
       cols_remove = FALSE
-      )
+      )|>
+    tibble::column_to_rownames('sample') ##SG: rownames reflect sample identifier
   
   proteomicsDataClean <- proteomics_data %>%
     unite(., "Protein.With.Phospho.Site", Protein, Residue, Site, sep = "_") %>%
@@ -264,7 +267,7 @@ prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5
   experiment <- SummarizedExperiment(
     assays = list(proteomics = proteomicsDataClean),
     rowData = proteomicsMapping,
-    colData = proteomicsMetaClean
+    colData = proteomicsMetaClean[colnames(proteomicsDataClean),] #SG ordered by sample name
   )
   
   return(experiment)
