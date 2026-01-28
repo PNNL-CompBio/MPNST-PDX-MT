@@ -323,6 +323,7 @@ plot <- (
   # + geom_label_repel(max.overlaps = 10, size = 2.5, box.padding = 0.5)
   + geom_text_repel(max.overlaps = 10, size = 2.5)
   + theme_minimal()
+  + theme(legend.position = "bottom")
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
     title = "Spheroid global proteomics; DMSO vs. Mirdametinib",
@@ -331,7 +332,12 @@ plot <- (
 
 plot
 
-ggsave("../output_figures/global_prot_PCA.png", dpi = 600)
+ggsave("../output_figures/global_prot_PCA.png",
+       plot = plot,
+       dpi = 600,
+       height = 6,
+       width = 6,
+       )
 ```
 
 The PCA demonstrates that the proteomics data indeed separates nicely based on
