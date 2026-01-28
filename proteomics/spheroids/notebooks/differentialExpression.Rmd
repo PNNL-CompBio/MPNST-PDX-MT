@@ -25,7 +25,7 @@ proteomics data. Library imports are not shown here, but include packages like:
 - readxl
 - limma
 
-```{r imports, echo=FALSE, results='hide'}
+```{r imports, echo=FALSE, results='hide', warning = FALSE, message = FALSE}
 library(synapser)
 library(readxl)
 library(tibble)
