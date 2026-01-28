@@ -391,7 +391,7 @@ plot <- (
   + theme_minimal()
   + labs(
     title = 'Spheroid global proteomics; DMSO vs Mirdametinib', 
-    subtitle = "Counts of significant differentially expressed proteins ( pVal < 0.05; -1  >= logFC >= 1 ~",
+    subtitle = "Counts of significant differentially expressed proteins ( pVal < 0.05; -1  >= logFC >= 1 )",
     fill = 'expression'
   )
 )
