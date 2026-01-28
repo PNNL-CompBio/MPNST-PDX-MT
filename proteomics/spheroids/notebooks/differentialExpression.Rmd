@@ -316,6 +316,7 @@ plot <- (
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
     title = "Spheroid global proteomics; DMSO vs. Mirdametinib",
+    subtitle = "full set of proteins; SampMin imputation"
   )
 )
 
@@ -361,11 +362,18 @@ plot <- (
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
     title = "Spheroid global proteomics; DMSO vs. Mirdametinib",
-    subtitle = "proteins with >50% missingness removed"
+    subtitle = "proteins with >50% missingness removed; SampMin imputation"
   )
 )
 
 plot
+
+ggsave("../output_figures/global_prot_PCA_50pct_missingness_removed.png",
+       plot = plot,
+       dpi = 600,
+       height = 6,
+       width = 6,
+       )
 ```
 
 ### Number of significant differentally expressed proteins 
