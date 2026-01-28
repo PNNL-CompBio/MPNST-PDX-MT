@@ -325,7 +325,7 @@ plot <- (
   + theme_minimal()
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
-    title = "PCA of spheroid global proteomics data",
+    title = "Spheroid global proteomics; DMSO vs. Mirdametinib",
   )
 )
 
@@ -360,7 +360,7 @@ dfPlot <- subset(as_tibble(rowData(dmso_mirda_24h)),
                  adj.P.Val < 0.05) %>%
           mutate(expression_change = case_when(
                  logFC >= 1 ~ 'up',
-                 logFC < -1 ~ 'down'
+                 logFC <= -1 ~ 'down'
                  ))
 dfPlot$timepoint = "24hr"
 
@@ -369,7 +369,7 @@ dfPlot2 <- subset(as_tibble(rowData(dmso_mirda_48h)),
                   adj.P.Val < 0.05) %>%
            mutate(expression_change = case_when(
                   logFC >= 1 ~ 'up',
-                  logFC < -1 ~ 'down'
+                  logFC <= -1 ~ 'down'
                   ))
 dfPlot2$timepoint = '48hr'
 
@@ -391,7 +391,7 @@ plot <- (
   + theme_minimal()
   + labs(
     title = 'Spheroid global proteomics; DMSO vs Mirdametinib', 
-    subtitle = 'Counts of significant differentially expressed proteins',
+    subtitle = "Counts of significant differentially expressed proteins ( pVal < 0.05; -1  >= logFC >= 1 ~",
     fill = 'expression'
   )
 )
@@ -410,7 +410,7 @@ For each time point one volcano plot will be generated.
 dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Genes', 'logFC', 'adj.P.Val')) %>% 
   mutate(expression_change = case_when(
     (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-    (logFC < -1 & adj.P.Val < 0.05) ~ 'down',
+    (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
     .default = 'not significant', 
   )) %>%
   mutate(labels = case_when(
@@ -454,7 +454,7 @@ ggsave("../output_figures/global_prot_diff_exp_volcano_24h.png", dpi = 600)
 dfPlot <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Genes', 'logFC', 'adj.P.Val')) %>% 
   mutate(expression_change = case_when(
     (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-    (logFC < -1 & adj.P.Val < 0.05) ~ 'down',
+    (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
     .default = 'not significant', 
   )) %>%
   mutate(labels = case_when(
