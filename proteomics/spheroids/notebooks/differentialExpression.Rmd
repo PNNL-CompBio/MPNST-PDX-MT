@@ -475,16 +475,26 @@ plot <- (
     + geom_point(size = .75)
     # + geom_text_repel(max.overlaps = 10, size = 2)
     + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + coord_cartesian(xlim = c(-15, 15), ylim = c(0, 3))
     + theme_minimal()
+    + theme(legend.position = "bottom")
     + labs(
-      title = 'Spheroid global proteomics; DMSO vs. Mirdametinib at 24h',
+      title = 'Spheroid global proteomics',
+      subtitle = "DMSO vs. Mirdametinib at 24h",
       col = 'expression',
       y = expression("-log"[10]*"p-Value")
     )
 )
 plot
 
-ggsave("../output_figures/global_prot_diff_exp_volcano_24h.png", dpi = 600)
+ggsave(
+  filename = "../output_figures/global_prot_diff_exp_volcano_24h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  scale = .8,
+  )
 ```
 
 ### DMSO vs Mirdametenib at 48h
@@ -519,16 +529,26 @@ plot <- (
     + geom_point(size = .75)
     # + geom_text_repel(max.overlaps = 10, size = 2)
     + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + coord_cartesian(xlim = c(-15, 15), ylim = c(0, 3))
     + theme_minimal()
+    + theme(legend.position = "bottom")
     + labs(
-      title = 'Spheroid global proteomics; DMSO vs. Mirdametinib at 48h',
+      title = 'Spheroid global proteomics',
+      subtitle = "DMSO vs. Mirdametinib at 48h",
       col = 'expression',
       y = expression("-log"[10]*"p-Value")
     )
 )
 plot
 
-ggsave("../output_figures/global_prot_diff_exp_volcano_48h.png", dpi = 600)
+ggsave(
+  filename = "../output_figures/global_prot_diff_exp_volcano_48h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  scale = .8,
+  )
 ```
 
 ## Pathway Enrichment
