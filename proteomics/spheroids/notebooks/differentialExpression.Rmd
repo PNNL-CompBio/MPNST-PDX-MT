@@ -304,7 +304,7 @@ First we will perform a PCA analysis of the underlying proteomics data to check
 if there is meaningful signal separation of the individual treatment agents,
 as well as timepoints.
 
-```{r}
+```{r PCA, message = FALSE}
 principal_components <- prcomp(t(assay(experiment))) %$%
   cbind(x, colData(experiment))
 
@@ -320,15 +320,18 @@ plot <- (
       )
     )
   + geom_point(size = 2)
-  + geom_text_repel(max.overlaps = 10, size = 2)
+  # + geom_label_repel(max.overlaps = 10, size = 2.5, box.padding = 0.5)
+  + geom_text_repel(max.overlaps = 10, size = 2.5)
   + theme_minimal()
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
-    title = "PCA of spheroid proteomics data",
+    title = "PCA of spheroid global proteomics data",
   )
 )
 
 plot
+
+ggsave("../output_figures/global_prot_PCA.png", dpi = 600)
 ```
 
 The PCA demonstrates that the proteomics data indeed separates nicely based on
@@ -352,16 +355,22 @@ results.
 dmso_mirda_24h <- calc_diff_ex(experiment, group_1 = "24hr_DMSO", group_2 = "24hr_Mirda")
 dmso_mirda_48h <- calc_diff_ex(experiment, group_1 = "48hr_DMSO", group_2 = "48hr_Mirda")
 
-dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Genes', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
-  logFC >= 1 ~ 'up',
-  logFC < -1 ~ 'down'
-))
+dfPlot <- subset(as_tibble(rowData(dmso_mirda_24h)),
+                 select = c('Genes', 'logFC', 'adj.P.Val'),
+                 adj.P.Val < 0.05) %>%
+          mutate(expression_change = case_when(
+                 logFC >= 1 ~ 'up',
+                 logFC < -1 ~ 'down'
+                 ))
 dfPlot$timepoint = "24hr"
 
-dfPlot2 <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Genes', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
-  logFC >= 1 ~ 'up',
-  logFC < -1 ~ 'down'
-))
+dfPlot2 <- subset(as_tibble(rowData(dmso_mirda_48h)),
+                  select = c('Genes', 'logFC', 'adj.P.Val'),
+                  adj.P.Val < 0.05) %>%
+           mutate(expression_change = case_when(
+                  logFC >= 1 ~ 'up',
+                  logFC < -1 ~ 'down'
+                  ))
 dfPlot2$timepoint = '48hr'
 
 dfPlot <- rbind(dfPlot, dfPlot2) %>% subset(., !is.na(expression_change))
@@ -369,7 +378,7 @@ dfPlot <- rbind(dfPlot, dfPlot2) %>% subset(., !is.na(expression_change))
 
 The code block below plots the number of significantly up and down regulated
 proteins.
-```{r plot-expression-differential}
+```{r plot-expression-differential, message=FALSE}
 cpalette = c('up' = '#74add1', 'down' = '#f46d43')
 
 plot <- (
@@ -381,11 +390,14 @@ plot <- (
   + scale_fill_manual(values = cpalette)
   + theme_minimal()
   + labs(
-    title = 'Differentially expressed proteins in DMSO vs. Mirdametinib',
+    title = 'Spheroid global proteomics; DMSO vs Mirdametinib', 
+    subtitle = 'Counts of significant differentially expressed proteins',
     fill = 'expression'
   )
 )
 plot
+
+ggsave("../output_figures/global_prot_diff_exp_counts.png", dpi = 600)
 ```
 
 ## Volcano plots of differentially expressed porteins
@@ -393,7 +405,7 @@ Next we generate volcano plots to investigate the significant proteins further.
 For each time point one volcano plot will be generated.
 
 ### DMSO vs Mirdametenib at 24h
-```{r volcano-plot-24h}
+```{r volcano-plot-24h, message=FALSE}
 
 dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Genes', 'logFC', 'adj.P.Val')) %>% 
   mutate(expression_change = case_when(
@@ -426,16 +438,18 @@ plot <- (
     + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
     + theme_minimal()
     + labs(
-      title = 'Differentially expressed proteins in DMSO vs. Mirdametinib at 24h',
+      title = 'Spheroid global proteomics; DMSO vs. Mirdametinib at 24h',
       col = 'expression',
       y = expression("-log"[10]*"p-Value")
     )
 )
 plot
+
+ggsave("../output_figures/global_prot_diff_exp_volcano_24h.png", dpi = 600)
 ```
 
 ### DMSO vs Mirdametenib at 48h
-```{r volcano-plot-48h}
+```{r volcano-plot-48h, message=FALSE}
 
 dfPlot <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Genes', 'logFC', 'adj.P.Val')) %>% 
   mutate(expression_change = case_when(
@@ -468,12 +482,14 @@ plot <- (
     + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
     + theme_minimal()
     + labs(
-      title = 'Differentially expressed proteins in DMSO vs. Mirdametinib at 48h',
+      title = 'Spheroid global proteomics; DMSO vs. Mirdametinib at 48h',
       col = 'expression',
       y = expression("-log"[10]*"p-Value")
     )
 )
 plot
+
+ggsave("../output_figures/global_prot_diff_exp_volcano_48h.png", dpi = 600)
 ```
 
 ## Pathway Enrichment
@@ -485,18 +501,22 @@ data("krbpaths")
 ```
 
 Now we can ask which pathways are over-represented in both 24h and 48h time points. 
-```{r leapR-pathway-enrichment}
+```{r leapR-pathway-enrichment, message=FALSE}
 
 late_res <- leapR(geneset = krbpaths, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
       primary_column = "adj.P.Val", threshold = 0.05,
       greaterthan = FALSE)
-plot_leapr_bar(late_res,'Top pathways at 48h')
+plot <- plot_leapr_bar(late_res,'Top pathways at 48h')
+ggsave("../output_figures/global_prot_pathway_enrichment_krbpaths_48h_top.png", plot = plot, dpi = 600)
+plot
 
 early_res <- leapR(geneset = krbpaths, eset = dmso_mirda_24h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
       primary_column = "adj.P.Val", threshold = 0.05,
       greaterthan = FALSE)
 
-plot_leapr_bar(early_res,'Top pathways at 24h')
+plot <- plot_leapr_bar(early_res,'Top pathways at 24h')
+ggsave("../output_figures/global_prot_pathway_enrichment_krbpaths_24h_top.png", plot = plot, dpi = 600)
+plot
 
 ```
 
@@ -504,7 +524,7 @@ This shows significant pathways being altered at 48h, suggesting a more informat
 can evaluate the expression of those proteins in that pathway as well to see how they
 are expressed across time points.
 
-```{r path heatmaps}
+```{r path heatmaps, message=FALSE}
 
 #create a table of pathways and genes by ingroup name
 sig_lates <- subset(late_res, BH_pvalue < 0.05) |>
@@ -523,10 +543,12 @@ plots <- lapply(unique(sig_lates$Pathway), function(path){
   annot <- colData(dmso_mirda_24h)[,c('timepoint','agent','replicate')] |>
     as.data.frame()
   ###create heatmap with metadata
-  pheatmap::pheatmap(log10(mat),annotation_col = annot, 
+  plot <- pheatmap::pheatmap(log10(mat),annotation_col = annot, 
                      cluster_cols = FALSE, 
                      main=paste0(path,' proteins from 48h enrichment'),
                      labels_col = rep("",ncol(mat)))
+  plot
+  ggsave(filename = paste0("../output_figures/global_prot_pathway_enrichment_48h_heatmap_", path, ".png"), plot = plot, dpi = 600)
   
 })
 
