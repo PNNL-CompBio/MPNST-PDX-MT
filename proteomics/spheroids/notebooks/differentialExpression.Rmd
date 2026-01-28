@@ -332,6 +332,42 @@ ggsave("../output_figures/global_prot_PCA.png",
 The PCA demonstrates that the proteomics data indeed separates nicely based on
 both agent as well as timepoint.
 
+### PCA after removal of features with >50% missingness
+
+```{r}
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0.5) %>%
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+
+principal_components <- prcomp(t(assay(experiment))) %$%
+  cbind(x, colData(experiment))
+
+plot <- (
+  ggplot(
+    principal_components,
+    aes(
+      x = PC1,
+      y = PC2,
+      col = agent,
+      shape = timepoint,
+      label = condition
+      )
+    )
+  + geom_point(size = 2)
+  # + geom_label_repel(max.overlaps = 10, size = 2.5, box.padding = 0.5)
+  + geom_text_repel(max.overlaps = 10, size = 2.5)
+  + theme_minimal()
+  + theme(legend.position = "bottom")
+  + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+  + labs(
+    title = "Spheroid global proteomics; DMSO vs. Mirdametinib",
+    subtitle = "proteins with >50% missingness removed"
+  )
+)
+
+plot
+```
+
 ### Number of significant differentally expressed proteins 
 Next we will perform the actual differential expression analysis.
 We will define a significantly differentially experessed protein as a protein that
