@@ -211,6 +211,58 @@ calc_diff_ex <- function(experiment,
   
     return(experiment)
 }
+
+prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5) {
+    
+  proteomicsMetaClean <- proteomics_meta %>%
+    separate_wider_regex(
+      .,
+      col = "condition",
+      c("group" = ".*", "_", "replicate" = ".*"),
+      cols_remove = FALSE
+      ) %>% 
+    separate_wider_delim(
+      .,
+      col = "group",
+      delim = "_",
+      names = c("timepoint", "agent"),
+      too_few = "align_start",
+      cols_remove = FALSE
+      )|>
+    tibble::column_to_rownames('sample') ##SG: rownames reflect sample identifier
+  
+  
+  proteomicsDataClean <- proteomicsData %>%
+    column_to_rownames(., var = "Protein.Group") %>%
+    within(., rm("Protein.Names", "Genes", "First.Protein.Description"))
+  
+  # TODO: add check to make sure missgness_cutoff is [0, 1]
+  proteomicsDataClean %<>%
+    .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
+    rownames_to_column(., var = "Protein.Group")
+
+  proteomicsMapping <- proteomicsData[0:4] %>%
+    separate_wider_delim(
+      .,
+      col = "Genes",
+      names = c("Genes", NA),
+      delim = ";",
+      cols_remove=TRUE,
+      too_few = "align_start",
+      too_many = "drop"
+      ) %>%
+    semi_join(., proteomicsDataClean, by = "Protein.Group")
+
+  proteomicsDataClean %<>% column_to_rownames(., var = "Protein.Group")
+
+  experiment <- SummarizedExperiment(
+    assays = list(proteomics = proteomicsDataClean),
+    rowData = proteomicsMapping,
+    colData = proteomicsMetaClean[colnames(proteomicsDataClean),] #SG ordered by sample name
+  )
+  
+  return(experiment)
+}
 ```
 
 ## Data preparation
@@ -225,74 +277,11 @@ clean the data. This consits of several steps:
 - log2 transform the abundance / intensity data
 - impute missing values (media center based on other readouts for the protein)
 
-### Column renaming and general cleanup
 
-Steps of the data cleanup process are:
-
-- creating a "look up vector" for the renaming 
-- renaming the columns with skipping of columns not in the look up vector via
-  `any_of()`
-- move additional identifier columns into seperate DF, and keep one we can use
-  for a potential later enrichment analysis
-```{r data-cleanup}
-
-proteomicsMetaClean <- proteomicsMeta %>%
-  separate_wider_regex(
-    .,
-    col = "condition",
-    c("group" = ".*", "_", "replicate" = ".*"),
-    cols_remove = FALSE
-    ) %>% 
-  separate_wider_delim(
-    .,
-    col = "group",
-    delim = "_",
-    names = c("timepoint", "agent"),
-    too_few = "align_start",
-    cols_remove = FALSE
-    )
-
-proteomicsDataClean <- proteomicsData %>%
-  column_to_rownames(., var = "Protein.Group") %>%
-  within(., rm("Protein.Names", "Genes", "First.Protein.Description"))
-
-proteomicsMapping <- proteomicsData[0:4] %>%
-  separate_wider_delim(
-    .,
-    col = "Genes",
-    names = c("Genes", NA),
-    delim = ";",
-    cols_remove=TRUE,
-    too_few = "align_start",
-    too_many = "drop"
-    )
-
-head(proteomicsDataClean)
-```
-
-### Creation of `SummarizedExperiment` object
-Finally we are generating a `SummarizedExperiment` object that contains all of
-the prepared information.
-```{r summarized-experiment}
-experiment <- SummarizedExperiment(
-  assays = list(proteomics = proteomicsDataClean),
-  rowData = proteomicsMapping,
-  colData = proteomicsMetaClean
-)
-```
-
-
-### log2 transform data and impute missing data
-The first two things we want to do after the generation of the
-`SummarizedExperiment` object is to log2 transform all intensity values and then
-impute the missing data. We do both of those things with the previously defined
-functions.
-
-```{r log-transform-and-impute}
-experiment <- experiment %>%
+```{r prep-data}
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0) %>%
   log_transform(., assay = "proteomics") %>%
   impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
-
 ```
 
 ## Differential Expression analysis
