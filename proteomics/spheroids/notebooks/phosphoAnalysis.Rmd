@@ -336,13 +336,21 @@ plot <- (
   + geom_point(size = 2)
   + geom_text_repel(max.overlaps = 10, size = 2)
   + theme_minimal()
+  + theme(legend.position = "bottom")
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
-    title = "PCA of spheroid phospho proteomics data (NO missingness removal)",
+    title = "Spheroid phospho proteomics; DMSO vs. Mirdametinib",
+    subtitle = "no missingness filter; SampMin imputation"
   )
 )
 
 plot
+ggsave("../output_figures/phospho_prot_PCA.png",
+       plot = plot,
+       dpi = 600,
+       height = 6,
+       width = 6,
+       )
 ```
 
 ### PCA (50% missingness removal)
@@ -372,13 +380,22 @@ plot <- (
   + geom_point(size = 2)
   + geom_text_repel(max.overlaps = 10, size = 2)
   + theme_minimal()
+  + theme(legend.position = "bottom")
   + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
   + labs(
-    title = "PCA of spheroid phospho proteomics data (50% missingness removal)",
+    title = "Spheroid phospho proteomics; DMSO vs. Mirdametinib",
+    subtitle = "proteins with >50% missingness removed; SampMin imputation"
   )
 )
 
 plot
+
+ggsave("../output_figures/phospho_prot_PCA_50pct_missingness_removed.png",
+       plot = plot,
+       dpi = 600,
+       height = 6,
+       width = 6,
+       )
 ```
 As can be seen, the data after missingness removal separates much better than
 the full dataset, albeit mostly by timepoint and not so much by drug.
@@ -456,7 +473,8 @@ plot <- (
   + scale_fill_manual(values = cpalette)
   + theme_minimal()
   + labs(
-    title = 'Differentially expressed proteins in DMSO vs. Mirdametinib',
+    title = 'Spheroid phospho proteomics; DMSO vs Mirdametinib', 
+    subtitle = "Counts of significant differentially expressed proteins ( pVal < 0.05; -1  >= logFC >= 1 )",
     fill = 'expression'
   )
 )
@@ -481,6 +499,7 @@ dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Protein.With.Ph
     .default = NA
   ))
 
+dfPlot$quantile <- factor(dfPlot$quantile, levels=c("10%", "20%", "50%", "100%"))
 dfPlot$timepoint = "24hr"
 
 
@@ -500,22 +519,52 @@ plot <- (
     + geom_point(size = .75)
     # + geom_text_repel(max.overlaps = 10, size = 2)
     + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + coord_cartesian(xlim = c(-11, 11), ylim = c(0, 4))
     + theme_minimal()
+    + theme(legend.position = "bottom", legend.box = "vertical")
     + labs(
-      title = 'Differentially expressed proteins in DMSO vs. Mirdametinib at 24h',
+      title = 'Spheroid phospho proteomics',
+      subtitle = "DMSO vs. Mirdametinib at 24h",
       col = 'expression',
       y = expression("-log"[10]*"p-Value")
     )
 )
 plot
 
-dfPlot |> 
- # subset(expression_change %in% c('up','down')) |> 
-  ggplot(aes(x=quantile,fill=expression_change)) + 
-      geom_bar(position='dodge')  + 
-        scale_fill_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey')) +
-  scale_y_log10()
+ggsave(
+  filename = "../output_figures/phospho_prot_diff_exp_volcano_24h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  scale = .8,
+  )
+```
 
+```{r sig-phospho-site-counts-24h}
+plot <- (dfPlot |> 
+ # subset(expression_change %in% c('up','down')) |> 
+  ggplot(aes(x=quantile,fill=expression_change))
+    + geom_bar(position='dodge')
+    + scale_fill_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + scale_y_log10()
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + labs(    
+      title = 'Spheroid phospho proteomics; DMSO vs Mirdametinib at 24h', 
+      subtitle = "Significant phospho sites: pVal < 0.05; -1  >= logFC >= 1",
+      fill = 'expression',
+      )
+  )
+plot
+
+ggsave(
+  filename = "../output_figures/phospho_prot_sig_site_count_24h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  )
 ```
 
 ### DMSO vs Mirdametenib at 48h
@@ -532,6 +581,7 @@ dfPlot <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Protein.With.Ph
     .default = NA
   ))
 
+dfPlot$quantile <- factor(dfPlot$quantile, levels=c("10%", "20%", "50%", "100%"))
 dfPlot$timepoint = "48hr"
 
 
@@ -551,21 +601,52 @@ plot <- (
     + geom_point(size = .75)
     # + geom_text_repel(max.overlaps = 10, size = 2)
     + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + coord_cartesian(xlim = c(-11, 11), ylim = c(0, 4))
     + theme_minimal()
+    + theme(legend.position = "bottom", legend.box = "vertical")
     + labs(
-      title = 'Differentially expressed proteins in DMSO vs. Mirdametinib at 48h',
+      title = 'Spheroid phospho proteomics',
+      subtitle = "DMSO vs. Mirdametinib at 48h",
       col = 'expression',
       y = expression("-log"[10]*"p-Value")
     )
 )
 plot
 
-dfPlot |> 
- # subset(expression_change %in% c('up','down')) |> 
-  ggplot(aes(x=quantile,fill=expression_change)) + 
-      geom_bar(position='dodge')  + 
-        scale_fill_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey')) +
-  scale_y_log10()
+ggsave(
+  filename = "../output_figures/phospho_prot_diff_exp_volcano_48h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  scale = .8,
+  )
 
+```
+
+```{r }
+plot <- (dfPlot |> 
+ # subset(expression_change %in% c('up','down')) |> 
+  ggplot(aes(x=quantile,fill=expression_change))
+    + geom_bar(position='dodge')
+    + scale_fill_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + scale_y_log10()
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + labs(    
+      title = 'Spheroid phospho proteomics; DMSO vs Mirdametinib at 48h', 
+      subtitle = "Significant phospho sites: pVal < 0.05; -1  >= logFC >= 1",
+      fill = 'expression',
+      )
+  )
+plot
+
+ggsave(
+  filename = "../output_figures/phospho_prot_sig_site_count_48h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  )
 ```
 
