@@ -7,8 +7,8 @@ author:
   affiliation: Pacific Northwest National Laboratory
 date: "`r Sys.Date()`"
 output:
-  pdf_document:
-    toc: true
+ #pdf_document:
+#    toc: true
   html_document:
     toc: true
     df_print: paged
@@ -260,6 +260,14 @@ prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5
 
   proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
   
+  #calculate median abundnace for each phosphosite and rank  
+  medAbund <- apply(proteomicsDataClean, 1, function(x) median(x,na.rm = T))
+  qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1))
+  siteQuantile <- sapply(medAbund, function(x) names(qvals)[which(x <= qvals)[1]])
+  
+  
+  proteomicsMapping$medAbundance = medAbund
+  proteomicsMapping$quantile = siteQuantile
   ## Removing some samples due to potential sample mixup
   # proteomicsDataClean %<>% select(., !c("cNF_spheroid_P_DIA_07", "cNF_spheroid_P_DIA_12", "cNF_spheroid_P_DIA_13"))
   # proteomicsMetaClean %<>% filter(!sample %in% c("cNF_spheroid_P_DIA_07", "cNF_spheroid_P_DIA_12", "cNF_spheroid_P_DIA_13"))
@@ -343,7 +351,7 @@ phosphorylations that were detected in >= 80% of the samples are being
 considered for the PCA generation.
 
 ```{r}
-experiment <- prep_data(proteomicsData, proteomicsMeta, 0.50) %>%
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0.5) %>%
   log_transform(., assay = "proteomics") %>%
   impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
 
@@ -387,17 +395,17 @@ place all points together in space accoring to their timepoint.
 
 ### Investigation into the sample discrepancy
 
-```{r sample-discrepancy}
+```{r sample-discrepancy, eval=FALSE}
 experiment <- prep_data(proteomicsData, proteomicsMeta, 0)
 summary(as_tibble(assay(experiment)))
 
 ```
-```{r}
+```{r, eval=FALSE}
 tmp <- as_tibble(assay(experiment)) %>% reframe(, n = colSums(is.na(across(everything())))) %>% cbind(., rownames(t(assay(experiment)))) %>% as_tibble()
 tmp %<>% dplyr::rename(., count_NA = n) %>% dplyr::rename(., id = `rownames(t(assay(experiment)))`)
 subset(tmp, id %in% c('cNF_spheroid_P_DIA_01', 'cNF_spheroid_P_DIA_13', 'cNF_spheroid_P_DIA_07', 'cNF_spheroid_P_DIA_12'))
 ```
-```{r}
+```{r, eval=FALSE}
 subset(tmp, !id %in% c('cNF_spheroid_P_DIA_01', 'cNF_spheroid_P_DIA_13', 'cNF_spheroid_P_DIA_07', 'cNF_spheroid_P_DIA_12'))
 ```
 
@@ -462,7 +470,7 @@ For each time point one volcano plot will be generated.
 ### DMSO vs Mirdametenib at 24h
 ```{r volcano-plot-24h}
 
-dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>% 
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val','quantile')) %>% 
   mutate(expression_change = case_when(
     (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
     (logFC < -1 & adj.P.Val < 0.05) ~ 'down',
@@ -483,6 +491,7 @@ plot <- (
       x = logFC,
       y = -log10(adj.P.Val),
       col = expression_change,
+      shape = quantile,
       # label = labels
       )
     )
@@ -499,12 +508,20 @@ plot <- (
     )
 )
 plot
+
+dfPlot |> 
+ # subset(expression_change %in% c('up','down')) |> 
+  ggplot(aes(x=quantile,fill=expression_change)) + 
+      geom_bar(position='dodge')  + 
+        scale_fill_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey')) +
+  scale_y_log10()
+
 ```
 
 ### DMSO vs Mirdametenib at 48h
 ```{r volcano-plot-48h}
 
-dfPlot <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>% 
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val','quantile')) %>% 
   mutate(expression_change = case_when(
     (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
     (logFC < -1 & adj.P.Val < 0.05) ~ 'down',
@@ -525,6 +542,7 @@ plot <- (
       x = logFC,
       y = -log10(adj.P.Val),
       col = expression_change,
+      shape = quantile
       # label = labels
       )
     )
@@ -541,5 +559,13 @@ plot <- (
     )
 )
 plot
+
+dfPlot |> 
+ # subset(expression_change %in% c('up','down')) |> 
+  ggplot(aes(x=quantile,fill=expression_change)) + 
+      geom_bar(position='dodge')  + 
+        scale_fill_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey')) +
+  scale_y_log10()
+
 ```
 

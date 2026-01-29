@@ -7,8 +7,8 @@ author:
   affiliation: Pacific Northwest National Laboratory
 date: "`r Sys.Date()`"
 output:
-  pdf_document:
-    toc: true
+#  pdf_document:
+#    toc: true
   html_document:
     toc: true
     df_print: paged
