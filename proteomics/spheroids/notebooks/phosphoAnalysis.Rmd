@@ -235,7 +235,8 @@ prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5
     tibble::column_to_rownames('sample') ##SG: rownames reflect sample identifier
   
   proteomicsDataClean <- proteomics_data %>%
-    unite(., "Protein.With.Phospho.Site", Protein, Residue, Site, sep = "_") %>%
+    unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
+    unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
     column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
     within(., rm("Protein.Names", "Gene.Names", "Sequence"))
   
@@ -254,8 +255,9 @@ prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5
       too_few = "align_start",
       too_many = "drop"
       ) %>%
-    unite(., "Protein.With.Phospho.Site", Protein, Residue, Site,
-          sep = "_", remove = FALSE) %>%
+    unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
+    unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site,
+          sep = "-", remove = FALSE) %>%
     semi_join(., proteomicsDataClean, by = "Protein.With.Phospho.Site")
 
   proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
