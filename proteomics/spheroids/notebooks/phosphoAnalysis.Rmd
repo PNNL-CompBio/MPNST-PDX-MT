@@ -258,6 +258,8 @@ prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5
     unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
     unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site,
           sep = "-", remove = FALSE) %>%
+    unite(., "Gene.With.Phospho.Site", Gene.Names, Phospho.Site,
+          sep = "-", remove = FALSE) %>%
     semi_join(., proteomicsDataClean, by = "Protein.With.Phospho.Site")
 
   proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
@@ -651,4 +653,49 @@ ggsave(
   width = 6,
   )
 ```
+### Pathway enrichment for Kinase substrate Pathways
 
+First we load the gene set table we need for the pathway enrichment that will
+be done by leapR.
+
+```{r load-leapR-gmt}
+data("kinasesubstrates")
+```
+
+Next we can use the already established differential expression data and run
+that data through `leapR`.
+We are using the `kinasesubstrates` gene sets here, to look for enriched
+kinase substrate pathways.
+The first set we will look at is enrichment at the **24h timepoint** between 
+**DMSO** and **Mirdametinib**.
+
+```{r kinasesubstrate-enrichment-24h, message=FALSE}
+early_res <- leapR(geneset = kinasesubstrates,
+                   eset = dmso_mirda_24h,
+                   enrichment_method = "enrichment_in_sets",
+                   assay_name = 'proteomics',
+                   id_column = "Gene.With.Phospho.Site",
+                   primary_column = "adj.P.Val",
+                   threshold = 0.05,
+                   greaterthan = FALSE)
+
+plot <- plot_leapr_bar(early_res,'Top pathways at 24h')
+ggsave("../output_figures/phospho_prot_pathway_enrichment_kinasesubstrates_24h_top.png", plot = plot, dpi = 600)
+plot
+```
+Finally we do the same for the **48h timepoint**.
+
+```{r kinasesubstrate-enrichment-48h, message=FALSE}
+late_res <- leapR(geneset = kinasesubstrates,
+                   eset = dmso_mirda_48h,
+                   enrichment_method = "enrichment_in_sets",
+                   assay_name = 'proteomics',
+                   id_column = "Gene.With.Phospho.Site",
+                   primary_column = "adj.P.Val",
+                   threshold = 0.05,
+                   greaterthan = FALSE)
+
+plot <- plot_leapr_bar(late_res,'Top pathways at 48h')
+ggsave("../output_figures/phospho_prot_pathway_enrichment_kinasesubstrates_48h_top.png", plot = plot, dpi = 600)
+plot
+```
