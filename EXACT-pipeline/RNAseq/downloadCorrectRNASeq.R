@@ -20,20 +20,21 @@ rnaSeqTab<-getRNASeq<-function(){
   batch1metadata<-readr::read_csv(synGet('syn64608368')$path)|>
     dplyr::select(specimenID,individualID,Drug,Timepoint,Date,Proceeded_id)|>
     distinct()
-  batch2metadata<-readr::read_csv(synGet('syn66302373')$path)|>
+  batch2metadata<-readr::read_csv(synGet('syn64608372')$path)|> #syn66302373
     dplyr::select(specimenID,individualID,Drug,Timepoint,Date,Proceeded_id)|>
     distinct()
   batch3metadata <- read.csv(synGet("syn66050299")$path)|> # was syn6559564 before 20250415
     dplyr::select(specimenID,individualID,Drug,Timepoint,Date,Proceeded_id)|>
     distinct()
   batch3metadata$specimenID <- sub("-", "_", batch3metadata$specimenID)
-  batch4metadata<-readxl::read_excel(synGet('syn68080392')$path)|>
-    dplyr::select(`Label on Cap`,Drug,Timepoint,`Individual ID`)|>
+  batch4metadata<-read.csv(synGet('syn72518652')$path)|> #syn68080392
+    dplyr::select(specimenID,Drug,Timepoint,individualID)|>
+    #dplyr::select(`Label on Cap`,Drug,Timepoint,`Individual ID`)|>
     distinct()
-  batch4metadata$individualID <- batch4metadata$`Individual ID`
+#  batch4metadata$individualID <- batch4metadata$`Individual ID`
   batch4metadata$Timepoint <- sub("HR","h",batch4metadata$Timepoint)
   batch4metadata$Timepoint <- sub(" h","h",batch4metadata$Timepoint)
-  colnames(batch4metadata)[1] <- "specimenID"
+#  colnames(batch4metadata)[1] <- "specimenID"
   batch4metadata$name <- paste0(batch4metadata$specimenID,"_quant.genes.sf")
   batch4metadata$Date <- "B4"
 #  batch4metadata$Full_name <- batch4metadata$Drug

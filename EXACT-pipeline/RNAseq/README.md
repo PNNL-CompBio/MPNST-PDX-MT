@@ -28,7 +28,7 @@ We  calculate the differential expression across individual 3D-MEDS samples
 per patient (MN-2, JH-2-002, and WU-225). Run this before the next step. 
 
 This produces table S2: 00_rnaseqSummary_individual.Rmd
-- Pulls: metadata counts (syn52369043)
+- Pulls: metadata counts (syn64608368,syn64608372,syn66050299 and syn72518652)
 - Uploads: counts batch-corrected crosstabs (syn64398049 and syn64398051); 
 differential expression for MPNST, time, and drug pairs (syn69910880)
 
