@@ -75,7 +75,7 @@ topSets <- unique(gsea.df[gsea.df$sig,]$Gene_set)
 mean.results <- plyr::ddply(gsea.df, .(Gene_set), summarize,
                             NES = mean(NES, na.rm=TRUE))
 setOrder <- mean.results[order(mean.results$NES),]$Gene_set
-
+timepoints=c('8h','24h')
 dot.df <- gsea.df
 dot.df$Time <- factor(dot.df$Time, levels=timepoints)
 if (any(dot.df$FDR_q_value == 0)) {
@@ -345,7 +345,7 @@ names(moaCol)<-unlist(drug.info)
 
 annot.colors = list(Class = classCol,
                     MOA = moaCol,
-                    Drug = cols,
+                    Drug = drugCol,
                     Timepoint = c("8h" = "#FFFFFF", "24h" = "#000000"))
 
 graphics.off()
@@ -518,7 +518,8 @@ ggplot2::ggsave("mirdaVorin_oppPathways_dotPlot.pdf",
                 height=3.5)
 ```
 
-```{r expression of leading edge genes opposite in mirda and vorin, echo=FALSE}
+We're not looking a these pathways anymore. 
+```{r expression of leading edge genes opposite in mirda and vorin, echo=FALSE, eval = FLASE}
 kras.leads <- unique(unlist(strsplit(gsea.df[gsea.df$DrugTreatment %in% c("Mirdametinib","Vorinostat") &
                                           gsea.df$sig &
                                             gsea.df$Gene_set=="KRAS_SIGNALING_DN",

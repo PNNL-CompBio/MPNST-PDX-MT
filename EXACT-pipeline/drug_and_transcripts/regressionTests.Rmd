@@ -1,0 +1,273 @@
+---
+title: "Linear Regression tests"
+author: "Sara Gosline"
+date: "2026-02-10"
+output: html_document
+---
+
+
+# Regression analysis of drug response
+
+Here we propose to use an elastic net regression model to predict drug response of treated samples.
+
+We first collect the transcriptomic and drug response data from matched samples. It is important to note
+that each model is built for a single drug, and there is not a lot of variability across drugs, the 
+model is much more sensitive to the sample itself. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+tmat <-   full_tmat[,intersect(colnames(full_tmat), sing_exp$improve_sample_id)]
+
+ggplot(sing_exp, aes(x=common_name, y=auc, col = drug, shape = as.factor(treat_time))) +
+         geom_jitter() + 
+         scale_color_manual(values = drugCol)
+
+```
+
+
+However we can still try to identify features that predict AUC.
+
+
+del of drug responses
+```{r single drug regression}
+
+library(glmnet)
+#drug = 'mirdametinib'
+etime = '0hr'
+ttime = 48
+  
+rres <- do.call(rbind, lapply(unique(sing_exp$drug), function(drug) {
+  
+  ##get the data for a specific treatment, measurement time, and drug
+   tvec <- sing_exp[sing_exp$treat_time == ttime &
+                   sing_exp$expr_time == etime &
+                   sing_exp$drug == drug,] |>
+    drop_na() |>
+    arrange(auc) |>
+    tibble::column_to_rownames('improve_sample_id')
+
+  samps <- intersect(colnames(tmat), rownames(tvec))
+  tvec <- tvec[samps,]
+  df = t(tmat[,samps])#data.frame(apply(tmat[, samps],1,log2))
+  #df$delta_auc = as.numeric(tvec$delta_auc)
+
+##here we do the LOO for each sample in the drug
+  samp_preds <- do.call(rbind,lapply(rownames(df), function(samp){
+
+    st <- setdiff(rownames(df), samp)
+    
+    dtrain <- as.matrix(df[st,])
+  
+    model <- glmnet(x = dtrain, y = tvec[st, 'auc'], alpha = 0.5)
+    coefs <-  setdiff(unique(rownames(which(coef(model) != 0, arr.ind=T))),'(Intercept)')
+    preds <- predict(model, newx = df[samp,], s=0.001)
+    return(c(preds = preds, features = paste(coefs, collapse=','), training_set=length(st)))
+  }
+))
+  tvec$preds = unlist(samp_preds[,1])
+  tvec$features = unlist(samp_preds[,2])
+  tvec$training_set = unlist(samp_preds[,3])
+  return(tvec)
+  })
+)
+
+rres$error = (as.numeric(rres$preds)-rres$auc)^2
+```
+
+We use leave one out cross validation so we train on one set of samples and evaluate on the other. 
+
+```{r pred results}
+
+
+rs <-  rres |> group_by(drug, .add=TRUE, .drop=FALSE) |> 
+  summarize(mse = mean(error)) |>
+   arrange(mse)
+
+rres <- rres|>left_join(rs)
+
+ggplot(rres, aes(x=reorder(drug, mse), y = error, col = drug)) + 
+  geom_boxplot() +
+  geom_jitter() + 
+    scale_color_manual(values=drugCol) + 
+    theme_bw()+
+      theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) 
+
+
+```
+
+Now we can investigate the features used to predict by building a model on all
+the data.
+```{r full model}
+
+full_models <- lapply(unique(sing_exp$drug), function(drug) {
+  ##get the data for a specific treatment, measurement time, and drug
+   tvec <- sing_exp[sing_exp$treat_time == ttime &
+                   sing_exp$expr_time == etime &
+                   sing_exp$drug == drug,] |>
+    drop_na() |>
+    arrange(auc) |>
+    tibble::column_to_rownames('improve_sample_id')
+
+  samps <- intersect(colnames(tmat), rownames(tvec))
+  tvec <- tvec[samps,]
+  df = t(tmat[,samps])#data.frame(apply(tmat[, samps],1,log2))
+  model <- glmnet(x = df, y = tvec$auc, alpha = 0.5)
+  return(model)
+})
+
+names(full_models) <- unique(sing_exp$drug)
+
+##now for each model we can visualize the genes
+feats <- do.call(rbind,lapply(names(full_models), function(nmod){
+  mod <- full_models[[nmod]]
+  genes = setdiff(unique(rownames(which(coef(mod) != 0, arr.ind=T))),'(Intercept)')
+  return(c(drug = nmod, features = paste(genes, collapse=',')))
+})) |>
+  as.data.frame() |>
+  tidyr::separate_longer_delim(features, delim = ',')
+
+##we can also predict comvbination effects
+feats |> group_by(drug) |> summarize(numFeatures = n())
+```
+We can ask if there are specific pathways that are useful to predict drug response
+
+
+```{r pathway enrichment}
+
+library(leapR)
+ddata <- sing_exp |> tidyr::pivot_wider(names_from= drug, values_from=auc) |> tibble::column_to_rownames('improve_sample_id')
+cdata <- feats |> mutate(model_feature=TRUE) |> tidyr::pivot_wider(names_from=drug, values_from=model_feature, values_fill=FALSE) 
+
+odata <- data.frame(features = setdiff(rownames(tmat), feats$features), |> tibble::column_to_rownames('features')
+exp_set <- SummarizedExperiment(assays=SimpleList(tmat), rowData=cdata, colData = ddata)
+
+
+```
+
+
+## Combo prediction data
+
+Now we want to use single agent models to predict combo
+
+
+### Combo gex data
+
+```{r combo gex data}
+
+tmat <- full_tmat[,intersect(colnames(full_tmat), exp$improve_sample_id)]
+
+```
+
+### Combo model evaluation
+
+
+Now we can try to use these values to predict delta AUC. These values
+are on a different scale, as tehy are meant to represent AUC, so let's scale
+them linearly between -1 and 1. 
+
+
+```{r applying single drug models}
+
+dpreds <- do.call(rbind, lapply(names(full_models), function(d){
+  mod <- full_models[[d]]
+  #feats <- intersect(rownames(mod$beta),rownames(stmat))
+  pval <- predict(mod, newx = t(tmat), s = 0.001)#[feats,])
+  
+  return(data.frame(drug = d, improve_sample_id = as.numeric(colnames(tmat)), pred = pval[,1]))
+}) )
+
+dpreds <- dpreds |>  left_join(samples) |>
+  tidyr::separate(other_id, into=c('samp','initial_drug','time','treat','type'),sep='_') |>
+  dplyr::select(drug,improve_sample_id, samp, initial_drug,time,treat, pred ) |>
+  distinct() |>
+  mutate(initial_drug = tolower(initial_drug))
+
+ggplot(dpreds, aes(x = pred, fill = drug)) + 
+  geom_histogram(position = 'dodge') +
+  scale_fill_manual(values=drugCol)
+
+
+ggplot(dpreds, aes(x = drug, y = pred, col = drug)) + 
+  geom_jitter() +
+  scale_color_manual(values=drugCol) +facet_grid(samp~.)
+
+```
+
+Some values are just all over the map. linear model wants to push values
+between 0 and 1 (AUC) but realistically gets moved around. 
+
+Since we are interested in what are the *best* predictions for each drug,  we 
+will scale the values between 0 and 1 by drug.
+
+```{r normalized predictions}
+
+
+dpreds <- dpreds |> 
+  mutate(oppPred = 1-pred) |>
+  group_by(drug, .drop = FALSE) |> mutate(predRank = 1-rank(pred)/length(pred)) |>
+  ungroup() |>
+  group_by(improve_sample_id, .drop=FALSE) |> mutate(sampleRank = 1-rank(pred)/length(pred))
+
+
+##rank d_auc by same metr
+
+exp <- exp |>
+  group_by(initial_drug, .drop = FALSE) |> mutate(dAUCRank = rank(delta_auc)/length(delta_auc))
+
+```
+
+
+
+```{r compare with experiment}
+
+dat_with_pred <- dpreds |>
+  dplyr::select(improve_sample_id, drug, oppPred,pred, predRank,sampleRank) |>
+  right_join(exp) |>
+ # mutate(pd_auc = 1 - as.numeric(pred)) |> #this gets us in the right direction
+  mutate(rankErr = (predRank - dAUCRank)^2) |>
+  mutate(err = (oppPred - delta_auc)^2)
+#|> ##still not quite right
+#  subset(!is.na(pred))
+
+dat_with_pred |>
+  ggplot(aes(x = expr_time, y = err,col = drug)) + geom_jitter() + 
+    scale_color_manual(values = drugCol) + 
+    geom_boxplot() +
+  facet_grid(~treat_time)
+
+dat_with_pred |>
+  ggplot(aes(x = common_name, y = sampleRank, col = drug)) + geom_jitter() + 
+    scale_color_manual(values=drugCol) + 
+    geom_boxplot() +
+  facet_grid(~treat_time)
+
+
+dat_with_pred |>
+  ggplot(aes(x = initial_drug, y = predRank, col = drug)) + geom_jitter() + 
+    scale_color_manual(values = drugCol) + 
+  geom_boxplot() +
+  #facet_grid(~treat_time) +
+  theme_bw()
+
+
+ggplot(dat_with_pred, aes(x = common_name, y = err, col = drug)) + 
+  geom_jitter() + 
+    scale_color_manual(values=drugCol) + 
+  theme_bw()
+
+
+ggplot(dat_with_pred, aes(x = delta_auc, y = pred, col = drug)) + 
+  geom_jitter() + 
+    scale_color_manual(values=drugCol) + 
+  geom_smooth(method='lm', aes(group=drug))+
+  theme_bw()
+
+subset(dat_with_pred, predRank > 0.75) |>
+ggplot(aes(x = delta_auc, y = pred, col = drug)) + 
+  geom_jitter() + 
+    scale_color_manual(values=drugCol) + 
+    geom_smooth(method='lm', aes(group=drug))+
+  theme_bw()
+```
+

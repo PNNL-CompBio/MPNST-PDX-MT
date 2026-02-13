@@ -1,0 +1,568 @@
+---
+title: "Evaluate second drug pathways"
+author: "Sara Gosline"
+date: "2026-01-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(synapser)
+synLogin()
+source("correlation_functions.R")
+source("../RNAseq/plottingParameters.R")
+
+```
+
+## Data
+
+We have reformatted the data into three files:
+1. sample file describing the samples
+2. gene file with gene metadata
+3. transcriptomics data with gene expression data
+4. combination data with delta AUC values
+5. drug data with single AUC values
+
+Most data is now read in by `correlation_functions.R`
+
+```{r data, message=FALSE}
+
+##get the transcript data, this is slow
+full_tmat <- get_harmonized_gex()
+
+```
+
+now that we have the gene, sample, and drug names and metadata we can collect the 
+drug response data
+
+
+## Single drug properties
+
+First we collect the baseline gene expression measurements. 
+__TODO__: this is old data, we need the updated values with DMSO treated
+samples.
+
+```{r single drug data}
+
+##averge ACUS
+sing_exp <- sing_exp |>
+  group_by(common_name, improve_sample_id,other_id,drug,treat_time) |>
+  summarize(auc = mean(auc)) |>
+  ungroup() |>
+  subset(!is.na(auc)) |>
+  mutate(treat_time = as.numeric(as.character(treat_time)))
+
+```
+
+We can revisit the distribution of AUC scores to see how varied they are
+across samples. 
+```{r AUC distribution}
+drugnames <-  unique(ddrugs$chem_name)
+drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drugnames)),"Paired"))(length(drugnames)) # need color ramp for >12 colors
+names(drugCol) <- drugnames
+
+###how is the AUC distributed across samples
+subset(sing_exp, !is.na(drug)) |>
+  ggplot(aes(x = auc,group = drug, 
+                  col = drug)) +
+           scale_color_manual(values = drugCol) +
+  geom_density() +
+   theme_bw()
+
+
+###how is the AUC distributed across samples
+subset(sing_exp, !is.na(drug)) |>
+  ggplot(aes(x = auc,group = drug, 
+                  fill = drug)) +
+           scale_fill_manual(values = drugCol) +
+    geom_histogram() +#position='dodge') +
+     theme_bw()
+
+```
+
+## Combination drug data
+
+For the combination data we are looking at effects of secondary drugs, or the
+delta AUC. We first plot the values then look at specifics
+
+First we can ask what drugs seem to have a positive effect on tumor reduction 
+regardless of initial drug treatment. 
+```{r plot data}
+##now we can plot the delta AUC values
+#names(drugCol)<- tolower(names(drugCol))
+#drugnames <-  unique(exp$drug)
+drugCol <- classCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drugnames)),"Paired"))(length(drugnames)) # need color ramp for >12 colors
+names(drugCol)<-drugnames
+
+####how is the delta AUC distributed across samples
+subset(exp, !is.na(drug)) |>
+ggplot(aes(x=delta_auc,group = drug, 
+                col = drug)) +
+         scale_color_manual(values=drugCol)+
+  geom_density()+facet_grid(treat_time  ~ .) +
+   theme_bw()
+
+subset(exp, !is.na(drug)) |>
+  ggplot(aes(x=delta_auc,group = drug, 
+                fill = drug)) +
+         scale_fill_manual(values=drugCol) +
+  geom_histogram(position='dodge', binwidth=.1) + facet_grid(treat_time  ~ .) +
+   theme_bw()
+
+
+```
+
+Here we can see that olaparib almost seems to reduce single drug efficacy,
+while trabectedin improves it at 48 hrs
+
+### Delta AUC by sample
+We can further break this down by sample
+```{r delta auc by sample}
+
+subset(exp, !is.na(drug))|> ##get rid of drugs that are not in the final set
+  ggplot(aes(x=delta_auc,group = drug, 
+                col = drug)) +
+         scale_color_manual(values=drugCol)+
+  geom_density()+facet_grid(treat_time ~ common_name) +
+   theme_bw()
+
+subset(exp, !is.na(drug))|> ##get rid of drugs that are not in the final set
+  ggplot(aes(x=delta_auc,group = drug, 
+                fill = drug)) +
+         scale_fill_manual(values=drugCol)+
+  geom_histogram(position='dodge')+facet_grid(treat_time ~ common_name) +
+   theme_bw()
+
+
+```
+
+
+this shows differing behavior by sample. we can also see
+if the delta AUC is different based on initial drug, which 
+is divided up along the columns below. 
+
+### Delta auc by drug
+
+```{r delta auc by drug}
+
+subset(exp, !is.na(drug))|>
+ggplot(aes(x=delta_auc,group = drug, 
+                col = drug)) +
+         scale_color_manual(values=drugCol)+
+  geom_density()+facet_grid(treat_time  ~ initial_drug) +
+    theme(axis.text.x = element_text(angle = 90, vjust=1, hjust=1)) +
+   theme_bw()
+
+subset(exp, !is.na(drug)) |>
+  subset(treat_time ==48) |>
+ggplot(aes(x=initial_drug,y=drug)) +
+         scale_fill_viridis_c()+
+  geom_tile(aes(fill=delta_auc))+facet_grid(common_name ~ .) +
+    theme(axis.text.x = element_text(angle = 90, vjust=1, hjust=1)) +
+   theme_minimal()
+
+subset(exp, !is.na(drug)) |>
+  subset(treat_time == 120) |>
+ggplot(aes(x = initial_drug,y = drug)) +
+         scale_fill_viridis_c() +
+  geom_tile(aes(fill = delta_auc)) + facet_grid(common_name ~ .) +
+    theme(axis.text.x = element_text(angle = 90, vjust=1, hjust=1)) +
+   theme_minimal()
+```
+
+### How do mirda + vorin look?
+
+THen we can look direclty at the combination of mirda and vorinostat
+```{r dauc mirda vorin}
+subset(exp, !is.na(drug))|>
+  subset(initial_drug%in%c('mirdametinib','vorinostat'))|>
+    subset(drug%in%c('mirdametinib','vorinostat'))|>
+ggplot(aes(x=initial_drug,y=drug)) +
+         #scale__manual(values=drugCol)+
+  geom_tile(aes(fill=delta_auc))+facet_grid(treat_time  ~ common_name) +
+   theme_bw()
+
+subset(exp, !is.na(drug)) |> subset(delta_auc>0)|>group_by(initial_drug,drug)|>summarize(number=n())
+
+```
+
+We have the files, now combine them in a way that can be used for modeling
+### Compare mean delta auc
+Do the mean values agree with what we saw with the paper calculation?
+
+```{r dauc}
+md <- exp|>
+  subset(!is.na(drug))|>
+           group_by(drug,treat_time)|>
+  summarize(meanDAUC = mean(delta_auc),  count = n_distinct(delta_auc))
+
+ggplot(md,aes(x=drug,y=meanDAUC,fill=count)) +
+  geom_bar(stat='identity')+facet_grid(~treat_time) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+
+# Evaluate correlations
+
+Here we want to look at correlations between baseline gene expression and drug
+response.
+
+### Correlation of AUC and gene expression
+
+Let's first look at the untreated gene expression data and see if we can 
+find out features that predict AUC
+
+```{r untreated gene expression}
+
+
+tmat <-   full_tmat[,intersect(colnames(full_tmat), sing_exp$improve_sample_id)]
+
+print('computing gene/aUC correlation')
+
+#first focus on only durgs with 10 data points
+#gvals <- md|>subset(count>10)
+
+sing_exp <- sing_exp |> mutate(expr_time='0hr')
+
+cor_res <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
+      rbind(compute_cor(sing_exp,tmat,drug,'0hr',48))
+    })) #end drug iter
+
+
+cor_res |>
+  ggplot(aes(x=corval,col=drug)) + geom_density() +
+  scale_color_manual(values=drugCol) + 
+  theme_bw()
+
+```
+
+We only have 8 samples here, but across drugs there is an enrichment of genes
+that are negatively correlated with AUC, which means they are high when the drug
+is MORE effective
+
+### Correlation with known targets
+
+We have a list of known drug targets, we can see if higher expression of those targets
+is correlated with AUC
+
+```{r cor targets}
+drug.target.info <- read.csv("https://ndownloader.figshare.com/files/20237712") |>
+  mutate(name = tolower(name))
+
+sel.targs <- drug.target.info[drug.target.info$name %in% sing_exp$drug,c('name','moa','target')] |>
+  unique() |>
+  rbind(c('mirdametinib','MEK inhibitor','MAP2K1, MAP2K2')) |>#MEK
+  rbind(c('tno155','SHP2 inhibitor','PTPN11')) |>
+  rbind(c('trabectedin','','')) |>
+  tidyr::separate_longer_delim(target,delim = ', ')
+
+
+corplots <- lapply(unique(sing_exp$drug), function(d){
+  corv <- subset(cor_res, drug == d)
+  targs = subset(sel.targs, name == d)
+  
+  corv$target <- 'Not a target'
+  corv$target[which(corv$gene %in%targs$gene)] <- 'Drug target'
+  ggplot(corv, aes(x=corval, col=target)) + geom_density() + ggtitle(paste0(d, ' target correlation'))
+  
+})
+#subset(cor_res,gene%in%sel.targs$target)|>View()
+
+```
+
+### Other promising correlated features
+
+
+
+Now that we have the data we can look at its properties. 
+
+### Treated gene expression data
+
+We first read in the transcriptomics data that matches the combination experiments
+```{r treated exp, echo=FALSE, warning=FALSE, message=FALSE}
+##read in transcritomics, focus on gene name and average counts acros
+##gene isoforms
+
+tmat <- full_tmat[,intersect(colnames(full_tmat), exp$improve_sample_id)]
+
+
+```
+
+Significance code doesn't work yet
+```{r cor sig, eval=FALSE}
+print('computing gene/auc significance')
+cor_sig <- do.call(rbind,lapply(unique(gvals$drug), function(drug){
+      rbind(compute_sig(exp,tmat,drug,'8hr','48'),
+            compute_sig(exp,tmat,drug,'24hr','48'),
+            compute_sig(exp,tmat,drug,'8hr','120'),
+            compute_sig(exp,tmat,drug,'24hr','120'))
+    })) #end drug iter
+
+
+```
+
+Now we can summarize and calculate how many genes are significantly correlated 
+by drug, time point. 
+
+```{r number of genes}
+
+cor_res <- cor_res |>
+  mutate(dir=ifelse(corval<0,'neg','pos'))
+
+##here is the count of correlates, based on 0.7 for the moment
+cor_counts <- cor_res |>
+  subset(abs(corval)>0.7) |> 
+  group_by(drug,ttime,etime)|>
+  summarize(gene_cor = n_distinct(gene))|>
+  arrange(desc(gene_cor))
+
+##let's look at these
+ggplot(cor_counts,aes(x=drug,y=gene_cor,fill=etime)) +
+         geom_bar(stat='identity',position='dodge') +
+  facet_grid(ttime~.)
+
+dir_counts <- cor_res |>
+  subset(abs(corval) > 0.7) |> 
+  group_by(drug,dir,ttime,etime) |>
+  summarize(gene_cor = n_distinct(gene)) |>
+  mutate(cor_genes = ifelse(dir == 'pos',gene_cor,-1*gene_cor)) |>
+  arrange(desc(cor_genes))
+
+##let's look at these
+ggplot(dir_counts,aes(x = drug,y = cor_genes,fill = etime)) +
+         geom_bar(stat='identity',position='dodge') +
+  facet_grid(ttime~.)
+
+```
+
+## Pathway enrichment
+
+Now we can look at which pathways are correlated with drug efficacy
+
+```{r pathway, warning=FALSE, message=FALSE}
+library(leapR)
+library(SummarizedExperiment)
+###move all data into expression set
+#first format exp data
+
+cor_mat <- cor_res |>
+  dplyr::select(-dir)|>
+  tidyr::unite(drug,ttime,etime,sep='_',col='condition') |>
+  pivot_wider(names_from=condition,values_from=corval)|>
+  tibble::column_to_rownames('gene')
+
+df <- exp |> 
+  subset(!is.na(drug)) |>
+  tidyr::unite(drug, treat_time, 
+               col = 'experiment', sep = '_') |>
+  pivot_wider(names_from = experiment,
+              values_from = auc) |>
+  tibble::column_to_rownames('improve_sample_id')
+
+eset <- SummarizedExperiment(assays = list(cor = cor_mat))
+data("ncipid")
+data('krbpaths')
+
+
+cor_enrich <- do.call(rbind,lapply(colnames(cor_mat), function(e){
+  print(e)
+  suppressMessages(res <- leapR(geneset = krbpaths,
+                                  assay_name = 'cor',
+          enrichment_method = 'enrichment_in_order',
+          primary_columns = e, 
+          eset = eset))
+    res |>
+      mutate(condition = e) |>
+      tibble::rownames_to_column('pathway')
+})) |>
+  tidyr::separate(condition,into=c('drug','treat_time','expr_time'), sep='_')
+
+path_stats <- subset(cor_enrich,BH_pvalue < 0.01) |>
+  group_by(drug,treat_time,expr_time) |>
+  summarize(numSig=n_distinct(pathway)) 
+
+ggplot(path_stats,aes(x = drug,y = numSig,fill = treat_time)) + 
+  geom_bar(position = 'dodge',stat='identity') + facet_grid(expr_time~.)
+
+
+path_counts <- subset(cor_enrich,BH_pvalue < 0.01) |> 
+  group_by(pathway) |>
+  summarize(n_drugs=n_distinct(drug))|>arrange(desc(n_drugs))
+
+upaths <- subset(path_counts,n_drugs==1) ## unique pathways
+
+subset(cor_enrich, BH_pvalue < 0.01) |>
+  subset(pathway%in%upaths$pathway)
+```
+Not sure what to do with this - lots of pathways correlated, but they're all the same.
+
+Let's try regression instead. 
+
+## Try to predict AUC from gene expression
+
+
+Here we try to use a predictive model. Here we use xgboost regression with LOO
+cross validation to predict delta AUC in an unseen sample for each secondary drug. 
+
+```{r regression}
+library(xgboost)
+
+#drug = 'mirdametinib'
+etime = '8hr'
+ttime = 120
+
+params <- list(
+  objective = "reg:squarederror", # Standard regression
+  eta = 0.1,                     # Learning rate
+  max_depth = 6,                 # Tree depth
+  eval_metric = "rmse"           # Evaluation metric
+)
+  
+rres <- do.call(rbind, lapply(c('8hr','24hr'), function(etime) {
+  do.call(rbind, lapply(c(48,120),function(ttime) { 
+    do.call(rbind, lapply(unique(exp$drug), function(drug) {
+  
+  ##get the data for a specific treatment, measurement time, and drug
+   tvec <- exp[exp$treat_time == ttime &
+                   exp$expr_time == etime &
+                   exp$drug == drug,] |>
+    drop_na() |>
+    arrange(auc) |>
+    tibble::column_to_rownames('improve_sample_id')
+
+  df = data.frame(apply(tmat[, as.character(rownames(tvec))],1,log2))
+  #df$delta_auc = as.numeric(tvec$delta_auc)
+
+
+
+##here we do the LOO for each sample in the drug
+  samp_preds <- lapply(rownames(df), function(samp){
+
+    st <- setdiff(rownames(df), samp)
+    dtrain <- xgb.DMatrix(as.matrix(df[st,]), label = tvec[st,'auc'])
+  
+  
+    model <- xgboost(x = as.matrix(df[st,]), 
+                     y = tvec[st,'auc'],
+     objective = "reg:squarederror", # Standard regression
+      learning_rate = 0.1,                     # Learning rate
+      max_depth = 8,                 # Tree depth
+      eval_metric = "rmse",
+  #  data = dtrain,
+     nrounds = 1000)
+  #importance_matrix <- xgb.importance(model = model)
+  #pheatmap::pheatmap(t(df)[importance_matrix$Feature,
+  #                             as.character(rownames(tvec))],
+  #                    annotation_col = tvec, cluster_cols = FALSE)
+
+  preds <- predict(model, newdata = df[samp,], validate_features = TRUE)
+  return(preds)
+  }
+)
+  
+  tvec$preds= unlist(samp_preds)
+  return(tvec)
+  })
+)}))}))
+
+```
+
+once the regression runs we can evaluate which predictions are possible. 
+
+```{r prediction plots}
+
+rres <- rres|>mutate(error = (auc-preds)^2)
+
+##plot by drug
+ggplot(rres, aes(x=error,fill=drug)) + geom_histogram() + scale_fill_manual(values=drugCol) + facet_grid(treat_time~expr_time)
+
+##plot by sample
+
+```
+It seems that the 8hr time point is the best at predicting 48 hr drug combination
+effect of a single agent, though that varies for specific drugs
+
+
+```{r compute gene wise correlations, warning=FALSE, message=FALSE}
+
+print('computing gene/aUC correlation')
+
+#first focus on only durgs with 10 data points
+gvals <- md |> subset(count > 10)
+
+exp <- exp |>
+dplyr::rename(auc = 'delta_auc') |>
+  mutate(treat_time = as.numeric(as.character(treat_time)))
+
+cor_res <- do.call(rbind,lapply(unique(gvals$drug), function(drug){
+      rbind(compute_cor(exp,tmat,drug,'8hr',48),
+            compute_cor(exp,tmat,drug,'24hr',48),
+            compute_cor(exp,tmat,drug,'8hr',120),
+            compute_cor(exp,tmat,drug,'24hr',120))
+    })) #end drug iter
+
+
+
+```
+
+```{r results}
+
+##top combo is mirda + vorin, what predicts those? 
+
+
+```
+
+```{r lightgbm eval, eval=FALSE}
+library(tidymodels)
+library(bonsai)
+library(lightgbm)
+
+
+stable_folds <- vfold_cv(df, v = 5, repeats = 10)
+
+lgbm_spec <- boost_tree(
+  trees = 100,
+  tree_depth = tune(),  # Tunable parameter
+  learn_rate = tune()   # Tunable parameter
+) %>%
+   set_engine("lightgbm", 
+             num_threads = 1,          # Prevent parallel conflicts
+             min_data_in_leaf = 1,    # REQUIRED for 18 rows
+             min_data_in_bin = 1      # REQUIRED for 18 rows
+  )%>% 
+  set_mode("regression")
+
+# 2. Create LOOCV folds
+# Warning: This creates n resamples (n = number of rows)
+loocv_folds <- loo_cv(df)
+
+# 3. Create a workflow
+lgbm_wflow <- workflow() %>%
+  add_model(lgbm_spec) %>%
+  add_formula(delta_auc ~ .)
+
+# 4. Define a small tuning grid
+# LOOCV fits n * grid_size models. Keep size low to avoid crashes.
+lgbm_grid <- grid_regular(
+  tree_depth(range = c(3, 7)),
+  learn_rate(range = c(-2, -1)),
+  levels = 3
+)
+
+# 5. Tune the model
+# Increase R's expression limit if you still hit stack overflow
+options(expressions = 50000)
+
+tuning_results <- lgbm_wflow %>%
+  tune_grid(
+    resamples = stable_folds,
+    grid = lgbm_grid,
+    metrics = metric_set(rmse, rsq)
+  )
+
+# 6. Select best parameters
+best_params <- select_best(tuning_results, metric = "rmse")
+final_wflow <- finalize_workflow(lgbm_wflow, best_params)
+```

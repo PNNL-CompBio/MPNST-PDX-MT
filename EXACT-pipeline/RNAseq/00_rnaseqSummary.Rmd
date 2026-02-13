@@ -78,7 +78,7 @@ Let's compute the differential expression of each drug/time point compared with 
 
 ```{r diffex, echo=FALSE,warning=FALSE,message=FALSE}
 library("DESeq2")
-counts<-reduced.data|>
+counts <- reduced.data|>
   dplyr::select(ensembl_gene_id,id,NumReads)|>
   tidyr::pivot_wider(names_from=id,values_from=NumReads, values_fn = mean)|>
   tibble::column_to_rownames('ensembl_gene_id')|>
@@ -100,9 +100,9 @@ diffexCalls<-do.call(rbind,lapply(temp.drugs,function(d_name){
   do.call(rbind,lapply(c('8h','24h'),function(tval){
     cat(tval,"\n")
     samps <- subset(sampmeta, Timepoint==tval)|>
-      subset(Drug%in%c(d_name,"DMSO"))|>
-      subset(id%in%colnames(counts))|>
-      subset(Date%in%batches$Date) # SG Make sure we only look at DMSO from that date
+      subset(Drug %in% c(d_name,"DMSO"))|>
+      subset(id %in% colnames(counts))|>
+      subset(Date %in% batches$Date) # SG Make sure we only look at DMSO from that date
     samps$Drug <- factor(samps$Drug, levels=c("DMSO",d_name)) # make sure contrast is drug vs. dmso per DESeq2 vignette
     cts<-counts[,intersect(samps$id,colnames(counts))]
     dds <- DESeqDataSetFromMatrix(countData = round(cts),
