@@ -28,10 +28,10 @@ drug.class <- list(Trametinib = "MEK1/2i", Mirdametinib="MEK1/2i",
                    Selumetinib = "MEK1/2i", TNO155="SHP2i", `RMC-4630`="SHP2i",
                    Palbociclib= "CDK4/6i",Ribociclib= "CDK4/6i",Decitabine= "DNMTi",
                    Olaparib= "PARPi",Vorinostat= "HDACi",Capmatinib= "c-Meti",
-                   #Verteporfin	= "TEADi",IAG933= "TEADi",
-                   #Pexidartinib= "CSFRi",
+                   Verteporphin	= "TEADi",IAG933= "TEADi",
+                   Pexidartinib= "CSFRi",
                    Doxorubicin= "TOP2i",Ifosfamide= "DNA alkylating",
-                   #`SN-38`	= "TOP1i",
+                   `SN-38`	= "TOP1i",
                    Trabectedin	= "chemotherapy")
 
 

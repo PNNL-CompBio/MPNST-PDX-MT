@@ -7,11 +7,13 @@ mem.maxVSize(vsize=32762*2)
 samples <- readr::read_csv(synGet('syn72249842')$path)
 
 ###ask jermey to fix this
-samples$other_id <- stringr::str_replace_all(samples$other_id,'MN_2','MN-2')
-samples$other_id <- stringr::str_replace_all(samples$other_id,'JH_2_002','JH-2-002')
-samples$other_id <- stringr::str_replace_all(samples$other_id,'WU_225','WU-225')
+#samples$other_id <- stringr::str_replace_all(samples$other_id,'MN_2','MN-2')
+#samples$other_id <- stringr::str_replace_all(samples$other_id,'JH_2_002','JH-2-002')
+#samples$other_id <- stringr::str_replace_all(samples$other_id,'WU_225','WU-225')
 
+library(synapser)
 
+synLogin()
 #get drug data
 edrugs <- c('cudc-907','carboplatin','carbozantinib', 'rapamycin','eribulin','etoposide',
             'shp-099','dacarbazine','sapanisertib','everolimus', 'bortezomib', 'cerdulatinib',
@@ -25,20 +27,21 @@ ddrugs <- readr::read_tsv(synGet('syn72249846')$path) |>
 
 ##get experimental data
 
-### single drug data
+target_study <- "EXACT"
+dr_metric = "auc"
+
 sing_exp <- readr::read_tsv(synGet('syn72331824')$path) |>
-  subset(dose_response_metric == 'auc') |>
+  subset(dose_response_metric == dr_metric & study == target_study) |>
   mutate(treat_time = as.factor(time)) |>
   left_join(samples) |>
-  #tidyr::separate(other_id, into=c('samp','initial_drug','time','treat','type'),sep='_')|>
   left_join(ddrugs) |>
-  subset(!is.na(chem_name)) |> ###NOTE we're ignoring drugs that we aren't evaluating in combo
+  subset(!is.na(chem_name)) |>
   dplyr::select(common_name, improve_sample_id, other_id,
+                study,
                 drug = chem_name, treat_time,
                 auc = dose_response_value) |>
   distinct()
 
-sing_exp <- sing_exp[-grep('treated',sing_exp$other_id),]
 
 
 ###combination data
@@ -149,4 +152,16 @@ compute_sig <- function(exp, tmat, drug, etime, ttime){
 }
 #update memory size just in case
 ##for each expr time point and second drug we calculate correlation
+
+get_ssgsea<-function(tmat){
+  library(GSVA)
+
+  gsetslst <- list(INNATE_RESPONSE=c("AIM2", "ALPK1", "AP3B1"),
+                   ADAPTIVE_RESPONSE=c("CD27", "CD70", "EBAG9"))
+  gsetslst
+  gsetsgsc <- geneIdsToGeneSetCollection(gsetslst)
+
+  ##now run ssGSEA on entire matrix
+
+}
 
