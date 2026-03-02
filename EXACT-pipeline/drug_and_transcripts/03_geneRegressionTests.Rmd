@@ -22,18 +22,20 @@ library(ggplot2)
 library(tidyr)
 library(dplyr)
 
+library(synapser)
+synLogin()
 source('../RNAseq/plottingParameters.R')
 source('correlation_functions.R')
 
 names(classCol) <- tolower(names(classCol))
 if(!exists('full_tmat'))
   full_tmat <- get_harmonized_gex()
-knitr::opts_chunk$set(echo = TRUE)
 
-  tmat <-   full_tmat[,intersect(colnames(full_tmat), sing_exp$improve_sample_id)]
+tmat <- full_tmat[,intersect(colnames(full_tmat), sing_exp$improve_sample_id)]
 ```
 
-View auc distrinbution
+View AUC counts and see if we can filter for those drugs for which we have the
+most data. 
 
 ```{r aucs}
 ggplot(sing_exp, aes(x=common_name, y=auc, col = drug)) +
@@ -51,11 +53,28 @@ ggplot(sing_exp, aes(x=drug, y=auc, col = drug)) +
     theme_bw()+
       theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) 
 
-sing_exp|>group_by(treat_time,drug) |> summarize(numSamp= n()) |> arrange(numSamp)
+
+ggplot(sing_exp, aes(x = drug, fill = as.factor(treat_time)))+ 
+  geom_bar(position = 'dodge') + ggtitle('Number of samples per drug')+
+   theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust=1, hjust=1)) 
+ggsave('sample_counts.pdf')
+
+scounts <- sing_exp|>
+  group_by(treat_time,drug) |> 
+  summarize(numSamp= n()) |> arrange(numSamp)
+
+print(scounts)
+
+tcounts <- scounts |> subset(numSamp > 5)
+
 ```
 
+Obviously we have more single agent data for the drugs we analyze in combination
+so maybe we should just use that. 
 
 However we can still try to identify features that predict AUC.
+
 ## Build elastic net regression using leave one out cross validation
 
 Our sample size is very small, so we restrict ourselves to those drugs with at
@@ -69,10 +88,11 @@ library(glmnet)
 
 alpha = 0.2
 sig = 0.1
+
+rres <- do.call(rbind, lapply(c(48,120), function(ttime){ #build model for each treatment time
   
-rres <- do.call(rbind, lapply(c(48,120), function(ttime){
-  
-  res <- do.call(rbind, lapply(setdiff(sing_exp$drug,'sn-38'), function(drug) {
+  ##build model for each drug in our top counts list
+  res <- do.call(rbind, lapply(unique(tcounts$drug), function(drug) {
   ##get the data for a specific treatment, measurement time, and drug
    tvec <- sing_exp[sing_exp$treat_time == ttime &
                   # sing_exp$expr_time == etime &
@@ -116,26 +136,30 @@ The results show minimal error at 48 hours, with greater error at 120 hrs.
 ```{r pred results}
 
 
+##get ranking to make plotting prettier
 rs <-  rres |> group_by(drug, .add=TRUE, .drop=FALSE) |> 
   summarize(mse = mean(error)) |>
    arrange(mse)
 
-rres <- rres|>left_join(rs)
+#join ranking
+rres <- rres |> left_join(rs)
 
+##plot
 ggplot(rres, aes(x=reorder(drug, mse), y = error, col = drug)) + 
   geom_boxplot() +
   geom_jitter() + 
   facet_grid(~treat_time)+
-    scale_color_manual(values=classCol) + 
+    scale_color_manual(values=drugCol) + 
     theme_bw()+
       theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) 
 
-subset(rres,drug != 'iag933') |>
+#subset(rres,drug != 'iag933') 
+rres |>
 ggplot(aes(x=reorder(drug, mse), y = error, col = drug)) + 
   geom_boxplot() +
   geom_jitter() + 
   facet_grid(~treat_time)+
-    scale_color_manual(values=classCol) + 
+    scale_color_manual(values=drugCol) + 
     theme_bw()+
       theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) +
   labs(x='Drug', y='Cross validation error')
@@ -149,7 +173,7 @@ the data.
 ```{r full model}
 
 ttime = 48
-early_models <- lapply(setdiff(sing_exp$drug,'sn-38'), function(drug) {
+early_models <- lapply(unique(tcounts$drug), function(drug) {
   ##get the data for a specific treatment, measurement time, and drug
    tvec <- sing_exp[sing_exp$treat_time == ttime &
                    sing_exp$drug == drug,] |>
@@ -164,10 +188,10 @@ early_models <- lapply(setdiff(sing_exp$drug,'sn-38'), function(drug) {
   return(model)
 })
 
-names(early_models) <- setdiff(sing_exp$drug,'sn-38')
+names(early_models) <- unique(tcounts$drug)
 
 ttime = 120
-late_models <- lapply(setdiff(sing_exp$drug,'sn-38'), function(drug) {
+late_models <- lapply(unique(tcounts$drug), function(drug) {
   ##get the data for a specific treatment, measurement time, and drug
    tvec <- sing_exp[sing_exp$treat_time == ttime &
                    sing_exp$drug == drug,] |>
@@ -182,7 +206,7 @@ late_models <- lapply(setdiff(sing_exp$drug,'sn-38'), function(drug) {
   return(model)
 })
 
-names(late_models) <- setdiff(sing_exp$drug,'sn-38')
+names(late_models) <- unique(tcounts$drug)
 
 ##now for each model we can visualize the genes
 early_feats <- do.call(rbind,lapply(names(early_models), function(nmod){
@@ -240,14 +264,16 @@ ttmat <- full_tmat[,intersect(colnames(full_tmat), exp$improve_sample_id)]
 ### Combo model evaluation
 
 
-Now we can try to use these values to predict delta AUC. These values
-are on a different scale, as tehy are meant to represent AUC, so let's scale
-them linearly between -1 and 1. 
+Now we can try to use these values to predict AUC shift. Keep in mind that
+the model predicts AUC, and the AUC shift is between -1 and 1,with 1 meaning
+MORE drug sensitivity. 
 
 
 ```{r applying single drug models}
 
 exp <- exp |> subset(!is.na(drug))
+
+
 
 early_cpreds <- do.call(rbind, lapply(names(early_models), function(d){
   mod <- early_models[[d]]
@@ -284,7 +310,7 @@ ggplot(dpreds, aes(x = pred, fill = drug)) +
   scale_fill_manual(values=classCol) + facet_grid(~pred_time)
 
 
-ggplot(dpreds, aes(x = drug, y = pred, col = drug, shape = time)) + 
+ggplot(dpreds, aes(x = drug, y = pred, col = initial_drug, shape = time)) + 
   geom_jitter() +
   scale_color_manual(values=classCol) +
   facet_grid( ~ pred_time) +
@@ -361,7 +387,7 @@ pcounts|>
    theme_minimal()+
       theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) 
 ```
-These just all look the same, probably won't plot thes.
+These just all look the same, probably won't plot these.
 
 ###Best predictions for mirda, RMC38, and vorinostat and sn38
 These four drugs seemed to have the greatest effect at the single agent level,
@@ -369,7 +395,7 @@ These four drugs seemed to have the greatest effect at the single agent level,
 ```{r selected preds}
 names(drugCol) = tolower(names(drugCol))
 dpreds |>
-  subset(initial_drug %in% c('sn-38','mirdametinib','vorinostat','doxorubicin','tno155','rmc-4630'))|>
+  subset(initial_drug %in% c('sn-38','mirdametinib','vorinostat','doxorubicin','tno155','capmatinib'))|>
   ggplot(aes(x=initial_drug, y = pred, col = drug)) + 
   geom_boxplot() + 
   #geom_jitter(aes(shape = samp)) +

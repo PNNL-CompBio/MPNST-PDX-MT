@@ -15,7 +15,9 @@ drug.info <- list(DMSO = "DMSO", "Palbociclib" = "CDK inhibitor", "Ribociclib" =
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
                   "Olaparib" = "PARP inhibitor", "RMC-4630" = "SHP2 inhibitor",
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
-                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor", "IAG933" = "YAP inhibitor")
+                  "Irinotecan" = "TOP inhibitor", "Verteporfin" = "YAP inhibitor",
+                  "SN-38" = "TOP inhibitor", "Pexidartinib" = "CSFR Inhibitor",
+                  "IAG933" = "YAP inhibitor")
 
 
 moaCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drug.info)),"Paired"))(length(unique(drug.info))) # need color ramp for >12 colors
@@ -38,12 +40,12 @@ drug.class <- list(Trametinib = "MEK1/2i", Mirdametinib="MEK1/2i",
 classCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drug.class)),"Paired"))(length(unique(drug.class))) # need color ramp for >12 colors
 names(classCol) <- unique(drug.class)
 classCol <-  classCol[unlist(drug.class)] ##spread it out
-names(classCol) <- names(drug.class)
+names(classCol) <- tolower(names(drug.class))
 
 drugnames <- intersect(names(drug.info),names(drug.class))
 
 drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drugnames)),"Set3"))(length(unique(drugnames))) # need color ramp for >12 colors
-names(drugCol) <- unique(drugnames)
+names(drugCol) <- tolower(unique(drugnames))
 
 
 ##very cofusing: change drug.info to data frame!

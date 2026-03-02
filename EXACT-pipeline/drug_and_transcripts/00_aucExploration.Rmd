@@ -1,0 +1,223 @@
+---
+title: "AUC Exploration"
+author: "Sara Gosline"
+date: "2026-02-28"
+output: html_document
+---
+
+Here we explore the AUC and AUC shift values from the drug sensitivity data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(synapser)
+synLogin()
+source("../RNAseq/plottingParameters.R")
+source("correlation_functions.R")
+
+
+```
+
+## Single drug properties
+
+First we collect the baseline drug sensitivity measurements for single agents
+using the combination data. 
+
+```{r single drug data}
+
+##averge ACUS
+sing_exp <- sing_exp |>
+  group_by(common_name, improve_sample_id,other_id,drug,treat_time) |>
+  summarize(auc = mean(auc)) |>
+  ungroup() |>
+  subset(!is.na(auc)) |>
+  mutate(treat_time = as.numeric(as.character(treat_time)))
+
+```
+
+We can revisit the distribution of AUC scores to see how varied they are
+across samples. 
+```{r AUC distribution}
+
+ggplot(sing_exp, aes(x=common_name, fill = as.factor(treat_time)))+ 
+  geom_bar(position = 'dodge') + ggtitle('Number of drugs per sample')
+
+
+ggplot(sing_exp, aes(x = drug, fill = as.factor(treat_time)))+ 
+  geom_bar(position = 'dodge') + ggtitle('Number of samples per drug')+
+   theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust=1, hjust=1)) 
+
+###how is the AUC distributed across samples
+subset(sing_exp, !is.na(drug)) |>
+  ggplot(aes(x = auc,group = drug, 
+                  col = drug)) +
+           scale_color_manual(values = drugCol) +
+  geom_density() +
+   theme_bw() + facet_grid(~treat_time)
+
+ggplot(sing_exp, aes(x=drug, y=auc, col = drug)) +
+    geom_boxplot()+
+         geom_jitter() + 
+         scale_color_manual(values = drugCol) +
+  facet_grid(~treat_time)+ 
+    theme_bw()+
+      theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) +
+  labs(x='Drug',y='AUC')
+
+ggsave('aucs_by_drug.pdf')
+
+###how is the AUC distributed across samples
+subset(sing_exp, !is.na(drug)) |>
+  ggplot(aes(x = auc,group = drug, 
+                  fill = drug)) +
+           scale_fill_manual(values = drugCol) +
+    geom_histogram(position = 'dodge') +#position='dodge') +
+     theme_bw()+ facet_grid(~treat_time)
+
+```
+
+
+now that we have the gene, sample, and drug names and metadata we can collect the 
+drug response data
+
+
+
+## Combination drug data
+
+For the combination data we are looking at effects of secondary drugs, or 
+the AUC shift, which is the _difference_ between the AUC of a second drug
+after the addition of a first. Keep in mind it is NOT symmetric and
+varies based on the impact of the first drug. 
+
+First we can ask what drugs seem to have a positive effect on tumor reduction 
+regardless of initial drug treatment. 
+```{r plot data}
+##now we can plot the AUC shift values
+#names(drugCol)<- tolower(names(drugCol))
+
+####how is the AUC shift distributed across samples
+subset(exp, !is.na(drug)) |>
+ggplot(aes(x=delta_auc,group = drug, 
+                col = drug)) +
+         scale_color_manual(values=drugCol)+
+  geom_density()+facet_grid(treat_time  ~ .) +
+   theme_bw()
+
+subset(exp, !is.na(drug)) |>
+  ggplot(aes(x=delta_auc,group = drug, 
+                fill = drug)) +
+         scale_fill_manual(values=drugCol) +
+  geom_histogram(position='dodge', binwidth=.1) + facet_grid(treat_time  ~ .) +
+   theme_bw()
+
+
+```
+
+
+Here we can see that olaparib almost seems to reduce single drug efficacy,
+while trabectedin improves it at 48 hrs
+
+### AUC shift by sample
+We can further break this down by sample to see
+which samples show the largest shift in AUC with a second drug. 
+```{r AUC shift by sample}
+
+subset(exp, !is.na(drug))|> ##get rid of drugs that are not in the final set
+  ggplot(aes(x=delta_auc,group = drug, 
+                col = drug)) +
+         scale_color_manual(values=classCol)+
+  geom_density()+facet_grid(treat_time ~ common_name) +
+   theme_bw() 
+
+subset(exp, !is.na(drug))|> ##get rid of drugs that are not in the final set
+  ggplot(aes(x=delta_auc,group = drug, 
+                fill = drug)) +
+         scale_fill_manual(values=drugCol)+
+  geom_histogram(position='dodge')+facet_grid(treat_time ~ common_name) +
+   theme_bw()
+
+
+```
+
+
+
+This shows differing behavior by sample. we can also see
+if the AUC shift is different based on initial drug, which 
+is divided up along the columns below. 
+
+### AUC shift by drug
+
+```{r AUC shift by drug}
+
+# subset(exp, !is.na(drug))|>
+# ggplot(aes(x=delta_auc,group = drug, 
+#                 col = drug)) +
+#          scale_color_manual(values=drugCol)+
+#   geom_density()+facet_grid(treat_time  ~ initial_drug) +
+#     theme(axis.text.x = element_text(angle = 90, vjust=1, hjust=1)) +
+#    theme_bw()
+
+subset(exp, !is.na(drug))|>
+ggplot(aes(x=drug, y=delta_auc, col = drug)) +
+    geom_boxplot()+
+         geom_jitter() + 
+         scale_color_manual(values = drugCol) +
+  facet_grid(~treat_time)+ 
+    theme_bw()+
+      theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) +
+  labs(x='Drug',y='AUC shift')
+
+ggsave('auc_shift_by_drug.pdf')
+
+subset(exp, !is.na(drug)) |>
+  subset(treat_time ==48) |>
+ggplot(aes(x=initial_drug,y=drug)) +
+         scale_fill_viridis_c()+
+  geom_tile(aes(fill=delta_auc))+facet_grid(common_name ~ .) +
+    theme(axis.text.x = element_text(angle = 90, vjust=1, hjust=1)) +
+   theme_minimal()
+
+subset(exp, !is.na(drug)) |>
+  subset(treat_time == 120) |>
+ggplot(aes(x = initial_drug,y = drug)) +
+         scale_fill_viridis_c() +
+  geom_tile(aes(fill = delta_auc)) + facet_grid(common_name ~ .) +
+    theme(axis.text.x = element_text(angle = 90, vjust=1, hjust=1)) +
+   theme_minimal()
+```
+
+
+### How do mirda + vorin look?
+
+THen we can look direclty at the combination of mirda and vorinostat
+```{r dauc mirda vorin}
+subset(exp, !is.na(drug))|>
+  subset(initial_drug%in%c('mirdametinib','vorinostat'))|>
+    subset(drug%in%c('mirdametinib','vorinostat'))|>
+ggplot(aes(x=initial_drug,y=drug)) +
+         #scale__manual(values=drugCol)+
+  geom_tile(aes(fill=delta_auc))+facet_grid(treat_time  ~ common_name) +
+   theme_bw()
+
+subset(exp, !is.na(drug)) |> subset(delta_auc>0)|>group_by(initial_drug,drug)|>summarize(number=n())
+
+```
+
+
+We have the files, now combine them in a way that can be used for modeling
+
+### Compare mean AUC shift
+Do the mean values agree with what we saw with the paper calculation?
+
+```{r dauc}
+md <- exp|>
+  subset(!is.na(drug))|>
+           group_by(drug,treat_time)|>
+  summarize(meanDAUC = mean(delta_auc),  count = n_distinct(delta_auc))
+
+ggplot(md,aes(x=drug,y=meanDAUC,fill=count)) +
+  geom_bar(stat='identity')+facet_grid(~treat_time) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
