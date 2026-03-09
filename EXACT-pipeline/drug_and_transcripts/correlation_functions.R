@@ -197,7 +197,7 @@ bubble_plot <- function(merged_cor){
   #filter out pathways that are significant in at least one samp;e
   sig_paths <- merged_cor|>
       group_by(Pathway) |>
-      summarize(sigval = min(sig)<0.05) |>
+      summarize(sigval = min(sig)<0.01) |>
       subset(sigval)
 
   dot.df <- merged_cor[merged_cor$Pathway  %in% sig_paths$Pathway,]#[gsea.df$Gene_set %in% topSets,]
@@ -211,7 +211,7 @@ bubble_plot <- function(merged_cor){
   dot.plot <- ggplot2::ggplot(
     na.omit(dot.df),
     ggplot2::aes(
-      x = drug, y = Pathway, color = InvCor,
+      x = drug, y = Pathway, color = corval,
       size = minusLogP
     )
   ) +
@@ -222,12 +222,12 @@ bubble_plot <- function(merged_cor){
                           limits=c(-maxAbsNES, maxAbsNES)) +
     #viridis::scale_color_viridis() +
     theme_minimal(base_size=12) +
-    ggplot2::labs(color = "Inverse correlation", size = "-log(P)") +
+    ggplot2::labs(color = "Correlation", size = "-log(P)") +
     theme(axis.title=element_blank(),
           axis.text.x=element_text(angle=45, vjust=1, hjust=1,
                                    color = classCol[drug.order])) +
     geom_point(data = subset(dot.df, sig < 0.05), col = "black", stroke = 1.5, shape = 21) +
-    facet_grid(ttime ~ etime)
+    facet_grid(etime ~ ttime)
   dot.plot
   # most are only in prot and not in RNA
   #ggplot2::ggsave("enrichedPathways_dotPlot.pdf", dot.plot, width=12, height=49)

@@ -5,13 +5,6 @@ date: "2026-02-28"
 output: html_document
 ---
 
----
-title: "Evaluate second drug pathways"
-author: "Sara Gosline"
-date: "2026-01-10"
-output: html_document
----
-
 With this markdown we evaluate which pathways are correlated with drug response.
 
 ```{r setup, include=FALSE}
@@ -55,14 +48,15 @@ find out features that predict AUC
 ```{r untreated gene expression}
 
 
-tmat <- get_gsea_scores(log2(0.001+full_tmat[,intersect(colnames(full_tmat), sing_exp$improve_sample_id)]))
+tmat <- get_gsea_scores(log2(0.001 + full_tmat[,intersect(colnames(full_tmat), 
+                                                          sing_exp$improve_sample_id)]))
 
 print('computing pathway/aUC correlation')
 
 #first focus on only durgs with 10 data points
 #gvals <- md|>subset(count>10)
 
-sing_exp <- sing_exp |> mutate(expr_time='0hr')
+sing_exp <- sing_exp |> mutate(expr_time = '0hr')
 
 cor_res <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
       rbind(compute_cor(sing_exp,tmat,drug,'0hr',48), 
@@ -113,7 +107,7 @@ correlation.
 ```{r ssgsea bubble}
 
 bubble_plot(merged_res)
-ggsave('t0_ssgseaCorrelation.pdf', height = 8)
+ggsave('t0_ssgseaCorrelation.pdf', height = 4,width=12)
 
 ```
 
@@ -156,7 +150,7 @@ subset(cor_sig, sig < 0.01)
 
 
 bubble_plot(full_res)
-ggsave('treated_ssgseaCorrelation.pdf', height = 8)
+ggsave('treated_ssgseaCorrelation.pdf', height = 12, width = 12)
 ```
 
 
@@ -174,7 +168,7 @@ For each drug of interest, can we
 hall_preds <- readr::read_csv('../RNAseq/GSEA_Hallmark/GSEA_results_Hallmark.csv')
 
 
-plotDrug <- function(drug){
+plotDrugFromDiffEx <- function(drug){
  #drug = 'Mirdametinib'
   
   sig_feats <- subset(hall_preds, DrugTreatment==drug) |>
@@ -194,18 +188,105 @@ plotDrug <- function(drug){
     geom_bar(position = 'dodge', stat = 'identity') + 
     scale_fill_manual(values = drugCol) + 
     facet_grid(ttime~Regulation) + 
+    coord_flip() + 
     theme_bw() +    
     theme(axis.title=element_blank(), axis.text.x=element_text(angle=45, vjust=1, hjust=1))+
     labs(x = 'Altered pathway', y = 'AUC correlation', 
     title = paste0('AUC correlations of ',drug,'-altering pathways'))
 }
 
-plotDrug('Vorinostat')
-plotDrug("Mirdametinib")
-plotDrug('TNO155')
-plotDrug('Capmatinib')
-plotDrug('Decitabine')
-plotDrug('Trabectedin')
+plotDrugFromDiffEx('Vorinostat')
+plotDrugFromDiffEx("Mirdametinib")
 
+ggsave('mirdaComboSuggs.pdf')
+plotDrugFromDiffEx('TNO155')
+ggsave('tnoComboSuggs.pdf')
+
+#plotDrugFromDiffEx('Capmatinib')
+#plotDrugFromDiffEx('Decitabine')
+#plotDrugFromDiffEx('Trabectedin')
+
+
+```
+This might be too much to parse in one fell swoop. Perhaps we can
+ask if specific pathways are correlated? 
+
+```{r drug path cor}
+  
+##go bck to single drug scores
+
+
+tmat <- get_gsea_scores(log2(0.001 + full_tmat[,intersect(colnames(full_tmat), 
+                                                          sing_exp$improve_sample_id)]))
+
+
+#define function to plot specific pathway correlation and heatmaps? 
+get_path_drug_cor <- function(pathway = 'KRAS_SIGNALING_DN', drug){
+  
+  path_vals <- tmat[paste0('HALLMARK_',pathway),]
+
+  evals <- data.frame(sing_exp[sing_exp$drug %in% drug,]) 
+  evals$pathway_score <- path_vals[as.character(evals$improve_sample_id)]
+
+  ggplot(evals, aes(x = pathway_score, y = auc, col = drug)) +
+    geom_point(size = 3) +
+    facet_grid(~treat_time) +
+    geom_smooth(method = 'lm', se = FALSE, stroke = 2) + 
+     theme_minimal(base_size=12) + scale_color_manual(values = classCol)  +
+    labs(x = paste0(pathway,' pathway score'), y = 'AUC')
+}
+
+mdrugs <-  c('tno155','vorinostat', 'pexidartinib', 'trabectedin')
+  
+get_path_drug_cor(pathway = 'KRAS_SIGNALING_DN', drug =mdrugs)
+ggsave('mirdaUpreg_drugCor.pdf',height = 4, width =6)
+tdrugs <- c("palbociclib")
+get_path_drug_cor(pathway = 'INTERFERON_ALPHA_RESPONSE', drug = tdrugs)
+ggsave('tnoUpreg_drugCor.pdf',height = 4, width =6)
+```
+
+We can also go back to the genes identified in the diffex and see how they behave
+
+```{r pathgenes}
+
+gvals <- log2(0.001 + full_tmat[,intersect(colnames(full_tmat), 
+                                                          sing_exp$improve_sample_id)])
+
+
+m_df <- msigdbr::msigdbr(species = "Homo sapiens", category = "H")
+gene_sets <- split(x = m_df$gene_symbol, f = m_df$gs_name)
+
+##get mirda leading edge genes see what we see
+genes <- gene_sets$HALLMARK_KRAS_SIGNALING_DN
+
+evals <- data.frame(sing_exp[sing_exp$drug %in% mdrugs,])  |>
+  dplyr::select(improve_sample_id, drug, treat_time, auc)|>
+  distinct() |>
+  tidyr::unite(drug,treat_time, col='drug_treat') |>
+  pivot_wider(names_from = drug_treat, values_from = auc) |> tibble::column_to_rownames('improve_sample_id')
+
+evals <- evals[which(rownames(evals)%in%colnames(gvals)),]
+
+pheatmap::pheatmap(gvals[which(rownames(gvals)%in%genes),order(rowMeans(evals))], 
+                   annotation_col = evals, cluster_cols = FALSE, cellwidth = 10,
+                   cellheight = 10, main = 'KRAS_SIGNALING_DN genes',
+                   filename = 'ksd_genes.pdf')
+
+
+##now get TNO genes
+
+genes <- gene_sets$HALLMARK_INTERFERON_ALPHA_RESPONSE
+
+evals <- data.frame(sing_exp[sing_exp$drug %in% tdrugs,])  |>
+  dplyr::select(improve_sample_id, drug, treat_time, auc)|>
+  distinct() |>
+  tidyr::unite(drug,treat_time, col='drug_treat') |>
+  pivot_wider(names_from = drug_treat, values_from = auc) |> tibble::column_to_rownames('improve_sample_id')
+
+evals <- evals[which(rownames(evals)%in%colnames(gvals)),]
+
+pheatmap::pheatmap(gvals[which(rownames(gvals)%in%genes),order(rowMeans(evals))], 
+                   annotation_col = evals, cluster_cols = FALSE, cellwidth = 10,
+                   cellheight = 10, main = 'INTERFERON_ALPHA_RESPONSE genes', filename = 'ia_genes.pdf')
 
 ```

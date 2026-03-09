@@ -41,13 +41,21 @@ classCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drug.class))
 names(classCol) <- unique(drug.class)
 classCol <-  classCol[unlist(drug.class)] ##spread it out
 names(classCol) <- tolower(names(drug.class))
+classCol$`sn-38` <- '#88811A'
+classCol$mirdametinib <-"#5FB1C4"
+classCol$selumetinib <-"#5FB1C4"
+classCol$trametinib <-"#5FB1C4"
+
+classCol <- unlist(classCol)
 
 drugnames <- intersect(names(drug.info),names(drug.class))
 
 drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(unique(drugnames)),"Set3"))(length(unique(drugnames))) # need color ramp for >12 colors
 names(drugCol) <- tolower(unique(drugnames))
-
-
+drugCol$`iag933` <- '#88811A'
+drugCol$pexidartinib <- '#DBEBAA'
+drugCol$ribociclib <- "#44CC99"
+drugCol = unlist(drugCol)
 ##very cofusing: change drug.info to data frame!
 drug.df <- data.frame(Drug=drugnames, MOA = unlist(drug.info[drugnames]),
                       Class=unlist(drug.class[drugnames]))
