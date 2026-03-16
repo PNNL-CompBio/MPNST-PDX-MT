@@ -6,216 +6,133 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-
-# load packages
-if (!require(panSEA)) {
-  if (!require("devtools", quietly = TRUE))
-  install.packages("devtools")
-  
-  devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
-}
-
-library(plyr);library(dplyr);library(ggplot2);library(synapser);library(panSEA)
-library(data.table); library(RColorBrewer)
-#source("https://raw.githubusercontent.com/PNNL-CompBio/MPNST_Chr8/refs/heads/main/panSEA_helper_20240913.R")
-
-# load helper functions
-#source("https://github.com/PNNL-CompBio/coderdata/blob/main/build/lincs/05-LINCS_perturbations.R")
-get_CCLE_RNA <- function(hgnc = FALSE) {
-  message("Loading adherent CCLE RNA-seq data version 19Q4")
-  if (hgnc) {
-    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")) {
-      download.file(
-        paste0(
-          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
-          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin"
-        ),
-        destfile =
-          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin"
-      )
-    }
-    
-    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")) {
-      download.file(
-        paste0(
-          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
-          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin"
-        ),
-        destfile =
-          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin"
-      )
-    }
-    
-    RNA.first200 <- readRDS("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")
-    RNA.rest <- readRDS("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")
-    RNA.df <- rbind(RNA.first200, RNA.rest) 
-  } else {
-    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin")) {
-      download.file(
-        paste0(
-          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
-          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin"
-        ),
-        destfile =
-          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin"
-      )
-    }
-    
-    if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin")) {
-      download.file(
-        paste0(
-          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
-          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin"
-        ),
-        destfile =
-          "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin"
-      )
-    }
-    
-    load("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin")
-    load("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin")
-    RNA.df <- rbind(RNA.first200, RNA.rest) 
-  }
-  return(RNA.df)
-}
+# knitr::opts_chunk$set(echo = TRUE)
+# 
+# # load packages
+# if (!require(panSEA)) {
+#  # if (!require("devtools", quietly = TRUE))
+# #  install.packages("devtools")
+#   
+# #  devtools::install_github("BelindaBGarana/panSEA", "add-tie-handling")
+# }
+# 
+# library(plyr);library(dplyr);library(ggplot2);library(synapser);library(panSEA)
+# library(data.table); library(RColorBrewer)
+# #source("https://raw.githubusercontent.com/PNNL-CompBio/MPNST_Chr8/refs/heads/main/panSEA_helper_20240913.R")
+# 
+# # load helper functions
+# #source("https://github.com/PNNL-CompBio/coderdata/blob/main/build/lincs/05-LINCS_perturbations.R")
+# get_CCLE_RNA <- function(hgnc = FALSE) {
+#   message("Loading adherent CCLE RNA-seq data version 19Q4")
+#   if (hgnc) {
+#     if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")) {
+#       download.file(
+#         paste0(
+#           "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+#           "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin"
+#         ),
+#         destfile =
+#           "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin"
+#       )
+#     }
+#     
+#     if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")) {
+#       download.file(
+#         paste0(
+#           "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+#           "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin"
+#         ),
+#         destfile =
+#           "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin"
+#       )
+#     }
+#     
+#     RNA.first200 <- readRDS("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")
+#     RNA.rest <- readRDS("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")
+#     RNA.df <- rbind(RNA.first200, RNA.rest) 
+#   } else {
+#     if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin")) {
+#       download.file(
+#         paste0(
+#           "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+#           "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin"
+#         ),
+#         destfile =
+#           "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin"
+#       )
+#     }
+#     
+#     if (!file.exists("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin")) {
+#       download.file(
+#         paste0(
+#           "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/Inputs/",
+#           "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin"
+#         ),
+#         destfile =
+#           "Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin"
+#       )
+#     }
+#     
+#     load("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_1-200.Rbin")
+#     load("Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_201-327.Rbin")
+#     RNA.df <- rbind(RNA.first200, RNA.rest) 
+#   }
+#   return(RNA.df)
+# }
 ```
 
 ## load inputs
-```{r load inputs, echo = FALSE}
-synapser::synLogin()
-# RNA-seq data with HGNC symbols (update once batch-corrected)
-degs <- read.csv(synapser::synGet('syn64397743')$path) # 1312039 genes
-degs <- degs[degs$hgnc_symbol != "" & !is.na(degs$hgnc_symbol),]
-degs <- degs[degs$Drug != "Irinotecan",] # since irinotecan isn't metabolically active
-colnames(degs)[ncol(degs)] <- "Gene"
-colnames(degs)[4] <- "Log2FC"
-degs$padj <- as.numeric(degs$padj)
-degs <- degs[degs$padj <= 0.05,]
-length(na.omit(unique(degs$Gene))) # 11194
+```{r load inputs, echo = FALSE, warning=FALSE, message=FALSE}
 
-# CCLE RNA-seq with HGNC symbols
-ccle <- get_CCLE_RNA(hgnc = TRUE)
-
-# reduce to overlapping genes
-degs <- degs[degs$Gene %in% colnames(ccle)[2:ncol(ccle)],]
-length(na.omit(unique(degs$Gene))) # 2880
-ccle <- ccle[,c("CCLE_ID", degs$Gene)]
-degs$Log2FC <- as.numeric(degs$Log2FC)
-
-# PRISM drug sensitivity (i.e., AUC)
-prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
-        "DMEA/shiny-app/Inputs/PRISM_drug_mean_AUC_6-23-21.csv"))
-prism$X <- NULL
-
-# PRISM drug mechanism of action annotations
-gmt.drug <- GSA::GSA.read.gmt(file = paste0(
-          "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/",
-          "Inputs/MOA_gmt_file_n6_no_special_chars.gmt"))
+# 
+# # CCLE RNA-seq with HGNC symbols
+# ccle <- get_CCLE_RNA(hgnc = TRUE)
+# 
+# # reduce to overlapping genes
+# degs <- degs[degs$Gene %in% colnames(ccle)[2:ncol(ccle)],]
+# length(na.omit(unique(degs$Gene))) # 2880
+# ccle <- ccle[,c("CCLE_ID", degs$Gene)]
+# degs$Log2FC <- as.numeric(degs$Log2FC)
+# 
+# # PRISM drug sensitivity (i.e., AUC)
+# prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
+#         "DMEA/shiny-app/Inputs/PRISM_drug_mean_AUC_6-23-21.csv"))
+# prism$X <- NULL
+# 
+# # PRISM drug mechanism of action annotations
+# gmt.drug <- GSA::GSA.read.gmt(file = paste0(
+#           "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/",
+#           "Inputs/MOA_gmt_file_n6_no_special_chars.gmt"))
 
 ```
 
 ## run DMEA
-```{r DMEA, echo = FALSE}
-drug.info <- list("CDK inhibitor" = c("Palbociclib","Ribociclib"),
-                  "Chemotherapy" = "Trabectedin",
-                  "DNA alkylating agent" = "Ifosfamide",
-                  "DNA methyltransferase inhibitor" = "Decitabine",
-                  "HDAC inhibitor" = "Vorinostat",
-                  "MEK inhibitor" = c("Mirdametinib","Selumetinib","Trametinib"),
-                  "MET inhibitor" = "Capmatinib",
-                  "PARP inhibitor" = "Olaparib",
-                  "SHP2 inhibitor" = c("RMC4630","TNO155"),
-                  "topoisomerase inhibitor" = c("Doxorubicin", "Irinotecan"),
-                  "TEADi" = "Verteporfin")
-# compare treated vs. untreated
-# DMEA NES < 0: drug mechanisms which may be more toxic to treated samples
-synapse_id <- "syn64618500"
-timepoints <- na.omit(unique(degs$Timepoint))
-mpnst <- na.omit(unique(degs$individualID))
-base.path <- getwd()
-dmea.path <- file.path(base.path, "DMEA")
-dir.create("DMEA")
-setwd("DMEA")
+```{r DMEA, echo = FALSE, warning = FALSE, message = FALSE}
 
-dmea.sens <- list()
-drug.corr.sens <- list()
-for (i in timepoints) {
-  cat(i, "\n") 
-  
-  # filter for time
-  time.deg <- degs[degs$Timepoint == i,]
-  
-  temp.dmea.sens <- list()
-  temp.drug.corr.sens <- list()
-  
-  # prep inputs for each drug
-  drug.degs <- list()
-  expr <- list()
-  all.drugs <- na.omit(unique(time.deg$Drug))
-  for (j in all.drugs) {
-    cat(j,"(",which(all.drugs == j),"/",length(all.drugs),"drugs)\n")
-    temp.deg <- na.omit(dplyr::distinct(
-      time.deg[time.deg$Drug == j,
-                c("Gene","Log2FC")]))
-    if (any(duplicated(temp.deg$Gene))) {
-      cat("resolving duplicates\n")
-      temp.deg <- plyr::ddply(temp.deg, .(Gene), summarize,
-                              Log2FC = mean(Log2FC))
-    }
-    temp.deg <- temp.deg[temp.deg$Gene %in% colnames(ccle)[2:ncol(ccle)],]
-    if (nrow(temp.deg) > 0) {
-      drug.degs[[j]] <- temp.deg
-      expr[[j]] <- ccle[,c("CCLE_ID", temp.deg$Gene)]
-    }
-  }
-  
-  # also run analysis for each drug
-  drugResults <- panSEA::mDMEA(drug.sensitivity = prism, gmt = gmt.drug,
-                                 expression = expr, weights = drug.degs,
-                                 types = names(drug.degs), scatter.plots=FALSE)
-
-  temp.dmea.sens.df <- drugResults$compiled.results$result
-  
-  # also compile drug correlations
-  drug.corr.list <- list()
-  for (j in all.drugs) {
-    drug.corr.list[[j]] <- drugResults$all.results[[j]]$corr.result
-  }
-  temp.drug.corr.sens.df <- data.table::rbindlist(drug.corr.list, use.names = TRUE, idcol = "DrugTreatment")
-  colnames(temp.dmea.sens.df)[1] <- "DrugTreatment"
-  drug.corr.sens[[as.character(i)]] <- temp.drug.corr.sens.df
-  dmea.sens[[as.character(i)]] <- temp.dmea.sens.df
-}
-setwd(dmea.path)
-drug.corr.sens.df <- data.table::rbindlist(drug.corr.sens, use.names=TRUE, idcol="Time")
-dmea.sens.df <- data.table::rbindlist(dmea.sens, use.names=TRUE, idcol="Time")
-write.csv(dmea.sens.df,"DMEA_results.csv", row.names = FALSE)
-write.csv(drug.corr.sens.df,"DMEA_correlations.csv", row.names = FALSE)
-synapser::synStore(synapser::File("DMEA_results.csv", parent=synapse_id))
-synapser::synStore(synapser::File("DMEA_correlations.csv", parent=synapse_id))
 ```
 
 ### plot number of correlated drugs, enriched MOAs
 ```{r plot # of results, echo = FALSE}
 ## drug mechanisms
 # prep data
+
+source("plottingParameters.R")
 library(plyr);library(dplyr);library(ggplot2);library(patchwork)
 base.path <- getwd()
 dmea.path <- file.path(base.path, "DMEA")
 setwd(dmea.path)
 dmea.sens.df <- read.csv("DMEA_results.csv")
 drug.corr.sens.df <- read.csv("DMEA_correlations.csv")
-drug.corr.sens.df$DrugTreatment <- factor(drug.corr.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
-dmea.sens.df$DrugTreatment <- factor(dmea.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
+##FIX THIS
+#drug.corr.sens.df$DrugTreatment <- factor(drug.corr.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
+#dmea.sens.df$DrugTreatment <- factor(dmea.sens.df$DrugTreatment, levels=sort(unique(unlist(drug.info))))
 timepoints <- unique(drug.corr.sens.df$Time)
-drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=timepoints)
-dmea.sens.df$Time <- factor(dmea.sens.df$Time, levels=timepoints)
+#drug.corr.sens.df$Time <- factor(drug.corr.sens.df$Time, levels=timepoints)
+#dmea.sens.df$Time <- factor(dmea.sens.df$Time, levels=timepoints)
 all.drugs <- unique(dmea.sens.df$DrugTreatment)
 all.drugs <- all.drugs[all.drugs %in% dmea.sens.df$DrugTreatment]
 all.moas <- sort(names(drug.info)[unlist(drug.info) %in% dmea.sens.df$DrugTreatment])
-drugCol <- colorRampPalette(RColorBrewer::brewer.pal(length(all.drugs),"Set3"))(length(all.drugs)) # need color ramp for >12 colors
-names(drugCol) <- all.drugs
+
 
 sig.dmea <- dmea.sens.df[dmea.sens.df$FDR_q_value < 0.25 & 
                            dmea.sens.df$p_value < 0.05,]
@@ -235,54 +152,54 @@ for (i in 1:length(drug.info)) {
    nMOAs.overall[nMOAs.overall$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i]
   }
 }
-
-# generate plot
-nMOAs.overall$moa <- factor(nMOAs.overall$moa, levels=sort(na.omit(unique(nMOAs.overall$moa))))
-nMOA.plot.overall <- ggplot2::ggplot(nMOAs.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=moa)) +
-  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
-  labs(x="Time (Hours)", y="# of Enriched Drug Mechanisms",
-       color = "Drug Treatment", shape = "Mechanism") +
-  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
-  theme(legend.box="horizontal")
-ggplot2::ggsave("N_enrichedDrugMechanisms_overall.pdf", nMOA.plot.overall, width=5.5, height=4)
-
-## drugs
-# prep data
-sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$Pearson.q < 0.05,]
-nDrugs.overall <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
-                    N = length(na.omit(unique(Drug))))
-
-# are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.4324531
-cat("Overall", "# of drugs correlated at 8h vs. 24h\n")
-t.test(nDrugs.overall[nDrugs.overall$Time=="8h",]$N,
-       nDrugs.overall[nDrugs.overall$Time=="24h",]$N)
-
-nDrugs.overall$moa <- NA
-for (i in 1:length(drug.info)) {
-  if (any(nDrugs.overall$DrugTreatment %in% drug.info[[i]])) {
-   nDrugs.overall[nDrugs.overall$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i]
-  }
-}
-
-# generate plot
-nDrugs.overall$moa <- factor(nDrugs.overall$moa, levels=sort(na.omit(unique(nDrugs.overall$moa))))
-nDrug.plot.overall <- ggplot2::ggplot(nDrugs.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
-  geom_point(aes(color=DrugTreatment, shape=moa)) + scale_color_manual(limits=all.drugs, values=drugCol) +
-  geom_boxplot(width=0.2, alpha = 0) + 
-  scale_y_continuous(trans="log10") + labs(x="Time (Hours)", y="Log(# of Correlated Drugs)",
-                                           color = "Drug Treatment", shape = "Mechanism") +
-  scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
-  theme(legend.box="horizontal")
-ggplot2::ggsave("N_correlatedDrugs_overall.pdf", nDrug.plot.overall, width=5.5, height=4)
-
-patchN.plot.overall <- nMOA.plot.overall + nDrug.plot.overall + patchwork::plot_layout(guides="collect") #& theme(legend.box="horizontal")
-ggplot2::ggsave("N_drugsAndMOAs_overall.pdf", patchN.plot.overall, width=8, height=4)
-ggplot2::ggsave("N_drugsAndMOAs_overall_taller.pdf", patchN.plot.overall, width=8, height=10)
+# 
+# # generate plot
+# nMOAs.overall$moa <- factor(nMOAs.overall$moa, levels=sort(na.omit(unique(nMOAs.overall$moa))))
+# nMOA.plot.overall <- ggplot2::ggplot(nMOAs.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+#   geom_point(aes(color=DrugTreatment, shape=moa)) +
+#   geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+#   labs(x="Time (Hours)", y="# of Enriched Drug Mechanisms",
+#        color = "Drug Treatment", shape = "Mechanism") +
+#   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
+#   theme(legend.box="horizontal")
+# ggplot2::ggsave("N_enrichedDrugMechanisms_overall.pdf", nMOA.plot.overall, width=5.5, height=4)
+# 
+# ## drugs
+# # prep data
+# sig.drug.corr <- drug.corr.sens.df[drug.corr.sens.df$Pearson.q < 0.05,]
+# nDrugs.overall <- plyr::ddply(sig.drug.corr, .(DrugTreatment, Time), dplyr::summarize,
+#                     N = length(na.omit(unique(Drug))))
+# 
+# # are there more/less correlated drugs at 8h vs. 24h? No: p-value = 0.4324531
+# cat("Overall", "# of drugs correlated at 8h vs. 24h\n")
+# t.test(nDrugs.overall[nDrugs.overall$Time=="8h",]$N,
+#        nDrugs.overall[nDrugs.overall$Time=="24h",]$N)
+# 
+# nDrugs.overall$moa <- NA
+# for (i in 1:length(drug.info)) {
+#   if (any(nDrugs.overall$DrugTreatment %in% drug.info[[i]])) {
+#    nDrugs.overall[nDrugs.overall$DrugTreatment %in% drug.info[[i]],]$moa <- names(drug.info)[i]
+#   }
+# }
+# 
+# # generate plot
+# nDrugs.overall$moa <- factor(nDrugs.overall$moa, levels=sort(na.omit(unique(nDrugs.overall$moa))))
+# nDrug.plot.overall <- ggplot2::ggplot(nDrugs.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
+#   geom_point(aes(color=DrugTreatment, shape=moa)) + scale_color_manual(limits=all.drugs, values=drugCol) +
+#   geom_boxplot(width=0.2, alpha = 0) + 
+#   scale_y_continuous(trans="log10") + labs(x="Time (Hours)", y="Log(# of Correlated Drugs)",
+#                                            color = "Drug Treatment", shape = "Mechanism") +
+#   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
+#   theme(legend.box="horizontal")
+# ggplot2::ggsave("N_correlatedDrugs_overall.pdf", nDrug.plot.overall, width=5.5, height=4)
+# 
+# patchN.plot.overall <- nMOA.plot.overall + nDrug.plot.overall + patchwork::plot_layout(guides="collect") #& theme(legend.box="horizontal")
+# ggplot2::ggsave("N_drugsAndMOAs_overall.pdf", patchN.plot.overall, width=8, height=4)
+# ggplot2::ggsave("N_drugsAndMOAs_overall_taller.pdf", patchN.plot.overall, width=8, height=10)
 ```
 
 ### plot all enriched MOAs
-```{r plot all results, echo = FALSE}
+```{r plot all results, echo = FALSE, message = FALSE, warning = FALSE}
 
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA")
@@ -303,6 +220,7 @@ inputDrugs <- unique(unlist(drug.info))[unique(unlist(drug.info)) %in% tested.dr
 inputFace <- rep("plain", length(inputDrugs))
 names(inputFace) <- inputDrugs
 inputFace[drugsInTopSets] <- "bold"
+drugOrder <- intersect(names(drug.class),dot.df$DrugTreatment)
 
 dot.df <- dmea.sens.df#[dmea.sens.df$Drug_set %in% topSets,]
 dot.df$Time <- factor(dot.df$Time, levels=timepoints)
@@ -321,7 +239,7 @@ dot.plot <- ggplot2::ggplot(
 ) +
   ggplot2::geom_point() +
   ggplot2::scale_y_discrete(limits = setOrder) +
-  ggplot2::scale_x_discrete(limits=names(inputFace)) +
+  ggplot2::scale_x_discrete(limits=drugOrder) +#names(inputFace)) +
   scale_color_gradient2(low="blue",high="red", mid="grey", 
                         limits=c(-maxAbsNES, maxAbsNES)) +
   #viridis::scale_color_viridis() +
@@ -332,7 +250,8 @@ dot.plot <- ggplot2::ggplot(
     color = "NES", size = "-log(FDR)"
   ) + 
   theme(axis.text.y=element_text(face=setFace), 
-        axis.text.x=element_text(face=inputFace,angle=45, vjust=1, hjust=1)) +
+        axis.text.x=element_text(face=inputFace,angle=45, vjust=1,
+                                 hjust=1,color=classCol[drugOrder])) +
   geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
   facet_grid(.~Time)
 dot.plot
@@ -342,6 +261,9 @@ ggplot2::ggsave("Enriched_MOAs_dotPlot.pdf", dot.plot, width=10, height=20)
 ```
 
 ### plot top correlated drugs, enriched MOAs
+
+just the MOAs we dont need correlation
+
 ```{r plot top results, echo = FALSE}
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA")
@@ -349,7 +271,7 @@ setwd(dmea.path)
 
 moa.info2 <- dplyr::distinct(nMOAs.overall[,c("DrugTreatment","moa")])
 
-n.top.list <- c(1, 2, 3, 5)
+n.top.list <- 5#c(1, 2, 3, 5)
 for (n.top in n.top.list) {
   ### MOA
   topSigMOA <- data.frame()
@@ -368,7 +290,7 @@ for (n.top in n.top.list) {
   mean.results <- plyr::ddply(dot.df, .(Drug_set), summarize,
                               NES = mean(NES, na.rm=TRUE))
   setOrder <- mean.results[order(mean.results$NES),]$Drug_set
-  #drugOrder <- unlist(drug.info)
+  drugOrder <- intersect(names(drug.class),dot.df$DrugTreatment)
   
   dot.df$Time <- factor(dot.df$Time, levels=timepoints)
   if (any(dot.df$FDR_q_value == 0)) {
@@ -386,7 +308,7 @@ for (n.top in n.top.list) {
   ) +
     ggplot2::geom_point() +
     ggplot2::scale_y_discrete(limits = setOrder) +
-    ggplot2::scale_x_discrete(limits=all.drugs) +
+    ggplot2::scale_x_discrete(limits=drugOrder) + #all.drugs) +
     scale_color_gradient2(low="blue",high="red", mid="grey", 
                           limits=c(-maxAbsNES, maxAbsNES)) +
     #viridis::scale_color_viridis() +
@@ -396,7 +318,8 @@ for (n.top in n.top.list) {
       y = "Drug Mechanism (Output)",
       color = "NES", size = "-log(FDR)"
     ) + 
-    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1)) +
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1, 
+                                   color=classCol[drugOrder])) +
     geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
     facet_grid(.~Time)
   dot.plot
@@ -465,7 +388,10 @@ ggplot2::ggsave("MOA_annotations.pdf", moa.plot, width=6,height=3)
 
 
 ### plot validations
-```{r plot validation results, echo = FALSE}
+
+Only plot drugs and mechanisms for which we have experimental evidence for.
+
+```{r plot validation results, echo = FALSE, eval = FALSE}
 library(plyr);library(dplyr);library(ggplot2)
 dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
@@ -496,7 +422,8 @@ inputFace <- rep("plain", length(inputDrugs))
 names(inputFace) <- inputDrugs
 inputFace[drugsInValidTopSets] <- "bold"
 
-dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% names(drug.info),]
+dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% sigTopSets,]#names(drug.info),]
+dot.df <- dot.df[dmea.sens.df$DrugTreatment%in%drugsInTopSets,]
 dot.df$Time <- factor(dot.df$Time, levels=timepoints)
 if (any(dot.df$FDR_q_value == 0)) {
   dot.df[dot.df$FDR_q_value == 0,]$FDR_q_value <- 0.0001
@@ -512,8 +439,8 @@ dot.plot <- ggplot2::ggplot(
   )
 ) +
   ggplot2::geom_point() +
-  ggplot2::scale_y_discrete(limits = setOrder) +
-  ggplot2::scale_x_discrete(limits=names(inputFace)) +
+#  ggplot2::scale_y_discrete(limits = setOrder) +
+#  ggplot2::scale_x_discrete(limits=names(inputFace)) +
   scale_color_gradient2(low="blue",high="red", mid="grey", 
                         limits=c(-maxAbsNES, maxAbsNES)) +
   #viridis::scale_color_viridis() +
@@ -523,15 +450,15 @@ dot.plot <- ggplot2::ggplot(
     y = "Drug Mechanism (Output)",
     color = "NES", size = "-log(FDR)"
   ) + 
-  theme(axis.text.y=element_text(face=setFace), 
-        axis.text.x=element_text(face=inputFace,
+  theme(#axis.text.y=element_text(face=setFace), 
+        axis.text.x=element_text(#face=inputFace,
           angle=45, vjust=1, hjust=1),
         legend.box="horizontal") +
   geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
   facet_grid(.~Time)
 dot.plot
 # most are only in prot and not in RNA
-ggplot2::ggsave("Validation_MOAs_dotPlot.pdf", dot.plot, width=10, height=3)
+ggplot2::ggsave("Validation_MOAs_dotPlot.pdf", dot.plot, width=10, height=5)
 
 # also plot just sig validations as scatter plot over time
 validations$Time <- as.character(validations$Time)
@@ -569,7 +496,9 @@ ggplot2::ggsave("validatedDrugs_scatterPlot.pdf", validation.plot, width=5.5, he
 ```
 
 ### results for validated drugs
-``` {r results for validated drugs, echo=FALSE}
+we dont use this
+
+``` {r results for validated drugs, echo=FALSE, warning = FALSE, eval = FALSE}
 valid.results <- dmea.sens.df[dmea.sens.df$DrugTreatment %in% validations$DrugTreatment,]
 sigMoas <- unique(valid.results[valid.results$sig,]$Drug_set)
 #dot.df <- dmea.sens.df[dmea.sens.df$Drug_set %in% names(drug.info),]
@@ -646,7 +575,7 @@ ggplot2::ggsave("ValidatedDrug_results_inLibrary_dotPlot.pdf", dot.plot, width=6
 ```
 
 ### upset plots to see overlap across drug treatments
-```{r plot overlap of results, echo = FALSE}
+```{r plot overlap of results, echo = FALSE, warning = FALSE, eval=FALSE}
 library(ComplexHeatmap)
 dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
@@ -678,7 +607,7 @@ if (length(sigList) > 1) {
 ```
 
 ### correlations
-```{r correlations, echo=FALSE}
+```{r correlations, echo=FALSE, warning=FALSE, eval=FALSE}
 library(RColorBrewer);library(pheatmap)
 dmea.path <- file.path(getwd(),"DMEA")
 setwd(dmea.path)
@@ -701,7 +630,7 @@ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
-                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC-4630" = "SHP2 inhibitor",
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
                   "Irinotecan" = "TOP inhibitor")
 drug.info.df <- as.data.frame(t(as.data.frame(drug.info)))
@@ -758,7 +687,7 @@ drug.info <- list("Palbociclib" = "CDK inhibitor", "Ribociclib" = "CDK inhibitor
                   "Decitabine" = "DNMT inhibitor", "Vorinostat" = "HDAC inhibitor",
                   "Mirdametinib" = "MEK inhibitor", "Selumetinib" = "MEK inhibitor",
                   "Trametinib" = "MEK inhibitor", "Capmatinib" = "MET inhibitor",
-                  "Olaparib" = "PARP inhibitor", "RMC4630" = "SHP2 inhibitor",
+                  "Olaparib" = "PARP inhibitor", "RMC-4630" = "SHP2 inhibitor",
                   "TNO155" = "SHP2 inhibitor", "Doxorubicin" = "TOP inhibitor",
                   "Verteporfin" = "YAP inhibitor")
 red.drug.info <- drug.info[names(drug.info) %in% dmea.sens.df$DrugTreatment]
