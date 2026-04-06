@@ -64,7 +64,19 @@ npathway.plot.overall <- ggplot2::ggplot(npathways.overall, aes(x=Time, y=N)) + 
        color = "Drug Treatment", shape = "Mechanism") +
   scale_shape_manual(values=1:length(all.pathways), breaks=all.pathways) + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
-ggplot2::ggsave("N_enrichedPathways_overall.pdf", npathway.plot.overall, width=5.5, height=4)
+
+npathways.overall$DrugTreatment <- tolower(npathways.overall$DrugTreatment)
+npathways.overall$Pathways <- npathways.overall$N
+low.drugs = tolower(all.drugs)
+
+ggplot(npathways.overall,aes(x= DrugTreatment, y = Pathways, fill=Time))+
+  geom_bar(position='dodge',stat='identity') +
+  theme_classic()+
+  theme(axis.title=element_blank(), 
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1,color=classCol[low.drugs])) +
+   labs(y='# of Differentially expressed pathways') 
+
+ggplot2::ggsave("N_enrichedPathways_overall.pdf", width=5, height=2)
 ```
 
 ### plot all enriched pathways
@@ -83,7 +95,10 @@ if (any(dot.df$FDR_q_value == 0)) {
 }
 dot.df$minusLogP <- -log(dot.df[,"p_value"], base = 10)
 dot.df$minusLogFDR <- -log(dot.df[,"FDR_q_value"], base = 10)
+dot.df$DrugTreatment <- tolower(dot.df$DrugTreatment)
+low.drugs <- tolower(all.drugs)
 maxAbsNES <- ceiling(max(abs(dot.df$NES)))
+
 dot.plot <- ggplot2::ggplot(
   na.omit(dot.df),
   ggplot2::aes(
@@ -93,13 +108,13 @@ dot.plot <- ggplot2::ggplot(
 ) +
   ggplot2::geom_point() +
   ggplot2::scale_y_discrete(limits = setOrder) +
-  ggplot2::scale_x_discrete(limits=all.drugs) +
+  ggplot2::scale_x_discrete(limits=low.drugs) +
   scale_color_gradient2(low="blue",high="red", mid="grey", 
                         limits=c(-maxAbsNES, maxAbsNES)) +
   theme_minimal(base_size=12) +
   ggplot2::labs(color = "NES", size = "-log(FDR)") + 
   theme(axis.title=element_blank(), 
-        axis.text.x=element_text(angle=45, vjust=1, hjust=1,color=classCol[all.drugs])) +
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1,color=classCol[low.drugs])) +
   geom_point(data = subset(dot.df, sig), col = "black", stroke = 1.5, shape = 21) +
   facet_grid(.~Time)
 dot.plot
@@ -109,7 +124,7 @@ ggplot2::ggsave("enrichedPathways_dotPlot.pdf", dot.plot, width=10, height=8)
 
 
 ### plot top enriched pathways
-```{r plot top results, echo = FALSE}
+```{r plot top results, echo = FALSE, eval = FALSE}
 library(plyr);library(dplyr);library(ggplot2); library(poolr)
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
 setwd(gsea.path)
@@ -122,7 +137,7 @@ setwd(gsea.path)
 #         axis.line=element_blank()) + labs(fill="Drug Mechanism")
 # ggplot2::ggsave("MOA_annotations.pdf", pathway.plot, width=6,height=3)
 
-n.top.list <- 5# c(1, 2, 3, 5)
+n.top.list <- c(5,10)# c(1, 2, 3, 5)
 for (n.top in n.top.list) {
   ### top result(s) for each drug
   topSigpathway <- data.frame()
@@ -179,7 +194,7 @@ library(plyr);library(dplyr);library(ggplot2)
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
 setwd(gsea.path)
 
-n.top.list <- 5#c(1, 2, 3, 5)
+n.top.list <- c(5,10)#c(1, 2, 3, 5)
 for (moa in all.pathways) {
   temp.drugs <- names(drug.info[drug.info == moa])
   for (n.top in n.top.list) {
@@ -519,7 +534,7 @@ ggplot2::ggsave("mirdaVorin_oppPathways_dotPlot.pdf",
 ```
 
 We're not looking a these pathways anymore. 
-```{r expression of leading edge genes opposite in mirda and vorin, echo=FALSE, eval = FLASE}
+```{r expression of leading edge genes opposite in mirda and vorin, echo=FALSE, eval = FALSE}
 kras.leads <- unique(unlist(strsplit(gsea.df[gsea.df$DrugTreatment %in% c("Mirdametinib","Vorinostat") &
                                           gsea.df$sig &
                                             gsea.df$Gene_set=="KRAS_SIGNALING_DN",

@@ -1,0 +1,287 @@
+---
+title: "Combination pathways"
+author: "Sara Gosline"
+date: "2026-04-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(synapser)
+synLogin()
+source("../RNAseq/plottingParameters.R")
+source("correlation_functions.R")
+
+```
+
+Here we want to look at the top-ranking drug combinations to see if we 
+can use the expression data to understand potential mechanisms.
+
+## Mechanisms of overlap
+What pathways are the most commonly involved in drug effective combinations? 
+
+Lets see what pathways show up the most frequently
+
+```{r}
+combo_preds <- readr::read_csv('SuppTable5_combinationScores.csv')
+
+
+nmat <- full_tmat[,intersect(colnames(full_tmat),
+                             sing_exp$improve_sample_id)] |>
+  drop_na()
+
+tmat <- get_gsea_scores(log2(0.001 + nmat))
+
+pcounts <- combo_preds |> 
+  group_by(Pathway) |>
+  summarize(drugsUpregulating = n_distinct(DrugTreatment),correlatedDrugs = n_distinct(secondDrug)) |>
+  mutate(total = drugsUpregulating + correlatedDrugs) |>
+  tidyr::pivot_longer(c(drugsUpregulating,correlatedDrugs), names_to='source', values_to='drugs') |>
+  arrange(desc(total))
+
+ggplot(pcounts, aes(x=reorder(Pathway,total), y = drugs, fill = source)) + 
+  geom_bar(position = 'dodge',stat = 'identity') +
+  xlab('Pathway') +
+  theme(axis.text.x=element_text(angle = 45, vjust=1, hjust=1))
+
+ggsave('commonPathways.pdf')
+
+```
+Top pathways include angiogenesis, KRAS signaling, and interferon alpha response. 
+
+## Visualizing top pathways
+
+We can now look at the top three pathways to see what proteins
+are doing both at the correlative level and expression level?
+
+```{r how to plot pathways}
+##first get the pathways
+
+m_df <- msigdbr::msigdbr(db_species = 'HS', collection = 'H')
+gene_sets <- split(x = m_df$gene_symbol, f = m_df$gs_name)
+  
+##get a pathway name, plot it across a drug treatment and secondary drug
+plot_pathway_with_drugs <- function(path_name = 'HALLMARK_KRAS_SIGNALING_DN', 
+                                    expr_drug = 'mirdametinib', 
+                                    cor_drug = 'tno155'){
+  ##get pathway across drug expression changes
+  genes <- gene_sets[[path_name]]
+  
+  tsamps <- samples[grep(expr_drug, tolower(samples$other_id)),]
+  ##get the DMSO for the same samples
+  csamps <- samples[grep('DMSO', samples$other_id),]
+
+  ## get pathway across untreated samples
+  gvals <- log2(0.001 + full_tmat[genes,intersect(colnames(full_tmat),sing_exp$improve_sample_id)])
+  
+}
+
+
+
+#define function to plot specific pathway correlation and heatmaps? 
+get_path_drug_cor <- function(pathway = 'KRAS_SIGNALING_DN', drug){
+  
+  path_vals <- tmat[paste0('HALLMARK_',pathway),]
+
+  evals <- data.frame(sing_exp[sing_exp$drug %in% drug,]) 
+  evals$pathway_score <- path_vals[as.character(evals$improve_sample_id)]
+
+  ggplot(evals, aes(x = pathway_score, y = auc, col = drug)) +
+    geom_point(size = 3) +
+    #ggrepel::geom_label_repel(aes(label=common_name))+
+    facet_grid(~treat_time) +
+    geom_smooth(method = 'lm', se = FALSE, stroke = 2) + 
+     theme_minimal(base_size=12) + scale_color_manual(values = classCol)  +
+    labs(x = paste0(pathway,' pathway score'), y = 'AUC')
+}
+
+
+## here we look at pathway scores of the untreated sample and the drug-induced sample
+get_double_drug_path_cor <- function(drug = 'mirdametinib', drug2 = 'vorinostat', paths){
+  
+  sing_gsea <- readr::read_csv("../RNAseq/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
+  
+  path_vals <- tmat[paste0('HALLMARK_',paths),] |>
+    as.data.frame()|>
+    tibble::rownames_to_column('Pathway') |>
+    tidyr::pivot_longer(c(-Pathway),names_to='improve_sample_id',values_to='pathway score')
+  
+  path_fc <- subset(sing_gsea, Feature_set %in% paste0('HALLMARK_',paths)) |>
+    subset(DrugTreatment == drug2) |>
+    dplyr::select(common_name = 'MPNST',Time,NES,Pathway = 'Feature_set')
+
+  evals <- data.frame(sing_exp[sing_exp$drug %in% drug,]) |>
+    mutate(improve_sample_id=as.character(improve_sample_id))|>
+    inner_join(path_vals)
+  
+  p1<-ggplot(evals, aes(y = `pathway score`, x = auc, col = Pathway)) +
+    geom_point(size = 3) +
+    ggrepel::geom_label_repel(aes(label=common_name))+
+    facet_grid(~treat_time) +
+    geom_smooth(method = 'lm', se = FALSE, stroke = 1) + 
+     theme_minimal(base_size=12) + #scale_color_manual(values = classCol)  +
+    labs(x = paste0(drug,' AUC'), y = 'Pathway score')
+  
+  p2<- evals|>inner_join(path_fc) |> 
+    ggplot(aes(x=`NES`, size = `pathway score`,  y = auc,col = Pathway, shape = common_name)) + 
+    geom_point() + 
+    labs(x=paste(drug2, 'induced NES'), y = paste(drug,'auc')) + 
+    facet_grid(treat_time~Time)
+  
+  return(list(p1,p2))
+}
+
+
+```
+
+### Angiogenesis
+
+```{r angio}
+
+adrugs <- combo_preds |> subset(Pathway == 'ANGIOGENESIS') |>
+  arrange(desc(pathScore))
+
+adrugs
+get_path_drug_cor('ANGIOGENESIS',unique(adrugs$secondDrug))
+
+```
+
+### KRAS Signaling
+
+```{r kras}
+
+kdrugs <- combo_preds |> subset(Pathway == 'KRAS_SIGNALING_DN')
+
+kdrugs
+get_path_drug_cor('KRAS_SIGNALING_DN',unique(kdrugs$secondDrug))
+
+```
+
+
+### Interforn alpha response
+
+```{r ialpha}
+
+idrugs <- combo_preds |> subset(Pathway=='INTERFERON_ALPHA_RESPONSE')
+
+
+idrugs
+get_path_drug_cor('INTERFERON_ALPHA_RESPONSE',unique(idrugs$secondDrug))
+
+```
+
+## Focusing on mirdametinib - vorinostat
+
+Mirdametinib and vorinostat seem to be the most potent combination across the board
+
+```{r}
+
+mv <- combo_preds |> 
+  subset(DrugTreatment %in% c('mirdmetinib','vorinostat')) |>
+  subset(secondDrug %in% c('mirdametinib','vorinostat'))
+
+
+mv_plots<- lapply(unique(mv$Pathway), function(p) get_path_drug_cor(p,unique(mv$secondDrug)))
+
+cowplot::plot_grid(plotlist = mv_plots,nrow=2)
+```
+
+
+```{r extra}
+ ksd <- gvals[intersect(genes,rownames(gvals)),] |>
+  tibble::rownames_to_column('gene') |> 
+  tidyr::pivot_longer(c(-gene),names_to = 'improve_sample_id', values_to = 'expr') |>
+  left_join(mutate(sing_exp[sing_exp$drug %in% mdrugs,],
+                   improve_sample_id = as.character(improve_sample_id)))
+
+ 
+```
+Now that we can see that mirdametinib has multiple combinations, we
+can dive into the specific pathway that is activated. 
+
+
+We can also go back to the genes identified in the diffex and see how they behave
+### Heatmap of pathway genes
+
+Do the heatmaps of genes look at all interesting? 
+```{r pathgenes}
+
+gvals <- log2(0.001 + full_tmat[,intersect(colnames(full_tmat),sing_exp$improve_sample_id)])
+
+
+m_df <- msigdbr::msigdbr(species = "Homo sapiens", category = "H")
+gene_sets <- split(x = m_df$gene_symbol, f = m_df$gs_name)
+
+##get mirda leading edge genes see what we see
+genes <- gene_sets$HALLMARK_KRAS_SIGNALING_DN
+genes <- gene_sets$HALLMARK_HEDGEHOG_SIGNALING
+
+fset = 'HALLMARK_KRAS_SIGNALING_DN'
+#fset = 'HALLMARK_HEDGEHOG_SIGNALING'
+le_genes <- subset(hall_preds,Feature_set==fset) |>
+  subset(DrugTreatment=='Vorinostat')
+le_early_genes <- stringr::str_split(le_genes[which(le_genes$Time=='8h'),]$Leading_edge,', ') |> unlist()
+le_late_genes <- stringr::str_split(le_genes[which(le_genes$Time=='24h'),]$Leading_edge,', ') |> unlist()
+
+
+evals <- data.frame(sing_exp[sing_exp$drug %in% c('mirdametinib'),])  |>
+  dplyr::select(improve_sample_id, drug, treat_time, auc)|>
+  distinct() |>
+  tidyr::unite(drug,treat_time, col='drug_treat') |>
+  pivot_wider(names_from = drug_treat, values_from = auc) |> tibble::column_to_rownames('improve_sample_id')
+
+evals <- evals[which(rownames(evals)%in%colnames(gvals)),]
+e_evals <- evals[,grep('48',colnames(evals))]
+l_evals <- evals[,grep('120',colnames(evals))]
+
+
+pheatmap::pheatmap(gvals[which(rownames(gvals)%in%genes),order(rowMeans(evals))], 
+                   annotation_col = evals, cluster_cols = FALSE, 
+                   cellwidth = 10,
+                   clustering_method = 'ward.D2',
+                   clustering_distance_rows = 'correlation',
+                   cellheight = 10, main = 'All KRAS_SIGNALING_DN genes',
+                   filename = 'ksd_genes.pdf')
+
+
+pheatmap::pheatmap(gvals[which(rownames(gvals)%in%le_early_genes),order(rowMeans(l_evals))], 
+                   annotation_col = l_evals, cluster_cols = FALSE, 
+                                      clustering_distance_rows = 'correlation',
+                   cellwidth = 10,
+                                      clustering_method = 'ward.D2',
+                   cellheight = 10, main = 'Early KRAS_SIGNALING_DN genes',
+                   filename = 'early_ksd_genes.pdf')
+
+pheatmap::pheatmap(gvals[which(rownames(gvals)%in%le_late_genes),order(rowMeans(l_evals))], 
+                   annotation_col = l_evals, 
+                   cluster_cols = FALSE, 
+                                      clustering_distance_rows = 'correlation',
+                                      clustering_method = 'ward.D2',
+                   cellwidth = 10,
+                   cellheight = 10, main = 'Late KRAS_SIGNALING_DN genes',
+                   filename = 'late_ksd_genes.pdf')
+
+pheatmap::pheatmap(gvals[which(rownames(gvals)%in%union(le_late_genes, le_early_genes)),
+                         order(rowMeans(l_evals))], 
+                   annotation_col = l_evals, cluster_cols = FALSE,
+                                      clustering_distance_rows = 'correlation',
+                                      clustering_method = 'ward.D2',
+                   cellwidth = 10,
+                   cellheight = 10, main = 'All Leading edge KRAS_SIGNALING_DN genes',
+                   filename = 'le_ksd_genes.pdf')
+
+
+pheatmap::pheatmap(gvals[which(rownames(gvals)%in%intersect(le_late_genes,le_early_genes)),
+                         order(rowMeans(l_evals))], 
+                   annotation_col = l_evals, cluster_cols = FALSE, 
+                                      clustering_distance_rows = 'correlation',
+                                      clustering_method = 'ward.D2',
+                   cellwidth = 10,
+                   cellheight = 10, main = 'Shared leading edge KRAS_SIGNALING_DN genes',
+                   filename = 'shared_le_ksd_genes.pdf')
+##now get TNO genes
+
+
+```
