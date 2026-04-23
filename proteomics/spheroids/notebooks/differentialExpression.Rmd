@@ -1,0 +1,636 @@
+---
+title: "Spheroid Proteomics Differential Expression Analysis"
+author:
+- name: Yannick Mahlich
+  affiliation: Pacific Northwest National Laboratory
+- name: Sara Gosline
+  affiliation: Pacific Northwest National Laboratory
+date: "`r Sys.Date()`"
+output:
+#  pdf_document:
+#    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+  html_notebook:
+    toc: true
+---
+
+## Library & Data import
+
+The notebook itself relies on a number of R libraries to import and analyze the
+proteomics data. Library imports are not shown here, but include packages like:
+
+- synapser
+- readxl
+- limma
+
+```{r imports, echo=FALSE, results='hide', warning = FALSE, message = FALSE}
+library(synapser)
+library(readxl)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
+library(ggrepel)
+library(magrittr)
+```
+
+Next the import the proteomics for the global proteomics abundance from spheroids.
+The data file is located on synapse and is stored as Excel sheet.
+
+```{r import-proteomics-data, results='hide'}
+synapseFileID = "syn72245489"
+
+tmp <- synapser::synLogin(silent = TRUE)
+fileEntity <- synapser::synGet(synapseFileID)
+proteomicsData <- read_xlsx(fileEntity$path, sheet = 1)
+tmp <- synapser::synLogout()
+```
+
+Finally we retrieve the metadata for the experiments from synapse.
+The experimental setup pools proteins from several wells into one MS/MS run to
+attain better proteomics coverage.
+The information which wells were pooled together is contained in the metadata
+table, specifically it contains the description of which chemical agent was used
+on the spheroids in the drug response experiment and at which timepoint the
+sample was extracted.
+Sheet 2 of the Excel document retrieved from synapes contains the mapping that
+describes which DIA run is associated to which drug and sampling time point.
+
+```{r import-meta-data, results='hide'}
+synapseFileID = "syn72245597"
+
+tmp <- synapser::synLogin(silent = TRUE)
+fileEntity <- synapser::synGet(synapseFileID)
+proteomicsMeta <- read_xlsx(fileEntity$path, sheet = 2)
+tmp <- synapser::synLogout()
+```
+
+## Defining helper functions
+Next we will be defining some helper functions. Since we will be storing all the
+experimental results in a `SummarizedExperiment` object, those functions will
+work with said object structure.
+
+Specifically we define the following functions:
+
+- `log_transform(...)` which will take a `SummarizedExperiment` object, retrieve
+  the defined assay and log transform all intensity values and return a
+  `SummarizedExperiment` object containing the log transformed values
+- `impute_proteomics(...)` which will take a `SummarizedExeperiment` and impute
+  any missing intensity values in the defined assay. The function will return an
+  updated `SummarizedExepriment` object.
+
+```{r}
+log_transform <- function(experiment,
+                          assay = "proteomics"){
+  
+  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
+    mutate(across(everything(), as.numeric)) %>% # turn everything numeric
+    log2(.) # log transform all cells
+  
+  SummarizedExperiment::assays(
+    experiment, 
+    withDimnames = FALSE)[[assay]] <- proteomics_data 
+  return(experiment)
+}
+
+impute_proteomics <- function(experiment,
+                              assay = 'proteomics',
+                              imputation_method = 'SampMin'){
+  
+  # retrieve assay from SummarizedExperiment and make sure that all values
+  # are numeric such that we can impute
+  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
+    mutate(across(everything(), as.numeric)) # turn every cell numeric
+  
+  if(imputation_method == "SampMin") {
+    
+    # first calculates the minimum protein intensity per sample (column) using
+    # `matrixStats::colMins()`
+    sample_mins <- matrixStats::colMins(
+      as.matrix(proteomics_data),
+      na.rm = TRUE
+      )
+    # then NAs in each sample (column) to the sample minimum (stored as list)
+    proteomics_data <- proteomics_data %>%
+      replace_na(., as.list(sample_mins))
+    
+  } else if (imputation_method == "means") {
+    
+    # calculates the mean abundance of a given feature (protein) across all
+    # samples (columns) via `base::rowMeans()` stores it temporarily into a new
+    # column `imputeVal` and then iterates over all columns (excluding the newly
+    # generated column) to set N/As to the imputation value using 
+    # `dplyr::coalesce`. Finally the temporary column is removed from the data.
+    proteomics_data <- proteomics_data %>%
+      mutate(imputeVal = rowMeans(., na.rm = TRUE)) %>%
+      mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>%
+      within(., rm('imputeVal'))
+    
+  } else if (imputation_method == "median") {
+    
+    # analogous to `imputation_method == "median"`. Uses `dplyr::rowwise` with
+    # `dplyr::c_across()` in the `median()` call to achieve the same thing,
+    # except calculating the medians of a given feature across all samples. 
+    proteomics_data <- proteomics_data %>%
+      rowwise %>%
+      mutate(imputeVal = median(c_across(), na.rm = TRUE)) %>%
+      mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>%
+      within(., rm('imputeVal'))
+    
+  } else {
+    stop()
+  }
+  
+  # finally we store the imputed data back into the `SummarizedExperiment`
+  # object and return it. 
+  SummarizedExperiment::assays(
+    experiment, 
+    withDimnames = FALSE)[[assay]] <- proteomics_data 
+  return(experiment)
+  
+} 
+
+calc_diff_ex <- function(experiment,
+                         group_1,
+                         group_2,
+                         assay = "proteomics"){
+  
+  
+  
+    # retrieving the samples (column ids) of the groups we want to use for the
+    # differential expression analysis
+    samples_1 <- which(
+      SummarizedExperiment::colData(experiment)[["group"]] == group_1
+      )
+    samples_2 <- which(
+      SummarizedExperiment::colData(experiment)[["group"]] == group_2
+      ) 
+    
+    # next we set up the design matrix for the fit function used by limma to
+    # determine the differentially expressed features. The design matrix uses
+    # a factor based on the samples
+    fac <- factor(rep(c(2, 1), c(length(samples_2), length(samples_1))))
+    design <- stats::model.matrix(~fac)
+
+    # next we extract the assay of interest from the `SummarizedExperiment`
+    # object and create the differential expression result table. Note that we
+    # switch the order of groups here for `limma`
+    dat <- SummarizedExperiment::assays(experiment)[[assay]]
+    
+    result_table <- dat[, c(samples_2, samples_1)] %>%
+      limma::lmFit(., design) %>%
+      limma::eBayes(.) %>%
+      limma::topTable(., coef = 2, number = Inf, sort.by = "none")
+  
+    # The assumption is that the input `SummarizedExperiment` had only one assay
+    # associated with it, hence we will just augment the object and return it
+    # containing the results from limma.
+  
+    # comparison_name <- paste(group_1, "_vs_", group_2, sep = "")
+    # colnames_res <- paste(paste(comparison_name, 
+    #                             colnames(result_table), "limma", sep = "."))
+    # 
+    # colnames(result_table) <- colnames_res
+    result_table <- result_table %>%
+      rownames_to_column(., var="Protein.Group") %>%
+      as.tibble(.)
+
+    # This makes sure that the differential expression results for each feature
+    # are properly aligned
+    SummarizedExperiment::rowData(experiment) <- left_join(
+      as.tibble(SummarizedExperiment::rowData(experiment)),
+      result_table,
+      by = 'Protein.Group'
+      )
+  
+    return(experiment)
+}
+
+prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5) {
+    
+  proteomicsMetaClean <- proteomics_meta %>%
+    separate_wider_regex(
+      .,
+      col = "condition",
+      c("group" = ".*", "_", "replicate" = ".*"),
+      cols_remove = FALSE
+      ) %>% 
+    separate_wider_delim(
+      .,
+      col = "group",
+      delim = "_",
+      names = c("timepoint", "agent"),
+      too_few = "align_start",
+      cols_remove = FALSE
+      )|>
+    tibble::column_to_rownames('sample') ##SG: rownames reflect sample identifier
+  
+  
+  proteomicsDataClean <- proteomicsData %>%
+    column_to_rownames(., var = "Protein.Group") %>%
+    within(., rm("Protein.Names", "Genes", "First.Protein.Description"))
+  
+  # TODO: add check to make sure missgness_cutoff is [0, 1]
+  proteomicsDataClean %<>%
+    .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
+    rownames_to_column(., var = "Protein.Group")
+
+  proteomicsMapping <- proteomicsData[0:4] %>%
+    separate_wider_delim(
+      .,
+      col = "Genes",
+      names = c("Genes", NA),
+      delim = ";",
+      cols_remove=TRUE,
+      too_few = "align_start",
+      too_many = "drop"
+      ) %>%
+    semi_join(., proteomicsDataClean, by = "Protein.Group")
+
+  proteomicsDataClean %<>% column_to_rownames(., var = "Protein.Group")
+
+  experiment <- SummarizedExperiment(
+    assays = list(proteomics = proteomicsDataClean),
+    rowData = proteomicsMapping,
+    colData = proteomicsMetaClean[colnames(proteomicsDataClean),] #SG ordered by sample name
+  )
+  
+  return(experiment)
+}
+```
+
+## Data preparation
+
+Before running the actual differential expression analysis we need to first
+clean the data. This consits of several steps:
+
+- Matching DIA run identifiers to chemical agent & sample time descriptor
+- Missingness removal (i.e. exclude genes from consideration that weren't
+  detected in a certain fraction of MS/MS runs)
+- remove additional identifier columns (move into separate DataFrame)
+- log2 transform the abundance / intensity data
+- impute missing values (media center based on other readouts for the protein)
+
+
+```{r prep-data}
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0) %>%
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+```
+
+## Differential Expression analysis
+
+### PCA
+With all the data imported we can focus on the actual differential expression
+analysis.
+First we will perform a PCA analysis of the underlying proteomics data to check
+if there is meaningful signal separation of the individual treatment agents,
+as well as timepoints.
+
+```{r PCA, message = FALSE}
+principal_components <- prcomp(t(assay(experiment))) %$%
+  cbind(x, colData(experiment))
+
+plot <- (
+  ggplot(
+    principal_components,
+    aes(
+      x = PC1,
+      y = PC2,
+      col = agent,
+      shape = timepoint,
+      label = condition
+      )
+    )
+  + geom_point(size = 2)
+  # + geom_label_repel(max.overlaps = 10, size = 2.5, box.padding = 0.5)
+  + geom_text_repel(max.overlaps = 10, size = 2.5)
+  + theme_minimal()
+  + theme(legend.position = "bottom")
+  + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+  + labs(
+    title = "Spheroid global proteomics; DMSO vs. Mirdametinib",
+    subtitle = "full set of proteins; SampMin imputation"
+  )
+)
+
+plot
+
+ggsave("../output_figures/global_prot_PCA.png",
+       plot = plot,
+       dpi = 600,
+       height = 6,
+       width = 6,
+       )
+```
+
+The PCA demonstrates that the proteomics data indeed separates nicely based on
+both agent as well as timepoint.
+
+### PCA after removal of features with >50% missingness
+
+```{r}
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0.5) %>%
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+
+principal_components <- prcomp(t(assay(experiment))) %$%
+  cbind(x, colData(experiment))
+
+plot <- (
+  ggplot(
+    principal_components,
+    aes(
+      x = PC1,
+      y = PC2,
+      col = agent,
+      shape = timepoint,
+      label = condition
+      )
+    )
+  + geom_point(size = 2)
+  # + geom_label_repel(max.overlaps = 10, size = 2.5, box.padding = 0.5)
+  + geom_text_repel(max.overlaps = 10, size = 2.5)
+  + theme_minimal()
+  + theme(legend.position = "bottom")
+  + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+  + labs(
+    title = "Spheroid global proteomics; DMSO vs. Mirdametinib",
+    subtitle = "proteins with >50% missingness removed; SampMin imputation"
+  )
+)
+
+plot
+
+ggsave("../output_figures/global_prot_PCA_50pct_missingness_removed.png",
+       plot = plot,
+       dpi = 600,
+       height = 6,
+       width = 6,
+       )
+```
+
+### Number of significant differentally expressed proteins 
+Next we will perform the actual differential expression analysis.
+We will define a significantly differentially experessed protein as a protein that
+
+- has an adjusted p-Value < 0.05
+- has a logFC >= 1 or logFC < -1
+
+We will be investigating specifically the expression differential between DMSO
+and Mirdametenib treated samples both at the 24h as well as 48h time point.
+The codeblock below performs the differential expression analyses using the
+previously defined function `calc_diff_ex`.
+The we select the proteins that show a significant differential in their
+expression between the two groups and prepare a `data.frame` for plotting the
+results.
+```{r differential-expression-dmso-mirda}
+dmso_mirda_24h <- calc_diff_ex(experiment, group_1 = "24hr_DMSO", group_2 = "24hr_Mirda")
+dmso_mirda_48h <- calc_diff_ex(experiment, group_1 = "48hr_DMSO", group_2 = "48hr_Mirda")
+
+dfPlot <- subset(as_tibble(rowData(dmso_mirda_24h)),
+                 select = c('Genes', 'logFC', 'adj.P.Val'),
+                 adj.P.Val < 0.05) %>%
+          mutate(expression_change = case_when(
+                 logFC >= 1 ~ 'up',
+                 logFC <= -1 ~ 'down'
+                 ))
+dfPlot$timepoint = "24hr"
+
+dfPlot2 <- subset(as_tibble(rowData(dmso_mirda_48h)),
+                  select = c('Genes', 'logFC', 'adj.P.Val'),
+                  adj.P.Val < 0.05) %>%
+           mutate(expression_change = case_when(
+                  logFC >= 1 ~ 'up',
+                  logFC <= -1 ~ 'down'
+                  ))
+dfPlot2$timepoint = '48hr'
+
+dfPlot <- rbind(dfPlot, dfPlot2) %>% subset(., !is.na(expression_change))
+```
+
+The code block below plots the number of significantly up and down regulated
+proteins.
+```{r plot-expression-differential, message=FALSE}
+cpalette = c('up' = '#74add1', 'down' = '#f46d43')
+
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(timepoint)
+  )
+  + geom_bar(aes(fill=expression_change), position = 'dodge2')
+  + scale_fill_manual(values = cpalette)
+  + theme_minimal()
+  + labs(
+    title = 'Spheroid global proteomics; DMSO vs Mirdametinib', 
+    subtitle = "Counts of significant differentially expressed proteins ( pVal < 0.05; -1  >= logFC >= 1 )",
+    fill = 'expression'
+  )
+)
+plot
+
+ggsave("../output_figures/global_prot_diff_exp_counts.png", dpi = 600)
+```
+
+## Volcano plots of differentially expressed porteins
+Next we generate volcano plots to investigate the significant proteins further.
+For each time point one volcano plot will be generated.
+
+### DMSO vs Mirdametenib at 24h
+```{r volcano-plot-24h, message=FALSE}
+
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Genes', 'logFC', 'adj.P.Val')) %>% 
+  mutate(expression_change = case_when(
+    (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+    (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+    .default = 'not significant', 
+  )) %>%
+  mutate(labels = case_when(
+    expression_change %in% c('up', 'down') ~ Genes,
+    .default = NA
+  ))
+
+dfPlot$timepoint = "24hr"
+
+
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(
+      x = logFC,
+      y = -log10(adj.P.Val),
+      col = expression_change,
+      # label = labels
+      )
+    )
+    + geom_vline(xintercept = c(-1, 1), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed')
+    + geom_point(size = .75)
+    # + geom_text_repel(max.overlaps = 10, size = 2)
+    + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + coord_cartesian(xlim = c(-15, 15), ylim = c(0, 3))
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + labs(
+      title = 'Spheroid global proteomics',
+      subtitle = "DMSO vs. Mirdametinib at 24h",
+      col = 'expression',
+      y = expression("-log"[10]*"p-Value")
+    )
+)
+plot
+
+ggsave(
+  filename = "../output_figures/global_prot_diff_exp_volcano_24h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  scale = .8,
+  )
+```
+
+### DMSO vs Mirdametenib at 48h
+```{r volcano-plot-48h, message=FALSE}
+
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Genes', 'logFC', 'adj.P.Val')) %>% 
+  mutate(expression_change = case_when(
+    (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+    (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+    .default = 'not significant', 
+  )) %>%
+  mutate(labels = case_when(
+    expression_change %in% c('up', 'down') ~ Genes,
+    .default = NA
+  ))
+
+dfPlot$timepoint = "48hr"
+
+
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(
+      x = logFC,
+      y = -log10(adj.P.Val),
+      col = expression_change,
+      # label = labels
+      )
+    )
+    + geom_vline(xintercept = c(-1, 1), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed')
+    + geom_point(size = .75)
+    # + geom_text_repel(max.overlaps = 10, size = 2)
+    + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + coord_cartesian(xlim = c(-15, 15), ylim = c(0, 3))
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + labs(
+      title = 'Spheroid global proteomics',
+      subtitle = "DMSO vs. Mirdametinib at 48h",
+      col = 'expression',
+      y = expression("-log"[10]*"p-Value")
+    )
+)
+plot
+
+ggsave(
+  filename = "../output_figures/global_prot_diff_exp_volcano_48h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  scale = .8,
+  )
+```
+
+## Pathway Enrichment
+
+```{r load-geneset, results='hide'}
+# data("msigdb")
+data("ncipid")
+data("krbpaths")
+```
+
+Now we can ask which pathways are over-represented in both 24h and 48h time points. 
+```{r leapR-pathway-enrichment, message=FALSE}
+
+late_res <- leapR(geneset = krbpaths, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
+      primary_column = "adj.P.Val", threshold = 0.05,
+      greaterthan = FALSE)
+plot <- plot_leapr_bar(late_res,'Top pathways at 48h')
+ggsave("../output_figures/global_prot_pathway_enrichment_krbpaths_48h_top.png", plot = plot, dpi = 600)
+plot
+
+early_res <- leapR(geneset = krbpaths, eset = dmso_mirda_24h, enrichment_method = "enrichment_in_sets", assay_name = 'proteomics', id_column = "Genes",
+      primary_column = "adj.P.Val", threshold = 0.05,
+      greaterthan = FALSE)
+
+plot <- plot_leapr_bar(early_res,'Top pathways at 24h')
+ggsave("../output_figures/global_prot_pathway_enrichment_krbpaths_24h_top.png", plot = plot, dpi = 600)
+plot
+
+```
+
+This shows significant pathways being altered at 48h, suggesting a more informative time point. We
+can evaluate the expression of those proteins in that pathway as well to see how they
+are expressed across time points.
+
+```{r path heatmaps, message=FALSE}
+
+#create a table of pathways and genes by ingroup name
+sig_lates <- subset(late_res, BH_pvalue < 0.05) |>
+  tibble::rownames_to_column('Pathway') |>
+  dplyr::select(Pathway,ingroupnames)
+
+##
+plots <- lapply(unique(sig_lates$Pathway), function(path){
+  genes <- stringr::str_split(subset(sig_lates, Pathway==path)[,'ingroupnames'],
+                              pattern=', ') |>
+    unlist()
+  
+  #get the data and metadata out of the expression object
+  mat <- assay(dmso_mirda_48h)[rowData(dmso_mirda_48h)$Genes %in% genes,]
+  rownames(mat) <-  intersect(rowData(dmso_mirda_48h)$Genes,genes)
+  annot <- colData(dmso_mirda_24h)[,c('timepoint','agent','replicate')] |>
+    as.data.frame()
+  ###create heatmap with metadata
+  plot <- pheatmap::pheatmap(log10(mat),annotation_col = annot, 
+                     cluster_cols = FALSE, 
+                     main=paste0(path,' proteins from 48h enrichment'),
+                     labels_col = rep("",ncol(mat)))
+  plot
+  ggsave(filename = paste0("../output_figures/global_prot_pathway_enrichment_48h_heatmap_", path, ".png"), plot = plot, dpi = 600)
+  
+})
+
+```
+
+
+Some of these look kind of unimpressive. Maybe we should plot logFCs instead?
+
+```{r leapR by Rank}
+
+late_rank <- leapR(geneset = krbpaths, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_order", assay_name = 'proteomics', id_column = "Genes",
+      primary_columns = "logFC") |>
+  suppressWarnings()
+
+plot_leapr_bar(late_rank,'Top pathways at 48h')
+
+early_rank <- leapR(geneset = krbpaths, eset = dmso_mirda_24h, enrichment_method = "enrichment_in_order", assay_name = 'proteomics', id_column = "Genes",
+      primary_columns = "logFC") |>
+  suppressWarnings()
+
+plot_leapr_bar(early_rank,'Top pathways at 24h')
+
+```
+
+At some point we should dive into why this is the case - not a lot of agreement between
+order-based and set-based enrichment. 

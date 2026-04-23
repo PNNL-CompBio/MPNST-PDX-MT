@@ -1,0 +1,701 @@
+---
+title: "Spheroid Phospho Proteomics Analysis"
+author:
+- name: Yannick Mahlich
+  affiliation: Pacific Northwest National Laboratory
+- name: Sara Gosline
+  affiliation: Pacific Northwest National Laboratory
+date: "`r Sys.Date()`"
+output:
+ #pdf_document:
+#    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+  html_notebook:
+    toc: true
+---
+
+
+## Library & Data import
+
+The notebook itself relies on a number of R libraries to import and analyze the
+proteomics data. Library imports are not shown here, but include packages like:
+
+- synapser
+- readxl
+- limma
+
+```{r imports, echo=FALSE, results='hide'}
+library(synapser)
+library(readxl)
+library(readr)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
+library(ggrepel)
+library(magrittr)
+```
+
+Next is the import of the phospho proteomics abundances from spheroids.
+The data file is located on synapse and is stored as tsv.
+
+**Note this version of the notebook uses syn72351272v2 and syn72245597v3**
+
+```{r import-phospho-data, results='hide'}
+synapseFileID = "syn72351272"
+
+tmp <- synapser::synLogin(silent = TRUE)
+fileEntity <- synapser::synGet(synapseFileID)
+proteomicsData <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", NA) # the file stored on synapse has '0's instead of NA or ''
+  )
+tmp <- synapser::synLogout()
+```
+
+```{r import-meta-data, results='hide'}
+synapseFileID = "syn72245597"
+
+tmp <- synapser::synLogin(silent = TRUE)
+fileEntity <- synapser::synGet(synapseFileID)
+proteomicsMeta <- read_xlsx(fileEntity$path, sheet = 3)
+##try altnerate naming
+proteomicsMeta = data.frame(proteomicsMeta,altSample=colnames(proteomicsData)[7:21])
+tmp <- synapser::synLogout()
+```
+
+
+## Defining helper functions
+
+*TODO: Need to offload the helper functions into a seperate R file!*
+
+Next we will be defining some helper functions. Since we will be storing all the
+experimental results in a `SummarizedExperiment` object, those functions will
+work with said object structure.
+
+Specifically we define the following functions:
+
+- `log_transform(...)` which will take a `SummarizedExperiment` object, retrieve
+  the defined assay and log transform all intensity values and return a
+  `SummarizedExperiment` object containing the log transformed values
+- `impute_proteomics(...)` which will take a `SummarizedExeperiment` and impute
+  any missing intensity values in the defined assay. The function will return an
+  updated `SummarizedExepriment` object.
+
+```{r}
+log_transform <- function(experiment,
+                          assay = "proteomics"){
+  
+  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
+    mutate(across(everything(), as.numeric)) %>% # turn everything numeric
+    log2(.) # log transform all cells
+  
+  SummarizedExperiment::assays(
+    experiment, 
+    withDimnames = FALSE)[[assay]] <- proteomics_data 
+  return(experiment)
+}
+
+impute_proteomics <- function(experiment,
+                              assay = 'proteomics',
+                              imputation_method = 'SampMin'){
+  
+  # retrieve assay from SummarizedExperiment and make sure that all values
+  # are numeric such that we can impute
+  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
+    mutate(across(everything(), as.numeric)) # turn every cell numeric
+  
+  if(imputation_method == "SampMin") {
+    
+    # first calculates the minimum protein intensity per sample (column) using
+    # `matrixStats::colMins()`
+    sample_mins <- matrixStats::colMins(
+      as.matrix(proteomics_data),
+      na.rm = TRUE
+      )
+    # then NAs in each sample (column) to the sample minimum (stored as list)
+    proteomics_data <- proteomics_data %>%
+      replace_na(., as.list(sample_mins))
+    
+  } else if (imputation_method == "means") {
+    
+    # calculates the mean abundance of a given feature (protein) across all
+    # samples (columns) via `base::rowMeans()` stores it temporarily into a new
+    # column `imputeVal` and then iterates over all columns (excluding the newly
+    # generated column) to set N/As to the imputation value using 
+    # `dplyr::coalesce`. Finally the temporary column is removed from the data.
+    proteomics_data <- proteomics_data %>%
+      mutate(imputeVal = rowMeans(., na.rm = TRUE)) %>%
+      mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>%
+      within(., rm('imputeVal'))
+    
+  } else if (imputation_method == "median") {
+    
+    # analogous to `imputation_method == "median"`. Uses `dplyr::rowwise` with
+    # `dplyr::c_across()` in the `median()` call to achieve the same thing,
+    # except calculating the medians of a given feature across all samples. 
+    proteomics_data <- proteomics_data %>%
+      rowwise %>%
+      mutate(imputeVal = median(c_across(), na.rm = TRUE)) %>%
+      mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>%
+      within(., rm('imputeVal'))
+    
+  } else {
+    stop()
+  }
+  
+  # finally we store the imputed data back into the `SummarizedExperiment`
+  # object and return it. 
+  SummarizedExperiment::assays(
+    experiment, 
+    withDimnames = FALSE)[[assay]] <- proteomics_data 
+  return(experiment)
+  
+} 
+
+calc_diff_ex <- function(experiment,
+                         group_1,
+                         group_2,
+                         assay = "proteomics"){
+  
+  
+  
+    # retrieving the samples (column ids) of the groups we want to use for the
+    # differential expression analysis
+    samples_1 <- which(
+      SummarizedExperiment::colData(experiment)[["group"]] == group_1
+      )
+    samples_2 <- which(
+      SummarizedExperiment::colData(experiment)[["group"]] == group_2
+      ) 
+    
+    # next we set up the design matrix for the fit function used by limma to
+    # determine the differentially expressed features. The design matrix uses
+    # a factor based on the samples
+    fac <- factor(rep(c(2, 1), c(length(samples_2), length(samples_1))))
+    design <- stats::model.matrix(~fac)
+
+    # next we extract the assay of interest from the `SummarizedExperiment`
+    # object and create the differential expression result table. Note that we
+    # switch the order of groups here for `limma`
+    dat <- SummarizedExperiment::assays(experiment)[[assay]]
+    
+    result_table <- dat[, c(samples_2, samples_1)] %>%
+      limma::lmFit(., design) %>%
+      limma::eBayes(.) %>%
+      limma::topTable(., coef = 2, number = Inf, sort.by = "none")
+  
+    # The assumption is that the input `SummarizedExperiment` had only one assay
+    # associated with it, hence we will just augment the object and return it
+    # containing the results from limma.
+  
+    # comparison_name <- paste(group_1, "_vs_", group_2, sep = "")
+    # colnames_res <- paste(paste(comparison_name, 
+    #                             colnames(result_table), "limma", sep = "."))
+    # 
+    # colnames(result_table) <- colnames_res
+    result_table <- result_table %>%
+      rownames_to_column(., var="Protein.With.Phospho.Site") %>%
+      as.tibble(.)
+
+    # This makes sure that the differential expression results for each feature
+    # are properly aligned
+    SummarizedExperiment::rowData(experiment) <- left_join(
+      as_tibble(SummarizedExperiment::rowData(experiment)),
+      result_table,
+      by = 'Protein.With.Phospho.Site'
+      )
+  
+    return(experiment)
+}
+
+prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5) {
+    
+  proteomicsMetaClean <- proteomics_meta %>%
+    separate_wider_regex(
+      .,
+      col = "condition",
+      c("group" = ".*", "_", "replicate" = ".*"),
+      cols_remove = FALSE
+      ) %>% 
+    separate_wider_delim(
+      .,
+      col = "group",
+      delim = "_",
+      names = c("timepoint", "agent"),
+      too_few = "align_start",
+      cols_remove = FALSE
+      )|>
+    tibble::column_to_rownames('sample') ##SG: rownames reflect sample identifier
+  
+  proteomicsDataClean <- proteomics_data %>%
+    unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
+    unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
+    column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
+    within(., rm("Protein.Names", "Gene.Names", "Sequence"))
+  
+  # TODO: add check to make sure missgness_cutoff is [0, 1]
+  proteomicsDataClean %<>%
+    .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
+    rownames_to_column(., var = "Protein.With.Phospho.Site")
+  
+  proteomicsMapping <- proteomics_data[0:5] %>%
+    separate_wider_delim(
+      .,
+      col = "Gene.Names",
+      names = c("Gene.Names", NA),
+      delim = ";",
+      cols_remove=TRUE,
+      too_few = "align_start",
+      too_many = "drop"
+      ) %>%
+    unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
+    unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site,
+          sep = "-", remove = FALSE) %>%
+    unite(., "Gene.With.Phospho.Site", Gene.Names, Phospho.Site,
+          sep = "-", remove = FALSE) %>%
+    semi_join(., proteomicsDataClean, by = "Protein.With.Phospho.Site")
+
+  proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
+  
+  #calculate median abundnace for each phosphosite and rank  
+  medAbund <- apply(proteomicsDataClean, 1, function(x) median(x,na.rm = T))
+  qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1))
+  siteQuantile <- sapply(medAbund, function(x) names(qvals)[which(x <= qvals)[1]])
+  
+  
+  proteomicsMapping$medAbundance = medAbund
+  proteomicsMapping$quantile = siteQuantile
+  ## Removing some samples due to potential sample mixup
+  # proteomicsDataClean %<>% select(., !c("cNF_spheroid_P_DIA_07", "cNF_spheroid_P_DIA_12", "cNF_spheroid_P_DIA_13"))
+  # proteomicsMetaClean %<>% filter(!sample %in% c("cNF_spheroid_P_DIA_07", "cNF_spheroid_P_DIA_12", "cNF_spheroid_P_DIA_13"))
+
+  experiment <- SummarizedExperiment(
+    assays = list(proteomics = proteomicsDataClean),
+    rowData = proteomicsMapping,
+    colData = proteomicsMetaClean[colnames(proteomicsDataClean),] #SG ordered by sample name
+  )
+  
+  return(experiment)
+}
+```
+
+## Data preparation
+
+Before running the actual differential expression analysis we need to first
+clean the data. This consits of several steps:
+
+- Matching DIA run identifiers to chemical agent & sample time descriptor
+- Missingness removal (i.e. exclude genes from consideration that weren't
+  detected in a certain fraction of MS/MS runs)
+- remove additional identifier columns (move into separate DataFrame)
+- log2 transform the abundance / intensity data
+- impute missing values (media center based on other readouts for the protein)
+
+- `prep_data` will take of most of the data prep including the missingness
+  removal since we need to make sure that the identifier table and data table 
+  that goes into the `SummarizedExperiment` match up.
+- `log_transform` & `impute_proteomics` take care of their namesake.
+
+```{r}
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0) %>%
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+```
+
+
+## Differential Expression analysis
+
+### PCA (No missingness removal)
+With all the data imported we can focus on the actual differential expression
+analysis.
+First we will perform a PCA analysis of the underlying proteomics data to check
+if there is meaningful signal separation of the individual treatment agents,
+as well as timepoints.
+
+*Note that no phospho sites have been removed due to missingness removal*
+*i.e. all N/As are being imputed!*
+
+```{r}
+principal_components <- prcomp(t(assay(experiment))) %$%
+  cbind(x, colData(experiment))
+
+plot <- (
+  ggplot(
+    principal_components,
+    aes(
+      x = PC1,
+      y = PC2,
+      col = agent,
+      shape = timepoint,
+      label = condition
+      )
+    )
+  + geom_point(size = 2)
+  + geom_text_repel(max.overlaps = 10, size = 2)
+  + theme_minimal()
+  + theme(legend.position = "bottom")
+  + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+  + labs(
+    title = "Spheroid phospho proteomics; DMSO vs. Mirdametinib",
+    subtitle = "no missingness filter; SampMin imputation"
+  )
+)
+
+plot
+ggsave("../output_figures/phospho_prot_PCA.png",
+       plot = plot,
+       dpi = 600,
+       height = 6,
+       width = 6,
+       )
+```
+
+### PCA (50% missingness removal)
+Now we repeat the PCA plot but with 50% missingness removal, i.e. only protein
+phosphorylations that were detected in >= 80% of the samples are being
+considered for the PCA generation.
+
+```{r}
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0.5) %>%
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+
+principal_components <- prcomp(t(assay(experiment))) %$%
+  cbind(x, colData(experiment))
+
+plot <- (
+  ggplot(
+    principal_components,
+    aes(
+      x = PC1,
+      y = PC2,
+      col = agent,
+      shape = timepoint,
+      label = condition
+      )
+    )
+  + geom_point(size = 2)
+  + geom_text_repel(max.overlaps = 10, size = 2)
+  + theme_minimal()
+  + theme(legend.position = "bottom")
+  + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+  + labs(
+    title = "Spheroid phospho proteomics; DMSO vs. Mirdametinib",
+    subtitle = "proteins with >50% missingness removed; SampMin imputation"
+  )
+)
+
+plot
+
+ggsave("../output_figures/phospho_prot_PCA_50pct_missingness_removed.png",
+       plot = plot,
+       dpi = 600,
+       height = 6,
+       width = 6,
+       )
+```
+As can be seen, the data after missingness removal separates much better than
+the full dataset, albeit mostly by timepoint and not so much by drug.
+
+One mayor point to mention here is that there seem to be two pairs of conditions
+that indicate that some sample swapping might have occurred during the data
+processing. Those samples are:
+
+- 24hr_Mirda_r1 & 48hr_Mirda_r1
+- 0hr_r1 & 48hr_DMSO_r3
+
+If those two sample pairs would swap their respecive lables the PCA would truly
+place all points together in space accoring to their timepoint.
+
+### Investigation into the sample discrepancy
+
+```{r sample-discrepancy, eval=FALSE}
+experiment <- prep_data(proteomicsData, proteomicsMeta, 0)
+summary(as_tibble(assay(experiment)))
+
+```
+```{r, eval=FALSE}
+tmp <- as_tibble(assay(experiment)) %>% reframe(, n = colSums(is.na(across(everything())))) %>% cbind(., rownames(t(assay(experiment)))) %>% as_tibble()
+tmp %<>% dplyr::rename(., count_NA = n) %>% dplyr::rename(., id = `rownames(t(assay(experiment)))`)
+subset(tmp, id %in% c('cNF_spheroid_P_DIA_01', 'cNF_spheroid_P_DIA_13', 'cNF_spheroid_P_DIA_07', 'cNF_spheroid_P_DIA_12'))
+```
+```{r, eval=FALSE}
+subset(tmp, !id %in% c('cNF_spheroid_P_DIA_01', 'cNF_spheroid_P_DIA_13', 'cNF_spheroid_P_DIA_07', 'cNF_spheroid_P_DIA_12'))
+```
+
+### Number of significant differentally expressed phospho sites 
+Next we will perform the actual differential expression analysis.
+We will define a significantly differentially experessed phospho site as
+
+- having an adjusted p-Value < 0.05
+- having a logFC >= 1 or logFC < -1
+
+We will be investigating specifically the expression differential between DMSO
+and Mirdametenib treated samples both at the 24h as well as 48h time point.
+The codeblock below performs the differential expression analyses using the
+previously defined function `calc_diff_ex`.
+The we select the proteins that show a significant differential in their
+expression between the two groups and prepare a `data.frame` for plotting the
+results.
+```{r differential-expression-dmso-mirda}
+dmso_mirda_24h <- calc_diff_ex(experiment, group_1 = "24hr_DMSO", group_2 = "24hr_Mirda")
+dmso_mirda_48h <- calc_diff_ex(experiment, group_1 = "48hr_DMSO", group_2 = "48hr_Mirda")
+
+dfPlot <- subset(as_tibble(rowData(dmso_mirda_24h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
+  logFC >= 1 ~ 'up',
+  logFC < -1 ~ 'down'
+))
+dfPlot$timepoint = "24hr"
+
+dfPlot2 <- subset(as_tibble(rowData(dmso_mirda_48h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
+  logFC >= 1 ~ 'up',
+  logFC < -1 ~ 'down'
+))
+dfPlot2$timepoint = '48hr'
+
+dfPlot <- rbind(dfPlot, dfPlot2) %>% subset(., !is.na(expression_change))
+```
+
+The code block below plots the number of significantly up and down regulated
+proteins.
+```{r plot-expression-differential}
+cpalette = c('up' = '#74add1', 'down' = '#f46d43')
+
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(timepoint)
+  )
+  + geom_bar(aes(fill=expression_change), position = 'dodge2')
+  + scale_fill_manual(values = cpalette)
+  + theme_minimal()
+  + labs(
+    title = 'Spheroid phospho proteomics; DMSO vs Mirdametinib', 
+    subtitle = "Counts of significant differentially expressed proteins ( pVal < 0.05; -1  >= logFC >= 1 )",
+    fill = 'expression'
+  )
+)
+plot
+```
+
+## Volcano plots of differentially expressed porteins
+Next we generate volcano plots to investigate the significant proteins further.
+For each time point one volcano plot will be generated.
+
+### DMSO vs Mirdametenib at 24h
+```{r volcano-plot-24h}
+
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_24h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val','quantile')) %>% 
+  mutate(expression_change = case_when(
+    (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+    (logFC < -1 & adj.P.Val < 0.05) ~ 'down',
+    .default = 'not significant', 
+  )) %>%
+  mutate(labels = case_when(
+    expression_change %in% c('up', 'down') ~ Protein.With.Phospho.Site,
+    .default = NA
+  ))
+
+dfPlot$quantile <- factor(dfPlot$quantile, levels=c("10%", "20%", "50%", "100%"))
+dfPlot$timepoint = "24hr"
+
+
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(
+      x = logFC,
+      y = -log10(adj.P.Val),
+      col = expression_change,
+      shape = quantile,
+      # label = labels
+      )
+    )
+    + geom_vline(xintercept = c(-1, 1), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed')
+    + geom_point(size = .75)
+    # + geom_text_repel(max.overlaps = 10, size = 2)
+    + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + coord_cartesian(xlim = c(-11, 11), ylim = c(0, 4))
+    + theme_minimal()
+    + theme(legend.position = "bottom", legend.box = "vertical")
+    + labs(
+      title = 'Spheroid phospho proteomics',
+      subtitle = "DMSO vs. Mirdametinib at 24h",
+      col = 'expression',
+      y = expression("-log"[10]*"p-Value")
+    )
+)
+plot
+
+ggsave(
+  filename = "../output_figures/phospho_prot_diff_exp_volcano_24h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  scale = .8,
+  )
+```
+
+```{r sig-phospho-site-counts-24h}
+plot <- (dfPlot |> 
+ # subset(expression_change %in% c('up','down')) |> 
+  ggplot(aes(x=quantile,fill=expression_change))
+    + geom_bar(position='dodge')
+    + scale_fill_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + scale_y_log10()
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + labs(    
+      title = 'Spheroid phospho proteomics; DMSO vs Mirdametinib at 24h', 
+      subtitle = "Significant phospho sites: pVal < 0.05; -1  >= logFC >= 1",
+      fill = 'expression',
+      )
+  )
+plot
+
+ggsave(
+  filename = "../output_figures/phospho_prot_sig_site_count_24h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  )
+```
+
+### DMSO vs Mirdametenib at 48h
+```{r volcano-plot-48h}
+
+dfPlot <- subset(as.tibble(rowData(dmso_mirda_48h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val','quantile')) %>% 
+  mutate(expression_change = case_when(
+    (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+    (logFC < -1 & adj.P.Val < 0.05) ~ 'down',
+    .default = 'not significant', 
+  )) %>%
+  mutate(labels = case_when(
+    expression_change %in% c('up', 'down') ~ Protein.With.Phospho.Site,
+    .default = NA
+  ))
+
+dfPlot$quantile <- factor(dfPlot$quantile, levels=c("10%", "20%", "50%", "100%"))
+dfPlot$timepoint = "48hr"
+
+
+plot <- (
+  ggplot(
+    data = dfPlot,
+    aes(
+      x = logFC,
+      y = -log10(adj.P.Val),
+      col = expression_change,
+      shape = quantile
+      # label = labels
+      )
+    )
+    + geom_vline(xintercept = c(-1, 1), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed')
+    + geom_point(size = .75)
+    # + geom_text_repel(max.overlaps = 10, size = 2)
+    + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + coord_cartesian(xlim = c(-11, 11), ylim = c(0, 4))
+    + theme_minimal()
+    + theme(legend.position = "bottom", legend.box = "vertical")
+    + labs(
+      title = 'Spheroid phospho proteomics',
+      subtitle = "DMSO vs. Mirdametinib at 48h",
+      col = 'expression',
+      y = expression("-log"[10]*"p-Value")
+    )
+)
+plot
+
+ggsave(
+  filename = "../output_figures/phospho_prot_diff_exp_volcano_48h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  scale = .8,
+  )
+
+```
+
+```{r }
+plot <- (dfPlot |> 
+ # subset(expression_change %in% c('up','down')) |> 
+  ggplot(aes(x=quantile,fill=expression_change))
+    + geom_bar(position='dodge')
+    + scale_fill_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + scale_y_log10()
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + labs(    
+      title = 'Spheroid phospho proteomics; DMSO vs Mirdametinib at 48h', 
+      subtitle = "Significant phospho sites: pVal < 0.05; -1  >= logFC >= 1",
+      fill = 'expression',
+      )
+  )
+plot
+
+ggsave(
+  filename = "../output_figures/phospho_prot_sig_site_count_48h.png",
+  plot = plot,
+  dpi = 600,
+  height = 6,
+  width = 6,
+  )
+```
+### Pathway enrichment for Kinase substrate Pathways
+
+First we load the gene set table we need for the pathway enrichment that will
+be done by leapR.
+
+```{r load-leapR-gmt}
+data("kinasesubstrates")
+```
+
+Next we can use the already established differential expression data and run
+that data through `leapR`.
+We are using the `kinasesubstrates` gene sets here, to look for enriched
+kinase substrate pathways.
+The first set we will look at is enrichment at the **24h timepoint** between 
+**DMSO** and **Mirdametinib**.
+
+```{r kinasesubstrate-enrichment-24h, message=FALSE}
+early_res <- leapR(geneset = kinasesubstrates,
+                   eset = dmso_mirda_24h,
+                   enrichment_method = "enrichment_in_sets",
+                   assay_name = 'proteomics',
+                   id_column = "Gene.With.Phospho.Site",
+                   primary_column = "adj.P.Val",
+                   threshold = 0.05,
+                   greaterthan = FALSE)
+
+plot <- plot_leapr_bar(early_res,'Top pathways at 24h')
+ggsave("../output_figures/phospho_prot_pathway_enrichment_kinasesubstrates_24h_top.png", plot = plot, dpi = 600)
+plot
+```
+Finally we do the same for the **48h timepoint**.
+
+```{r kinasesubstrate-enrichment-48h, message=FALSE}
+late_res <- leapR(geneset = kinasesubstrates,
+                   eset = dmso_mirda_48h,
+                   enrichment_method = "enrichment_in_sets",
+                   assay_name = 'proteomics',
+                   id_column = "Gene.With.Phospho.Site",
+                   primary_column = "adj.P.Val",
+                   threshold = 0.05,
+                   greaterthan = FALSE)
+
+plot <- plot_leapr_bar(late_res,'Top pathways at 48h')
+ggsave("../output_figures/phospho_prot_pathway_enrichment_kinasesubstrates_48h_top.png", plot = plot, dpi = 600)
+plot
+```
