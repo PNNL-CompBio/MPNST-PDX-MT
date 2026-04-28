@@ -131,8 +131,16 @@ calc_diff_ex <- function(experiment,
   return(experiment)
 }
 
-prep_global_prot_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5) {
+prep_prot_data <- function(proteomics_data, proteomics_meta,
+                           type = c('global', 'phospho'),
+                           missingness_cutoff = 0.5){
 
+  # checking that either global or phospho is selected for type
+  # match.arg() will throw an error otherwise and execution will stop
+  sel_type <- match.arg(type)
+
+  # cleaning up the metadata by
+  #
   proteomicsMetaClean <- proteomics_meta %>%
     separate_wider_regex(
       .,
@@ -147,33 +155,73 @@ prep_global_prot_data <- function(proteomics_data, proteomics_meta, missingness_
       names = c("timepoint", "agent"),
       too_few = "align_start",
       cols_remove = FALSE
-    )|>
-    tibble::column_to_rownames('sample') ##SG: rownames reflect sample identifier
+    ) |>
+    tibble::column_to_rownames('sample') # adding rownames for SummarizedExperiment
 
+  if(sel_type == 'global'){
+    proteomicsDataClean <- proteomicsData %>%
+      column_to_rownames(., var = "Protein.Group") %>%
+      within(., rm("Protein.Names", "Genes", "First.Protein.Description"))
 
-  proteomicsDataClean <- proteomicsData %>%
-    column_to_rownames(., var = "Protein.Group") %>%
-    within(., rm("Protein.Names", "Genes", "First.Protein.Description"))
+    # TODO: add check to make sure missgness_cutoff is [0, 1]
+    proteomicsDataClean %<>%
+      .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
+      rownames_to_column(., var = "Protein.Group")
 
-  # TODO: add check to make sure missgness_cutoff is [0, 1]
-  proteomicsDataClean %<>%
-    .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
-    rownames_to_column(., var = "Protein.Group")
+    proteomicsMapping <- proteomicsData[0:4] %>%
+      separate_wider_delim(
+        .,
+        col = "Genes",
+        names = c("Genes", NA),
+        delim = ";",
+        cols_remove=TRUE,
+        too_few = "align_start",
+        too_many = "drop"
+      ) %>%
+      semi_join(., proteomicsDataClean, by = "Protein.Group")
 
-  proteomicsMapping <- proteomicsData[0:4] %>%
-    separate_wider_delim(
-      .,
-      col = "Genes",
-      names = c("Genes", NA),
-      delim = ";",
-      cols_remove=TRUE,
-      too_few = "align_start",
-      too_many = "drop"
-    ) %>%
-    semi_join(., proteomicsDataClean, by = "Protein.Group")
+    proteomicsDataClean %<>% column_to_rownames(., var = "Protein.Group")
 
-  proteomicsDataClean %<>% column_to_rownames(., var = "Protein.Group")
+  } else if( sel_type == 'phospho'){
+    proteomicsDataClean <- proteomics_data %>%
+      unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
+      unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
+      column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
+      within(., rm("Protein.Names", "Gene.Names", "Sequence"))
 
+    # TODO: add check to make sure missgness_cutoff is [0, 1]
+    proteomicsDataClean %<>%
+      .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
+      rownames_to_column(., var = "Protein.With.Phospho.Site")
+
+    proteomicsMapping <- proteomics_data[0:5] %>%
+      separate_wider_delim(
+        .,
+        col = "Gene.Names",
+        names = c("Gene.Names", NA),
+        delim = ";",
+        cols_remove=TRUE,
+        too_few = "align_start",
+        too_many = "drop"
+      ) %>%
+      unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
+      unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site,
+            sep = "-", remove = FALSE) %>%
+      unite(., "Gene.With.Phospho.Site", Gene.Names, Phospho.Site,
+            sep = "-", remove = FALSE) %>%
+      semi_join(., proteomicsDataClean, by = "Protein.With.Phospho.Site")
+
+    proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
+
+    #calculate median abundnace for each phosphosite and rank
+    medAbund <- apply(proteomicsDataClean, 1, function(x) median(x,na.rm = T))
+    qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1))
+    siteQuantile <- sapply(medAbund, function(x) names(qvals)[which(x <= qvals)[1]])
+
+    proteomicsMapping$medAbundance = medAbund
+    proteomicsMapping$quantile = siteQuantile
+
+  }
   experiment <- SummarizedExperiment(
     assays = list(proteomics = proteomicsDataClean),
     rowData = proteomicsMapping,
@@ -181,71 +229,5 @@ prep_global_prot_data <- function(proteomics_data, proteomics_meta, missingness_
   )
 
   return(experiment)
-}
 
-prep_phospho_prot_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5) {
-
-   proteomicsMetaClean <- proteomics_meta %>%
-     separate_wider_regex(
-       .,
-       col = "condition",
-       c("group" = ".*", "_", "replicate" = ".*"),
-       cols_remove = FALSE
-       ) %>%
-     separate_wider_delim(
-       .,
-       col = "group",
-       delim = "_",
-       names = c("timepoint", "agent"),
-       too_few = "align_start",
-       cols_remove = FALSE
-       )|>
-     tibble::column_to_rownames('sample') ##SG: rownames reflect sample identifier
-
-   proteomicsDataClean <- proteomics_data %>%
-     unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
-     unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
-     column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
-     within(., rm("Protein.Names", "Gene.Names", "Sequence"))
-
-   # TODO: add check to make sure missgness_cutoff is [0, 1]
-   proteomicsDataClean %<>%
-     .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
-     rownames_to_column(., var = "Protein.With.Phospho.Site")
-
-   proteomicsMapping <- proteomics_data[0:5] %>%
-     separate_wider_delim(
-       .,
-       col = "Gene.Names",
-       names = c("Gene.Names", NA),
-       delim = ";",
-       cols_remove=TRUE,
-       too_few = "align_start",
-       too_many = "drop"
-       ) %>%
-     unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
-     unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site,
-           sep = "-", remove = FALSE) %>%
-     unite(., "Gene.With.Phospho.Site", Gene.Names, Phospho.Site,
-           sep = "-", remove = FALSE) %>%
-     semi_join(., proteomicsDataClean, by = "Protein.With.Phospho.Site")
-
-   proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
-
-   #calculate median abundnace for each phosphosite and rank
-   medAbund <- apply(proteomicsDataClean, 1, function(x) median(x,na.rm = T))
-   qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1))
-   siteQuantile <- sapply(medAbund, function(x) names(qvals)[which(x <= qvals)[1]])
-
-
-   proteomicsMapping$medAbundance = medAbund
-   proteomicsMapping$quantile = siteQuantile
-
-   experiment <- SummarizedExperiment(
-     assays = list(proteomics = proteomicsDataClean),
-     rowData = proteomicsMapping,
-     colData = proteomicsMetaClean[colnames(proteomicsDataClean),]
-   )
-
-   return(experiment)
 }
