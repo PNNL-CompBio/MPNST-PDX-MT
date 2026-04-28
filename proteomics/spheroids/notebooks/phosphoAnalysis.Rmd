@@ -42,6 +42,12 @@ library(ggrepel)
 library(magrittr)
 ```
 
+
+```{r sourcing-cross-notebook-functions, results='hide'}
+source('../src/helper_funcs.R')
+```
+
+
 Next is the import of the phospho proteomics abundances from spheroids.
 The data file is located on synapse and is stored as tsv.
 
@@ -71,221 +77,6 @@ tmp <- synapser::synLogout()
 ```
 
 
-## Defining helper functions
-
-*TODO: Need to offload the helper functions into a seperate R file!*
-
-Next we will be defining some helper functions. Since we will be storing all the
-experimental results in a `SummarizedExperiment` object, those functions will
-work with said object structure.
-
-Specifically we define the following functions:
-
-- `log_transform(...)` which will take a `SummarizedExperiment` object, retrieve
-  the defined assay and log transform all intensity values and return a
-  `SummarizedExperiment` object containing the log transformed values
-- `impute_proteomics(...)` which will take a `SummarizedExeperiment` and impute
-  any missing intensity values in the defined assay. The function will return an
-  updated `SummarizedExepriment` object.
-
-```{r}
-log_transform <- function(experiment,
-                          assay = "proteomics"){
-  
-  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
-    mutate(across(everything(), as.numeric)) %>% # turn everything numeric
-    log2(.) # log transform all cells
-  
-  SummarizedExperiment::assays(
-    experiment, 
-    withDimnames = FALSE)[[assay]] <- proteomics_data 
-  return(experiment)
-}
-
-impute_proteomics <- function(experiment,
-                              assay = 'proteomics',
-                              imputation_method = 'SampMin'){
-  
-  # retrieve assay from SummarizedExperiment and make sure that all values
-  # are numeric such that we can impute
-  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
-    mutate(across(everything(), as.numeric)) # turn every cell numeric
-  
-  if(imputation_method == "SampMin") {
-    
-    # first calculates the minimum protein intensity per sample (column) using
-    # `matrixStats::colMins()`
-    sample_mins <- matrixStats::colMins(
-      as.matrix(proteomics_data),
-      na.rm = TRUE
-      )
-    # then NAs in each sample (column) to the sample minimum (stored as list)
-    proteomics_data <- proteomics_data %>%
-      replace_na(., as.list(sample_mins))
-    
-  } else if (imputation_method == "means") {
-    
-    # calculates the mean abundance of a given feature (protein) across all
-    # samples (columns) via `base::rowMeans()` stores it temporarily into a new
-    # column `imputeVal` and then iterates over all columns (excluding the newly
-    # generated column) to set N/As to the imputation value using 
-    # `dplyr::coalesce`. Finally the temporary column is removed from the data.
-    proteomics_data <- proteomics_data %>%
-      mutate(imputeVal = rowMeans(., na.rm = TRUE)) %>%
-      mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>%
-      within(., rm('imputeVal'))
-    
-  } else if (imputation_method == "median") {
-    
-    # analogous to `imputation_method == "median"`. Uses `dplyr::rowwise` with
-    # `dplyr::c_across()` in the `median()` call to achieve the same thing,
-    # except calculating the medians of a given feature across all samples. 
-    proteomics_data <- proteomics_data %>%
-      rowwise %>%
-      mutate(imputeVal = median(c_across(), na.rm = TRUE)) %>%
-      mutate(., across(!imputeVal, ~coalesce(.x, imputeVal))) %>%
-      within(., rm('imputeVal'))
-    
-  } else {
-    stop()
-  }
-  
-  # finally we store the imputed data back into the `SummarizedExperiment`
-  # object and return it. 
-  SummarizedExperiment::assays(
-    experiment, 
-    withDimnames = FALSE)[[assay]] <- proteomics_data 
-  return(experiment)
-  
-} 
-
-calc_diff_ex <- function(experiment,
-                         group_1,
-                         group_2,
-                         assay = "proteomics"){
-  
-  
-  
-    # retrieving the samples (column ids) of the groups we want to use for the
-    # differential expression analysis
-    samples_1 <- which(
-      SummarizedExperiment::colData(experiment)[["group"]] == group_1
-      )
-    samples_2 <- which(
-      SummarizedExperiment::colData(experiment)[["group"]] == group_2
-      ) 
-    
-    # next we set up the design matrix for the fit function used by limma to
-    # determine the differentially expressed features. The design matrix uses
-    # a factor based on the samples
-    fac <- factor(rep(c(2, 1), c(length(samples_2), length(samples_1))))
-    design <- stats::model.matrix(~fac)
-
-    # next we extract the assay of interest from the `SummarizedExperiment`
-    # object and create the differential expression result table. Note that we
-    # switch the order of groups here for `limma`
-    dat <- SummarizedExperiment::assays(experiment)[[assay]]
-    
-    result_table <- dat[, c(samples_2, samples_1)] %>%
-      limma::lmFit(., design) %>%
-      limma::eBayes(.) %>%
-      limma::topTable(., coef = 2, number = Inf, sort.by = "none")
-  
-    # The assumption is that the input `SummarizedExperiment` had only one assay
-    # associated with it, hence we will just augment the object and return it
-    # containing the results from limma.
-  
-    # comparison_name <- paste(group_1, "_vs_", group_2, sep = "")
-    # colnames_res <- paste(paste(comparison_name, 
-    #                             colnames(result_table), "limma", sep = "."))
-    # 
-    # colnames(result_table) <- colnames_res
-    result_table <- result_table %>%
-      rownames_to_column(., var="Protein.With.Phospho.Site") %>%
-      as.tibble(.)
-
-    # This makes sure that the differential expression results for each feature
-    # are properly aligned
-    SummarizedExperiment::rowData(experiment) <- left_join(
-      as_tibble(SummarizedExperiment::rowData(experiment)),
-      result_table,
-      by = 'Protein.With.Phospho.Site'
-      )
-  
-    return(experiment)
-}
-
-prep_data <- function(proteomics_data, proteomics_meta, missingness_cutoff = 0.5) {
-    
-  proteomicsMetaClean <- proteomics_meta %>%
-    separate_wider_regex(
-      .,
-      col = "condition",
-      c("group" = ".*", "_", "replicate" = ".*"),
-      cols_remove = FALSE
-      ) %>% 
-    separate_wider_delim(
-      .,
-      col = "group",
-      delim = "_",
-      names = c("timepoint", "agent"),
-      too_few = "align_start",
-      cols_remove = FALSE
-      )|>
-    tibble::column_to_rownames('sample') ##SG: rownames reflect sample identifier
-  
-  proteomicsDataClean <- proteomics_data %>%
-    unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
-    unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
-    column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
-    within(., rm("Protein.Names", "Gene.Names", "Sequence"))
-  
-  # TODO: add check to make sure missgness_cutoff is [0, 1]
-  proteomicsDataClean %<>%
-    .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
-    rownames_to_column(., var = "Protein.With.Phospho.Site")
-  
-  proteomicsMapping <- proteomics_data[0:5] %>%
-    separate_wider_delim(
-      .,
-      col = "Gene.Names",
-      names = c("Gene.Names", NA),
-      delim = ";",
-      cols_remove=TRUE,
-      too_few = "align_start",
-      too_many = "drop"
-      ) %>%
-    unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
-    unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site,
-          sep = "-", remove = FALSE) %>%
-    unite(., "Gene.With.Phospho.Site", Gene.Names, Phospho.Site,
-          sep = "-", remove = FALSE) %>%
-    semi_join(., proteomicsDataClean, by = "Protein.With.Phospho.Site")
-
-  proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
-  
-  #calculate median abundnace for each phosphosite and rank  
-  medAbund <- apply(proteomicsDataClean, 1, function(x) median(x,na.rm = T))
-  qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1))
-  siteQuantile <- sapply(medAbund, function(x) names(qvals)[which(x <= qvals)[1]])
-  
-  
-  proteomicsMapping$medAbundance = medAbund
-  proteomicsMapping$quantile = siteQuantile
-  ## Removing some samples due to potential sample mixup
-  # proteomicsDataClean %<>% select(., !c("cNF_spheroid_P_DIA_07", "cNF_spheroid_P_DIA_12", "cNF_spheroid_P_DIA_13"))
-  # proteomicsMetaClean %<>% filter(!sample %in% c("cNF_spheroid_P_DIA_07", "cNF_spheroid_P_DIA_12", "cNF_spheroid_P_DIA_13"))
-
-  experiment <- SummarizedExperiment(
-    assays = list(proteomics = proteomicsDataClean),
-    rowData = proteomicsMapping,
-    colData = proteomicsMetaClean[colnames(proteomicsDataClean),] #SG ordered by sample name
-  )
-  
-  return(experiment)
-}
-```
-
 ## Data preparation
 
 Before running the actual differential expression analysis we need to first
@@ -304,7 +95,7 @@ clean the data. This consits of several steps:
 - `log_transform` & `impute_proteomics` take care of their namesake.
 
 ```{r}
-experiment <- prep_data(proteomicsData, proteomicsMeta, 0) %>%
+experiment <- prep_phospho_prot_data(proteomicsData, proteomicsMeta, 0) %>%
   log_transform(., assay = "proteomics") %>%
   impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
 ```
@@ -363,7 +154,7 @@ phosphorylations that were detected in >= 80% of the samples are being
 considered for the PCA generation.
 
 ```{r}
-experiment <- prep_data(proteomicsData, proteomicsMeta, 0.5) %>%
+experiment <- prep_phospho_prot_data(proteomicsData, proteomicsMeta, 0.5) %>%
   log_transform(., assay = "proteomics") %>%
   impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
 
@@ -445,8 +236,8 @@ The we select the proteins that show a significant differential in their
 expression between the two groups and prepare a `data.frame` for plotting the
 results.
 ```{r differential-expression-dmso-mirda}
-dmso_mirda_24h <- calc_diff_ex(experiment, group_1 = "24hr_DMSO", group_2 = "24hr_Mirda")
-dmso_mirda_48h <- calc_diff_ex(experiment, group_1 = "48hr_DMSO", group_2 = "48hr_Mirda")
+dmso_mirda_24h <- calc_diff_ex(experiment, group_1 = "24hr_DMSO", group_2 = "24hr_Mirda", align_by = "Protein.With.Phospho.Site")
+dmso_mirda_48h <- calc_diff_ex(experiment, group_1 = "48hr_DMSO", group_2 = "48hr_Mirda", align_by = "Protein.With.Phospho.Site")
 
 dfPlot <- subset(as_tibble(rowData(dmso_mirda_24h)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val'), adj.P.Val < 0.05) %>% mutate(expression_change = case_when(
   logFC >= 1 ~ 'up',
