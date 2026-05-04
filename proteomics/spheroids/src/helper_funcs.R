@@ -232,3 +232,54 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
   return(experiment)
 
 }
+
+
+plot_pca <- function(experiment, agent, type = c('global', 'phospho')){
+
+  prot_type <- match.arg(type)
+
+  plates <- unique(colData(experiment_global[, experiment_global$agent ==  agent])$plate)
+  plates <- append(plates, 10)
+  ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+  sel <- c(ctrl, agent)
+
+
+
+  experiment_subset <- experiment[, (experiment$plate %in% plates) & experiment$agent %in% sel]
+
+  principal_components <- prcomp(t(assay(experiment_subset))) %$%
+    cbind(x, colData(experiment_subset))
+
+  plot_title <- base::paste("Spheroid", prot_type, "proteomics for:", agent)
+  color_vals <- c("#66c2a5", "#fc8d62", "#8da0cb")
+  colors <- setNames(color_vals, c(agent, "DMSO", "Water"))
+
+  plot <- (
+    ggplot(
+      principal_components,
+      aes(
+        x = PC1,
+        y = PC2,
+        # col = timepoint,
+        # shape = agent,
+        col = agent,
+        shape = timepoint,
+        label = condition
+      )
+    )
+    + geom_point(size = 2)
+    + geom_text_repel(max.overlaps = 10, size = 2)
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + scale_color_manual(values = colors)
+    # + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+    + labs(
+      title = plot_title,
+      subtitle = "50% missingness filter; SampMin imputation"
+    )
+
+  )
+  return(plot)
+
+
+}
