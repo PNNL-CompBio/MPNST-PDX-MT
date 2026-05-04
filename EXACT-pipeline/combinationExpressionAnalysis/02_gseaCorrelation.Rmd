@@ -97,7 +97,9 @@ cor_sig <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
 
 merged_res <- cor_res |> left_join(cor_sig)
 
-subset(merged_res, sig < 0.05)
+
+subset(merged_res, sig < 0.05) |>
+  head()
 
 
 ```
@@ -155,7 +157,7 @@ cor_sig <- do.call(rbind,lapply(unique(gvals$drug), function(drug){
 full_res <- treated_cor_res |>
   left_join(cor_sig)
 
-subset(cor_sig, sig < 0.01)
+subset(cor_sig, sig < 0.01) |> head()
 
 
 bubble_plot(full_res)

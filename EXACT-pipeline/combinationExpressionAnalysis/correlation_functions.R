@@ -127,6 +127,11 @@ get_harmonized_gex <- function(){
   navals <- apply(tmat,1,function(x) length(which(is.na(x)))/length(x))
  # tmat <- tmat[which(navals < 0.25),]
 
+  ##log2
+  tmat <- 0.0001+log2(tmat)
+  ##now median center by sample so we can better compare
+  tmat <- apply(tmat,2,function(x) x-median(x,na.rm=T))
+
   #mvals <- apply(tmat,1,mean,na.rm = T)
   #for(i in 1:nrow(tmat))
   #  tmat[i,which(is.na(tmat[i,]))] <- mvals[i]
