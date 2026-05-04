@@ -60,7 +60,7 @@ synapseFileID = "syn74552028"
 fileEntity <- synapser::synGet(synapseFileID)
 global_dat <- readr::read_tsv(
   fileEntity$path,
-  na = c("0", NA) # the file stored on synapse has '0's instead of NA or ''
+  na = c("0","", NA), # the file stored on synapse has '0's instead of NA or ''
   )
 
 # getting phospho-proteomics abundance data
@@ -68,7 +68,7 @@ synapseFileID = "syn74589783"
 fileEntity <- synapser::synGet(synapseFileID)
 phospho_dat <- readr::read_tsv(
   fileEntity$path,
-  na = c("0", NA) # the file stored on synapse has '0's instead of NA or ''
+  na = c("0","",NA), # the file stored on synapse has '0's instead of NA or ''
   )
 
 # metadata ingest
