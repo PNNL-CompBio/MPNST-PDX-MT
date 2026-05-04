@@ -1,0 +1,291 @@
+---
+title: "Compare Pathways to CCLE"
+author: "Sara Gosline"
+date: "2026-04-30"
+output: html_document
+---
+
+
+
+Here we take a top-down look of what combinations are highly effective and
+what pathways the two drugs might share. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(synapser)
+synLogin()
+source("../RNAseq/plottingParameters.R")
+source("correlation_functions.R")
+```
+
+
+# Top-ranking drug combos
+
+We can look at the delta AUC scores for the samples for which we have gene expression
+data. We see five combinations with a dAUC above 1:
+
+```{r read daucs}
+daucs <- readr::read_csv(synGet('syn69978141')$path) |>
+  tidyr::separate(Combo, into=c('drug1','drug2'), sep='\\+', remove = FALSE)
+
+##read in GSEA from treated samples
+sing_gsea <- readr::read_csv("../RNAseq/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
+
+##get aucs fro gene xpression samples
+
+daucs |> subset(PDX%in%sing_gsea$MPNST) |>
+  group_by(drug1,drug2) |>
+  summarize(md = mean(dAUC,na.rm=T)) |>
+  subset(md > 1) |>
+  arrange(desc(md))
+
+```
+
+##Load in diffex pathways
+
+We can now ask if pathways up-regulated by one of the combinations of interest might be of interest to other
+combinations in other cell lines. 
+
+```{r pathways}
+
+drugs <- c('Mirdametinib','TNO155','Vorinostat','Capmatinib','Trabectedin','Doxorubicin')
+hall_preds <- readr::read_csv('../RNAseq/GSEA_Hallmark/GSEA_results_Hallmark.csv')
+
+sig_paths <-subset(hall_preds, DrugTreatment%in%drugs)|>subset(NES>0)|>subset(FDR_q_value<0.25)|>subset(p_value<0.05)
+
+ggplot(sig_paths,aes(x=Feature_set,y=NES,fill=tolower(DrugTreatment)))+geom_bar(position='dodge',stat='identity')+scale_fill_manual(values=drugCol)+
+  coord_flip()
+```
+These drugs cause a lot of pathways to be up-regulated. 
+
+## Score CCLE Pathways
+
+CCLE has a large set of matched gene expression and drug response data. While many of 
+these drugs do not overlap the drugs we used, we can determine if there our approach
+is valid outside of MPNST for identifying novel drugs in combination.
+
+```{r read in ccle data}
+
+#TODO: put these files on synapse
+r1 <- readRDS("../RNAseq/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")
+r2 <- readRDS("../RNAseq/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")
+
+cmat <- rbind(r1,r2)|>as.data.frame()|>tibble::remove_rownames()|>tibble::column_to_rownames('CCLE_ID')|>t()
+
+cmat <- cmat[-which(duplicated(rownames(cmat))),]
+
+gmat <- get_gsea_scores(cmat)
+
+##get MOA for later
+##is it worth it to incorporate drug class? 
+gmt.drug <- leapR::read_gene_sets(paste0(
+           "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/",
+           "Inputs/MOA_gmt_file_n6_no_special_chars.gmt"))
+
+gmt.drug$matrix=t(gmt.drug$matrix) ##not sure why this is necessary
+
+
+moa.df <- do.call(rbind,
+                  lapply(c(1:nrow(gmt.drug$matrix)), function(i){
+  dl <- setdiff(gmt.drug$matrix[i,],c('',NULL,NA))
+  data.frame(moa = rep(gmt.drug$names[i]),drug=dl)
+}))
+
+```
+## Correlate CCLE scores with drug response
+
+Now we can do the same thing we did in the MPNST and look at
+correlations with various pathways and drugs
+
+```{r drug scores}
+
+prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
+         "DMEA/shiny-app/Inputs/PRISM_drug_mean_AUC_6-23-21.csv"), check.names=FALSE)
+
+p_exp <- prism[,2:ncol(prism)] |>
+  tidyr::pivot_longer(-CCLE_ID,names_to='drug',values_to='auc')|>
+  dplyr::rename(improve_sample_id = 'CCLE_ID')|>
+  mutate(treat_time = 120, expr_time = '0hr')
+
+cor_res <- do.call(rbind,lapply(unique(p_exp$drug), function(drug){
+      compute_cor(p_exp,gmat,drug,'0hr',120)
+                        })) #e  
+
+##and calculate significance
+print('computing gene/auc significance')
+cor_sig <- do.call(rbind,lapply(unique(p_exp$drug), function(drug){
+      compute_sig(p_exp,gmat,drug,'0hr',120)
+    })) #end drug iter
+
+
+merged_res <- cor_res |> left_join(cor_sig) |>
+  left_join(moa.df)
+```
+
+How do we visualize this many correlations? Let's do it one pathway at 
+a time.
+
+```{r visualize}
+
+plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
+
+  cr <- merged_res |> 
+    subset(gene == pathname) |>
+    mutate(Signif = ifelse(qval < 0.01,'**',ifelse(qval<0.05,'*',"")))
+  
+  if(!is.na(drugclass))
+    cr <- subset(cr,moa==drugclass)
+  
+  mv <- cr |> group_by(drug)|>
+    summarize(mv = mean(corval,na.rm=T))|>
+    arrange(mv)
+  
+  cr$drug = factor(cr$drug, levels=unique(mv$drug))
+  if(is.na(drugclass)){
+    cr |> ggplot(aes(fill=moa,x=drug, y=corval,group=moa)) + 
+     geom_bar(position='dodge',stat='identity') + 
+     #ggrepel::geom_text_repel(aes(label = Signif),nudge_y=-0.01)+
+    #facet_grid(ttime~.) +
+    ggtitle(paste("Drug response correlation with",pathname))    +
+    theme_bw() +    
+   # scale_fill_manual(values=moaCol)+
+    coord_flip()+
+    ylab('AUC correlation') + xlab('Drug')+
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1))
+  }else{
+        cr |> ggplot(aes(fill=drug,x=drug, y=corval)) + 
+     geom_bar(position='dodge',stat='identity') + 
+     ggrepel::geom_text_repel(aes(label = Signif),nudge_y=-0.01)+
+    #facet_grid(ttime~.) +
+    ggtitle(paste("Drug response correlation with",pathname))    +
+    theme_bw() +    
+   # scale_fill_manual(values=moaCol)+
+    coord_flip()+
+    ylab('AUC correlation') + xlab('Drug')+
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1))
+  }
+ 
+  ggsave(paste0(ft,'CCLE_drugCor.pdf'),width=6)
+}
+
+
+
+```
+
+Now can we look to see if other vorinostat up-regulated pathways are anti-correlated
+with MEK sensitivity?
+```{r vorin mek check}
+
+
+vpaths <- sig_paths[sig_paths$DrugTreatment=='Vorinostat','Feature_set'] |> unique()
+
+lapply(vpaths$Feature_set, function(x) {
+  plot_pathway_correlation(x,'MEK inhibitor',paste0(x,'_correlation_MEKi'))
+})
+#plot_pathway_correlation("HALLMARK_KRAS_SIGNALING_UP",'kras_only')
+```
+## Identify MOA that are enriched for each pathway
+
+Now we can use the MOA list to see if there are specific drug classes that are
+more sensitive to specific pathways
+
+```{r leapR enrichment}
+
+library(leapR)
+
+cormat <- cor_res[,c('gene','drug','corval')] |> 
+  pivot_wider(names_from='gene', values_from='corval') |>
+  tibble::column_to_rownames('drug') |>
+  as.matrix()
+
+
+##now we can run a KS test on each pathway to see
+##what drug mechanisms are more negatively correlated with each
+##class
+eres <- do.call(rbind,lapply(colnames(cormat),function(p){
+    leapR(gmt.drug,'enrichment_in_order',
+       eset=SummarizedExperiment::SummarizedExperiment(assays=list(cors=cormat)), 
+       assay_name='cors',
+       primary_columns=p) |>
+    tibble::rownames_to_column('drugClass')|>
+    mutate(pathway=p)}))
+
+
+```
+
+
+
+## now rank and check for overlap
+
+What pathways are up-regulated in our own MPNST?
+
+```{r}
+
+upreg_paths <- eres |>
+  subset(pathway %in% sig_paths$Feature_set) |>
+  subset(BH_pvalue < 0.01) |> 
+  subset(ingroup_mean < -1.0) 
+
+##of course the ingroup mean is a z-score, so we need to re-compoute? 
+
+
+ggplot(upreg_paths,aes(x=reorder(pathway,ingroup_mean),y=ingroup_mean,fill=drugClass)) +
+  geom_bar(position='dodge',stat='identity') +
+  xlab('Pathways up-regulated') + ylab("Mean correlation between AUC and pathway score in drug class")+
+  coord_flip()
+
+ggsave('drugClassCorrelation.pdf',width=12,height=8)
+```
+We haven't tested a lot of drugs in these classes, so to validate we should look for evidence of 
+pathways that indicate successful treatment with MEK inhibition. 
+
+Here we can see the pathway activity of those pathways that are correaled with MEKi.
+
+```{r validation perhaps}
+
+mekis <- upreg_paths[upreg_paths$drugClass=='MEK inhibitor',]
+
+subset(sig_paths,Feature_set%in%mekis$pathway) |>
+  ggplot(aes(x=Feature_set, y = NES, fill = tolower(DrugTreatment))) + 
+  scale_fill_manual(values=drugCol) + geom_bar(stat='identity', position='dodge') + 
+  xlab('Pathway') + ylab("Expression change in MPNST") + coord_flip() +
+  ggtitle("MEKi correlated pathways") +
+  facet_grid(~Time)
+
+#tikis <- upreg_paths[upreg_paths$drugClass=='topoisomerase inhibitor',]
+
+#subset(sig_paths,Feature_set%in%tikis$pathway) |>
+#  ggplot(aes(x=Feature_set, y = NES, fill = tolower(DrugTreatment))) + 
+#  scale_fill_manual(values=drugCol) + geom_bar(stat='identity', position='dodge') + coord_flip() +
+#  ggtitle("TOPOIi correlated pathways") +
+#  facet_grid(~Time)
+
+plot_pathway_drug_class <- function(path='HALLMARK_KRAS_SIGNALING_UP',
+                                 drugclass = 'MEK inhibitor'){
+  pscore <- data.frame(pathScore = gmat[path,], 
+                       improve_sample_id = colnames(gmat))
+                       
+  drugs <- setdiff(gmt.drug$matrix[which(gmt.drug$names == drugclass),],c(NA,NULL,''))
+  
+  dvals <-p_exp |>
+    subset(drug %in% drugs) |>
+    left_join(pscore) 
+  
+  ggplot(dvals,aes(x=pathScore, y = auc, col=drug))+geom_point() + geom_smooth(method = "lm", se = TRUE) +
+    ggtitle(paste(drugclass,'drugs and',path,'scores'))
+}
+
+plot_pathway_drug_class()
+
+ggsave('kras_up_meki.pdf',width=6)
+
+plot_pathway_drug_class('HALLMARK_KRAS_SIGNALING_DN','EGFR inhibitor')
+ggsave('kras_down_egfr.pdf',width=6)
+
+plot_pathway_correlation("HALLMARK_KRAS_SIGNALING_DN",'EGFR inhibitor','kras_only_egfr')
+```
+We can focus on pathways that are-regulated at both time point AND anti-correlated with
+
+```{r}

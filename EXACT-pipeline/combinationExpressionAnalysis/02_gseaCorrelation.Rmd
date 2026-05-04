@@ -1,0 +1,334 @@
+---
+title: "ssGSEA correlation"
+author: "Sara Gosline"
+date: "2026-02-28"
+output: html_document
+---
+
+With this markdown we evaluate which pathways are correlated with drug response
+and compare with those that are up-regulated.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(synapser)
+synLogin()
+source("../RNAseq/plottingParameters.R")
+source("correlation_functions.R")
+
+```
+
+## Data
+
+We have reformatted the data into three files:
+1. sample file describing the samples
+2. gene file with gene metadata
+3. transcriptomics data with gene expression data
+4. combination data with delta AUC values
+5. drug data with single AUC values
+
+Most data is now read in by `correlation_functions.R`
+
+```{r data, message=FALSE}
+
+##get the transcript data, this is slow
+if(!exists('full_tmat'))
+  full_tmat <- get_harmonized_gex()
+
+```
+
+Now we have all the transcriptional data. There
+are some missing values, but we'll keep them in for now.
+
+## Correlation of AUC and pathway scores
+
+Let's first look at the untreated gene expression data and see if we can 
+find out features that predict AUC
+
+```{r untreated gene expression}
+
+nmat <- full_tmat[,intersect(colnames(full_tmat),
+                             sing_exp$improve_sample_id)] |>
+  drop_na()
+
+tmat <- get_gsea_scores(log2(0.001 + nmat))
+
+print('computing pathway/aUC correlation')
+
+#first focus on only durgs with 10 data points
+#gvals <- md|>subset(count>10)
+
+sing_exp <- sing_exp |> mutate(expr_time = '0hr')
+
+cor_res <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
+      rbind(compute_cor(sing_exp,tmat,drug,'0hr',48), 
+           compute_cor(sing_exp,tmat,drug,'0hr',120) )
+    })) #end drug iter
+
+
+cor_res |>
+  ggplot(aes(x=corval,col=drug)) + geom_density() +
+  scale_color_manual(values=drugCol) + 
+  theme_bw() + facet_grid(~ttime)
+
+```
+
+We only have 8 samples here, but across drugs there is an enrichment of genes
+that are negatively correlated with AUC, which means they are high when the drug
+is MORE effective
+
+
+### Identify significant pathways
+
+Here we use a significance test to see if specific correlations are more 
+significant.
+
+```{r cor sig, eval=TRUE}
+
+print('computing gene/auc significance')
+cor_sig <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
+      rbind(compute_sig(sing_exp,tmat,drug,'0hr',48),
+            #compute_sig(sing_exp,tmat,drug,'24hr','48'),
+            compute_sig(sing_exp,tmat,drug,'0hr',120))
+            #compute_sig(sing_exp,tmat,drug,'24hr','120'))
+    })) #end drug iter
+
+
+merged_res <- cor_res |> left_join(cor_sig)
+
+
+subset(merged_res, sig < 0.05) |>
+  head()
+
+
+```
+
+
+While we have very few pathways that past multiple testing correction, we can 
+still dive further to see if these pathway scores exist in the combination data.
+
+# Plot ssGSEA scores by drug
+
+Here we want to re-create the bubble plots with pathway significance and 
+correlation.
+
+```{r ssgsea bubble}
+
+bubble_plot(merged_res)
+ggsave('t0_ssgseaCorrelation.pdf', height = 6,width=12)
+
+```
+
+## Correlation with AUC Shift scores
+
+Now we can do the same with our AUC shift scores, which are more powerful.
+
+```{r auc shift correlation}
+
+nmat <- full_tmat[,intersect(colnames(full_tmat), exp$improve_sample_id)] |>
+  drop_na()
+tmat <- get_gsea_scores(log2(0.001+nmat))
+
+
+gvals <- md |> subset(count > 10)
+
+exp <- exp |>
+  dplyr::rename(auc = 'delta_auc') |>
+  mutate(treat_time = as.numeric(as.character(treat_time))) |>
+  subset(!is.na(drug))
+
+treated_cor_res <- do.call(rbind,lapply(unique(gvals$drug), function(drug){
+      rbind(compute_cor(exp,tmat,drug,'8hr',48),
+            compute_cor(exp,tmat,drug,'24hr',48),
+            compute_cor(exp,tmat,drug,'8hr',120),            
+            compute_cor(exp,tmat,drug,'24hr',120))
+    })) #end drug iter
+
+
+print('computing gene/auc significance')
+cor_sig <- do.call(rbind,lapply(unique(gvals$drug), function(drug){
+      rbind(compute_sig(exp,tmat,drug,'8hr',48),
+            compute_sig(exp,tmat,drug,'24hr',48),
+            compute_sig(exp,tmat,drug,'8hr',120),
+            compute_sig(exp,tmat,drug,'24hr',120))
+    })) #end drug iter
+
+full_res <- treated_cor_res |>
+  left_join(cor_sig)
+
+subset(cor_sig, sig < 0.01) |> head()
+
+
+bubble_plot(full_res)
+ggsave('treated_ssgseaCorrelation.pdf', height = 12, width = 12)
+```
+
+
+
+## Drug-specific inquiry 
+
+For each drug of interest, can we 
+1. name the differentially expressed pathwasy
+2. ask which drugs correlate with drug response?
+3. confirm in the treated samples? 
+
+```{r drug-spec}
+
+#make sure we ran the RNA seq analysis first
+hall_preds <- readr::read_csv('../RNAseq/GSEA_Hallmark/GSEA_results_Hallmark.csv')
+
+
+##step 1: filter for up-regulated pathways
+upregs <- subset(hall_preds, sig == TRUE & NES >0) |>
+        mutate(Pathway = stringr::str_replace_all(Feature_set,'HALLMARK_','')) |>
+  mutate(DrugTreatment = tolower(DrugTreatment))
+
+##step 2: filter for negatively correlated pathwasy
+  combo_preds <- merged_res |>
+    dplyr::rename(secondDrug = 'drug','corP' = sig) |>
+      mutate(Pathway = stringr::str_replace_all(gene,'HALLMARK_','')) |>
+    right_join(upregs) |>
+    subset(corP < 0.05) |>
+    subset(corval <0) |>
+    dplyr::select(Time,DrugTreatment,secondDrug,ttime,Pathway, pathScore='NES',pathwayCor='corval')
+  
+head(combo_preds)
+
+readr::write_csv(combo_preds,file='SuppTable5_combinationScores.csv')
+```
+
+To view the combination predictions and select those agents that exhibit the most 
+cross talk in our dataset we use a sankey plot. This connects drugs with activated
+pathways to drugs with correlated pathways. 
+
+```{r}
+library(ggalluvial)
+
+plotSankey <- function(){
+
+  sumvals <- combo_preds |>
+    select(Time,DrugTreatment,secondDrug,Pathway) |>
+    distinct() |>
+    #group_by(DrugTreatment,Time,secondDrug) |> 
+    summarize(pathways = n_distinct(Pathway),.by = c(DrugTreatment,Time,secondDrug))|>
+    ungroup()
+
+  early <- sumvals|>subset(Time =='8h')|>
+    ggplot( aes(y=pathways, axis1=DrugTreatment, axis2=secondDrug))+
+    ggalluvial::geom_alluvium(aes(fill=DrugTreatment)) +
+    scale_fill_manual(values = classCol)+
+    guides(fill='none') +
+    ggalluvial::geom_stratum(alpha = 0.7, width = 1/3) +
+    scale_x_continuous(breaks = 1:2, 
+                       labels = c("Single drug pathway activation",
+                                  "Secondary drug pathway sensitivity"))  +
+    geom_text(stat="stratum", aes(label = after_stat(stratum))) +
+    ggtitle("Pathways at 8 hours")
+  
+  late <- sumvals|>subset(Time =='24h')|>
+    ggplot( aes(y=pathways, axis1=DrugTreatment, axis2=secondDrug))+
+    ggalluvial::geom_alluvium(aes(fill=DrugTreatment)) +
+    scale_fill_manual(values = classCol)+
+    guides(fill='none') +
+    ggalluvial::geom_stratum(alpha = 0.7, width = 1/3) +
+    scale_x_continuous(breaks = 1:2, 
+                       labels = c("Single drug pathway activation",
+                                  "Secondary drug pathway sensitivity"))  +
+    geom_text(stat="stratum", aes(label = after_stat(stratum))) +
+    ggtitle("Pathways at 24 hours")
+ 
+  cowplot::plot_grid(early,late) 
+}
+
+plotDrugFromDiffEx <- function(drug){
+ #drug = 'Mirdametinib'
+  
+  sig_feats <- subset(hall_preds, DrugTreatment==drug) |>
+    subset(p_value < 0.05)|>
+    subset(FDR_q_value < 0.05) |>
+    mutate(Pathway = stringr::str_replace_all(Feature_set,'HALLMARK_',''))
+  
+  t0_preds <- merged_res |>
+    dplyr::rename(corDrug = 'drug','corP' = sig) |>
+      mutate(Pathway = stringr::str_replace_all(gene,'HALLMARK_','')) |>
+    right_join(sig_feats) |>
+    subset(corP < 0.05) |>
+    mutate(Regulation = 'decrease with drug treatment')
+  t0_preds$Regulation[t0_preds$NES>0] <-'increase with drug treatment'
+  
+  ggplot(t0_preds, aes(x=Pathway, y =corval, fill = corDrug )) +
+    geom_bar(position = 'dodge', stat = 'identity') + 
+    scale_fill_manual(values = drugCol) + 
+    facet_grid(ttime~Regulation) + 
+    coord_flip() + 
+    theme_bw() +    
+    theme(axis.title=element_blank(), axis.text.x=element_text(angle=45, vjust=1, hjust=1))+
+    labs(x = 'Altered pathway', y = 'AUC correlation', 
+    title = paste0('AUC correlations of ',drug,'-altering pathways'))
+}
+
+#plotDrugFromDiffEx('Vorinostat')
+#plotDrugFromDiffEx("Mirdametinib")
+
+#ggsave('mirdaComboSuggs.pdf')
+plotDrugFromDiffEx('TNO155')
+#ggsave('tnoComboSuggs.pdf')
+plotSankey()
+
+ggsave('alluvialDrugPreds.pdf', width=12,height=8)
+
+
+```
+We can also evaluate how many drugs share pathways with each other.
+
+```{r drugCounts}
+
+c1_counts <- combo_preds |>
+   group_by(DrugTreatment) |> 
+   summarize(`sharedPathwayWithDrugAssociatedPath` = n_distinct(secondDrug)) |>
+    arrange(desc(sharedPathwayWithDrugAssociatedPath)) |>
+  dplyr::rename(drug = 'DrugTreatment')
+
+
+c2_counts <- combo_preds |>
+    group_by(secondDrug) |> 
+    summarize(drugsThatAlterSharedPathway = n_distinct(DrugTreatment)) |>
+   arrange((desc(drugsThatAlterSharedPathway))) |>
+  dplyr::rename(drug = 'secondDrug')
+
+combo_counts <- c1_counts |> full_join(c2_counts) |>
+  replace_na(list(sharedPathwayWithDrugAssociatedPath=0,drugsThatAlterSharedPathway=0))|>
+  mutate(total = sharedPathwayWithDrugAssociatedPath + drugsThatAlterSharedPathway) |>
+  arrange(desc(total))
+
+combo_counts
+
+tested_drugs <- c('mirdametinib','vorinostat','tno155','capmatinib','palbociclib','verteporfin',
+                  'iag933','doxorubicin','trabectedin','olaparib', 'pexidartinib')
+
+```
+Should this stay as a table or should we try to plot it?
+
+```{r drug plot}
+
+face <- rep('plain',length(combo_counts$drug))
+names(face)<-combo_counts$drug
+
+face[tested_drugs]<-'bold'
+            
+combo_counts$drug <- factor(combo_counts$drug,levels=combo_counts$drug)
+combo_counts |> tidyr::pivot_longer(c(drugsThatAlterSharedPathway,sharedPathwayWithDrugAssociatedPath),
+                                    names_to='source',
+                                    values_to='number of drugs with overlapping pathways') |>
+  ggplot(aes(x=drug, y = `number of drugs with overlapping pathways`, fill = source)) +
+  geom_bar(position='dodge', stat = 'identity') +
+  xlab('drug names')+
+  theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1, 
+                                 color=classCol[as.character(combo_counts$drug)],
+                                 face = face                   ))
+
+ggsave('drugsWithOverlappingPaths.pdf')
+```
+
+Now we can move the top drugs to the next phase of analysis.

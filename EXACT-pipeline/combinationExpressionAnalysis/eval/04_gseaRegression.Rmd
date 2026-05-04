@@ -1,0 +1,302 @@
+---
+title: "ssGSEA correlation"
+author: "Sara Gosline"
+date: "2026-02-28"
+output: html_document
+---
+
+---
+title: "Evaluate second drug pathways"
+author: "Sara Gosline"
+date: "2026-01-10"
+output: html_document
+---
+
+With this markdown we evaluate which pathways are correlated with drug response.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(synapser)
+synLogin()
+source("../RNAseq/plottingParameters.R")
+source("correlation_functions.R")
+
+```
+
+## Data
+
+We have reformatted the data into three files:
+1. sample file describing the samples
+2. gene file with gene metadata
+3. transcriptomics data with gene expression data
+4. combination data with delta AUC values
+5. drug data with single AUC values
+
+Most data is now read in by `correlation_functions.R`
+
+```{r data, message=FALSE}
+
+##get the transcript data, this is slow
+if(!exists('full_tmat'))
+  full_tmat <- get_harmonized_gex()
+
+
+```
+
+
+
+### Try to regress GSEA scores with drug response
+
+Let's first look at the untreated gene expression data and see if we can 
+find out features that predict AUC
+
+```{r untreated gene expression}
+
+
+tmat <- get_gsea_scores(log2(0.001+full_tmat[,intersect(colnames(full_tmat), sing_exp$improve_sample_id)]))
+
+
+library(glmnet)
+#drug = 'mirdametinib'
+
+alpha = 0.2
+sig = 0.1
+
+rres <- do.call(rbind, lapply(c(48,120), function(ttime){ #build model for each treatment time
+  
+  ##build model for each drug in our top counts list
+  res <- do.call(rbind, lapply(unique(tcounts$drug), function(drug) {
+  ##get the data for a specific treatment, measurement time, and drug
+   tvec <- sing_exp[sing_exp$treat_time == ttime &
+                  # sing_exp$expr_time == etime &
+                   sing_exp$drug == drug,] |>
+    drop_na() |>
+    arrange(auc) |>
+    tibble::column_to_rownames('improve_sample_id')
+
+  samps <- intersect(colnames(tmat), rownames(tvec))
+  tvec <- tvec[samps,]
+  df = t(tmat[,samps])#data.frame(apply(tmat[, samps],1,log2))
+  #df$delta_auc = as.numeric(tvec$delta_auc)
+
+##here we do the LOO for each sample in the drug
+  samp_preds <- do.call(rbind,lapply(rownames(df), function(samp){
+
+    st <- setdiff(rownames(df), samp)
+    
+    dtrain <- as.matrix(df[st,])
+  
+    model <- glmnet(x = dtrain, y = tvec[st, 'auc'], alpha = alpha)
+    coefs <-  setdiff(unique(rownames(which(coef(model) != 0, arr.ind =T))),'(Intercept)')
+    preds <- predict(model, newx = df[samp,], s = sig) 
+    return(c(preds = preds, features = paste(coefs, collapse=','), training_set = length(st)))
+  }
+))
+  tvec$preds = unlist(samp_preds[,1])
+  tvec$features = unlist(samp_preds[,2])
+  tvec$training_set = unlist(samp_preds[,3])
+  return(tvec)
+  }))
+ return(res) 
+}))
+
+rres$error = (as.numeric(rres$preds)-rres$auc)^2
+
+```
+
+
+
+### Model performance
+The results show minimal error at 48 hours, with greater error at 120 hrs.
+
+```{r pred results}
+
+
+##get ranking to make plotting prettier
+rs <-  rres |> group_by(drug, .add=TRUE, .drop=FALSE) |> 
+  summarize(mse = mean(error)) |>
+   arrange(mse)
+
+#join ranking
+rres <- rres |> left_join(rs)
+
+##plot
+ggplot(rres, aes(x=reorder(drug, mse), y = error, col = drug)) + 
+  geom_boxplot() +
+  geom_jitter() + 
+  facet_grid(~treat_time)+
+    scale_color_manual(values=drugCol) + 
+    theme_bw()+
+      theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) 
+
+#subset(rres,drug != 'iag933') 
+rres |>
+ggplot(aes(x=reorder(drug, mse), y = error, col = drug)) + 
+  geom_boxplot() +
+  geom_jitter() + 
+  facet_grid(~treat_time)+
+    scale_color_manual(values=drugCol) + 
+    theme_bw()+
+      theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) +
+  labs(x='Drug', y='Cross validation error')
+
+ggsave('fig3a_cv_gsea_error.pdf')
+```
+Now we can build full models and predict on second time point
+
+```{r full model}
+
+ttime = 48
+early_models <- lapply(unique(tcounts$drug), function(drug) {
+  ##get the data for a specific treatment, measurement time, and drug
+   tvec <- sing_exp[sing_exp$treat_time == ttime &
+                   sing_exp$drug == drug,] |>
+    drop_na() |>
+    arrange(auc) |>
+    tibble::column_to_rownames('improve_sample_id')
+
+  samps <- intersect(colnames(tmat), rownames(tvec))
+  tvec <- tvec[samps,]
+  df = t(tmat[,samps])#data.frame(apply(tmat[, samps],1,log2))
+  model <- glmnet(x = df, y = tvec$auc, alpha = alpha)
+  return(model)
+})
+
+names(early_models) <- unique(tcounts$drug)
+
+ttime = 120
+late_models <- lapply(unique(tcounts$drug), function(drug) {
+  ##get the data for a specific treatment, measurement time, and drug
+   tvec <- sing_exp[sing_exp$treat_time == ttime &
+                   sing_exp$drug == drug,] |>
+    drop_na() |>
+    arrange(auc) |>
+    tibble::column_to_rownames('improve_sample_id')
+
+  samps <- intersect(colnames(tmat), rownames(tvec))
+  tvec <- tvec[samps,]
+  df = t(tmat[,samps])#data.frame(apply(tmat[, samps],1,log2))
+  model <- glmnet(x = df, y = tvec$auc, alpha = alpha)
+  return(model)
+})
+
+names(late_models) <- unique(tcounts$drug)
+```
+
+
+### Combo gex data
+
+```{r combo gex data}
+
+ttmat <- get_gsea_scores(log2(0.001+full_tmat[,intersect(colnames(full_tmat), exp$improve_sample_id)]))
+
+```
+
+### Combo model evaluation
+
+
+Now we can try to use these values to predict AUC shift. Keep in mind that
+the model predicts AUC, and the AUC shift is between -1 and 1,with 1 meaning
+MORE drug sensitivity. 
+
+
+```{r applying single drug models}
+
+exp <- exp |> subset(!is.na(drug))
+
+
+
+early_cpreds <- do.call(rbind, lapply(names(early_models), function(d){
+  mod <- early_models[[d]]
+  #feats <- intersect(rownames(mod$beta),rownames(stmat))
+  pval <- predict(mod, newx = t(ttmat), s = sig)#[feats,])
+  
+  return(data.frame(drug = d, improve_sample_id = as.numeric(colnames(ttmat)), pred = pval[,1], pred_time = 48))
+}) )
+
+late_cpreds <- do.call(rbind, lapply(names(late_models), function(d){
+  mod <- late_models[[d]]
+  #feats <- intersect(rownames(mod$beta),rownames(stmat))
+  pval <- predict(mod, newx = t(ttmat), s = sig)#[feats,])
+  
+  return(data.frame(drug = d, improve_sample_id = as.numeric(colnames(ttmat)), pred = pval[,1], pred_time = 120))
+}) )
+
+
+dpreds <- rbind(late_cpreds, early_cpreds) |>  left_join(samples) |>
+  tidyr::separate(other_id, into=c('samp','initial_drug','time','treat','type'),sep='_') |>
+  dplyr::select(drug,improve_sample_id, samp, initial_drug,time,treat, pred, pred_time ) |>
+  distinct() |>
+  mutate(initial_drug = tolower(initial_drug))
+
+```
+
+We can now plot the results by drug, the time at which they were predicted to have
+an effect, and the expression measurement used to predict. 
+
+
+```{r plot prediction results}
+ggplot(dpreds, aes(x = pred, fill = drug)) + 
+  geom_histogram(position = 'dodge') +
+  scale_fill_manual(values=classCol) + facet_grid(~pred_time)
+
+
+ggplot(dpreds, aes(x = drug, y = pred, col = initial_drug, shape = time)) + 
+  geom_jitter() +
+  scale_color_manual(values=classCol) +
+  facet_grid( ~ pred_time) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) +
+  labs(y='Predicted effect')
+ggsave('fig2d_predictedEffect.pdf')
+
+```
+
+### Top combos predicted
+```{r sample combos}
+
+dpreds$combination <- apply(dpreds, 1, function(x) paste(sort(c(x[['drug']],x[['initial_drug']])), collapse='+'))
+
+dpreds$oppPred = 1-dpreds$pred
+
+
+epreds <- subset(dpreds, pred_time == 48)
+cmeans <- epreds |> group_by(combination, comboMean = mean(oppPred))
+
+subset(epreds, initial_drug != drug) |>
+  left_join(cmeans) |>
+  subset(time = '8hr') |>
+  ggplot(aes(x = samp, y = reorder(combination,comboMean), fill = oppPred)) + 
+  geom_tile() +#facet_grid( ~ pred_time) + 
+  labs(y='Combination') + scale_fill_continuous(high='turquoise4', low ='orchid4')
+
+
+subset(epreds, initial_drug != drug) |>
+  subset(initial_drug %in% exp$initial_drug & drug %in% exp$drug)|>
+  left_join(cmeans) |>
+  subset(time = '8hr') |>
+  ggplot(aes(x = samp, y = reorder(combination,comboMean), fill = oppPred)) + 
+  geom_tile() +#facet_grid( ~ pred_time) + 
+  labs(y='Combination') + scale_fill_continuous(high='turquoise4', low ='orchid4')
+
+ccounts <- epreds |> group_by(combination, pred_time, time) |> 
+  summarize(meanAUC = mean(pred), numSamps = n()) |>
+  tidyr::separate(combination, remove = FALSE, into=c('drug1','drug2'), sep =',')
+
+pcounts <- epreds |> group_by(initial_drug, drug, time, pred_time) |>
+  summarize(meanAUC = median(pred), numSamps = n())
+
+mpcounts <-pcounts |> group_by(drug) |> summarize(mma =mean(meanAUC))
+
+pcounts|> 
+  left_join(mpcounts) |># subset(drug1 != drug2) |>
+  #subset(numSamps > 2) |>
+#  subset(pred_time == 120) |>
+  ggplot(aes(x=initial_drug, y=reorder(drug,mma))) +
+         scale_fill_viridis_c()+
+  geom_tile(aes(fill=meanAUC))+facet_grid( ~ time) +
+   theme_minimal()+
+      theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) 
+```
