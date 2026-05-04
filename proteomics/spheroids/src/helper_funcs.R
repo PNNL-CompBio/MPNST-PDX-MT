@@ -238,7 +238,7 @@ plot_pca <- function(experiment, agent, type = c('global', 'phospho')){
 
   prot_type <- match.arg(type)
 
-  plates <- unique(colData(experiment_global[, experiment_global$agent ==  agent])$plate)
+  plates <- unique(colData(experiment[, experiment$agent ==  agent])$plate)
   plates <- append(plates, 10)
   ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
   sel <- c(ctrl, agent)
