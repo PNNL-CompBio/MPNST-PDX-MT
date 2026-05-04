@@ -1,0 +1,152 @@
+---
+title: "timepoint_analysis"
+
+author:
+- name: Yannick Mahlich
+  affiliation: Pacific Northwest National Laboratory
+- name: Sara Gosline
+  affiliation: Pacific Northwest National Laboratory
+date: "`r Sys.Date()`"
+output:
+#  pdf_document:
+#    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+  html_notebook:
+    toc: true
+---
+
+## Library & Data import
+
+The notebook itself relies on a number of R libraries to import and analyze the
+proteomics data. Library imports are not shown here, but include packages like:
+
+- synapser
+- readxl
+- limma
+
+```{r imports, echo=FALSE, results='hide', warning = FALSE, message = FALSE}
+library(synapser)
+library(readxl)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
+library(ggrepel)
+library(magrittr)
+library(gridExtra)
+```
+
+```{r sourcing-cross-notebook-functions, results='hide'}
+source('../src/helper_funcs.R')
+```
+
+
+## Data collectiohn and preparation
+We first will collect the global and phospho-proteomics abundance data from
+synapse. The data files are located at https://www.synapse.org/Synapse:syn70987742
+
+```{r import-data, results='hide'}
+# opening synapse connection
+tmp <- synapser::synLogin(silent = TRUE)
+
+# getting the global proteomics abundance data
+synapseFileID = "syn74552028"
+fileEntity <- synapser::synGet(synapseFileID)
+global_dat <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", NA) # the file stored on synapse has '0's instead of NA or ''
+  )
+
+# getting phospho-proteomics abundance data
+synapseFileID = "syn74589783"
+fileEntity <- synapser::synGet(synapseFileID)
+phospho_dat <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", NA) # the file stored on synapse has '0's instead of NA or ''
+  )
+
+# metadata ingest
+synapseFileID <- "syn74755705"
+fileEntity <- synapser::synGet(synapseFileID)
+meta_data <- readxl::read_xlsx(fileEntity$path, sheet = 2)
+
+# closing synpase conncetion
+tmp <- synapser::synLogout()
+```
+```{r sample-id-cleanup, eval=TRUE}
+
+# cleaning up the column names for the global proteomics data
+names(global_dat) <- names(global_dat) %>% 
+  gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\rawdata\\\\", "", .) %>% 
+  gsub("_16Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
+  gsub("^[0-9]*_", "", .)
+
+# cleaning up the column names for the phospho-proteomics data
+names(phospho_dat) <- names(phospho_dat) %>% 
+  gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\PhosphoRawData\\\\", "", .) %>% 
+  gsub("_20Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
+  gsub("^[0-9]*_", "", .)
+
+```
+
+```{r meta-data-prep}
+new_col_names <- c(sample = 'Sample ID \r\n(abbrev)',
+                   global_sample_id = "Proteomics Sample ID",
+                   phospho_sample_id = "Phosphoproteomics Sample ID",
+                   agent = "Drug",
+                   timepoint = "Time",
+                   plate = "Plate"
+                   )
+
+meta_data %<>%
+  rowwise() %>%
+  mutate(Drug = gsub(" ", "", Drug), Time = paste0(Time, "hr")) %>%
+  mutate(group = paste(Time, Drug, sep = "_")) %>%
+  group_by(group) %>%
+  mutate(replicate = paste0('r', 1:n())) %>%
+  mutate(condition = paste(Time, Drug, replicate, sep='_')) %>%
+  dplyr::rename(., all_of(new_col_names)) %>%
+  ungroup()
+
+meta_data_global <- meta_data %>% select(., global_sample_id, condition, plate) %>% dplyr::rename(., sample = global_sample_id)
+meta_data_phospho <- meta_data %>% select(., phospho_sample_id, condition, plate) %>% dplyr::rename(., sample = phospho_sample_id)
+```
+
+```{r summarized-experiment-creation}
+experiment_global <- prep_prot_data(proteomics_data = global_dat, proteomics_meta = meta_data_global, missingness_cutoff = 0.5, type = 'global') %>%
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+
+experiment_phospho <- prep_prot_data(proteomics_data = phospho_dat, proteomics_meta = meta_data_phospho, missingness_cutoff = 0.5, type = 'phospho') %>%
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+```
+
+
+
+
+```{r}
+agents <- unique(meta_data$agent)
+controls <- c("Water", "DMSO")
+agents <- agents[!agents %in% controls]
+
+for(agent in agents){
+ plot <- plot_pca(experiment_global, agent, "global")
+ fname <- paste0("../output_figures/pca_global_", agent, ".png")
+ ggsave(fname, plot = plot, height = 5, width = 6)
+}
+
+for(agent in agents){
+  plot <- plot_pca(experiment_phospho, agent, "phospho")
+ fname <- paste0("../output_figures/pca_phospho_", agent, ".png")
+ ggsave(fname, plot = plot, height = 5, width = 6)
+}
+```
+
+
