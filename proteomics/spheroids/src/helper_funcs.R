@@ -133,7 +133,8 @@ calc_diff_ex <- function(experiment,
 
 prep_prot_data <- function(proteomics_data, proteomics_meta,
                            type = c('global', 'phospho'),
-                           missingness_cutoff = 0.5){
+                           missingness_cutoff = 0.5,
+                           sample_col_prefix = "cNF"){
 
   # checking that either global or phospho is selected for type
   # match.arg() will throw an error otherwise and execution will stop
@@ -141,7 +142,7 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
 
   # cleaning up the metadata by
   #
-  proteomicsMetaClean <- proteomics_meta %>%
+  proteomics_meta_clean <- proteomics_meta %>%
     separate_wider_regex(
       .,
       col = "condition",
@@ -159,16 +160,16 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
     tibble::column_to_rownames('sample') # adding rownames for SummarizedExperiment
 
   if(sel_type == 'global'){
-    proteomicsDataClean <- proteomicsData %>%
+    proteomics_data_clean <- proteomics_data %>%
       column_to_rownames(., var = "Protein.Group") %>%
-      within(., rm("Protein.Names", "Genes", "First.Protein.Description"))
+      select(., contains(sample_col_prefix))
 
     # TODO: add check to make sure missgness_cutoff is [0, 1]
-    proteomicsDataClean %<>%
+    proteomics_data_clean %<>%
       .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
       rownames_to_column(., var = "Protein.Group")
 
-    proteomicsMapping <- proteomicsData[0:4] %>%
+    proteomicsMapping <- proteomics_data[0:4] %>%
       separate_wider_delim(
         .,
         col = "Genes",
@@ -178,19 +179,19 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
         too_few = "align_start",
         too_many = "drop"
       ) %>%
-      semi_join(., proteomicsDataClean, by = "Protein.Group")
+      semi_join(., proteomics_data_clean, by = "Protein.Group")
 
-    proteomicsDataClean %<>% column_to_rownames(., var = "Protein.Group")
+    proteomics_data_clean %<>% column_to_rownames(., var = "Protein.Group")
 
   } else if( sel_type == 'phospho'){
-    proteomicsDataClean <- proteomics_data %>%
+    proteomics_data_clean <- proteomics_data %>%
       unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
       unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
       column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
       within(., rm("Protein.Names", "Gene.Names", "Sequence"))
 
     # TODO: add check to make sure missgness_cutoff is [0, 1]
-    proteomicsDataClean %<>%
+    proteomics_data_clean %<>%
       .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
       rownames_to_column(., var = "Protein.With.Phospho.Site")
 
@@ -209,12 +210,12 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
             sep = "-", remove = FALSE) %>%
       unite(., "Gene.With.Phospho.Site", Gene.Names, Phospho.Site,
             sep = "-", remove = FALSE) %>%
-      semi_join(., proteomicsDataClean, by = "Protein.With.Phospho.Site")
+      semi_join(., proteomics_data_clean, by = "Protein.With.Phospho.Site")
 
-    proteomicsDataClean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
+    proteomics_data_clean %<>% column_to_rownames(., var = "Protein.With.Phospho.Site")
 
     #calculate median abundnace for each phosphosite and rank
-    medAbund <- apply(proteomicsDataClean, 1, function(x) median(x,na.rm = T))
+    medAbund <- apply(proteomics_data_clean, 1, function(x) median(x,na.rm = T))
     qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1))
     siteQuantile <- sapply(medAbund, function(x) names(qvals)[which(x <= qvals)[1]])
 
@@ -223,9 +224,9 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
 
   }
   experiment <- SummarizedExperiment(
-    assays = list(proteomics = proteomicsDataClean),
+    assays = list(proteomics = proteomics_data_clean),
     rowData = proteomicsMapping,
-    colData = proteomicsMetaClean[colnames(proteomicsDataClean),]
+    colData = proteomics_meta_clean[colnames(proteomics_data_clean),]
   )
 
   return(experiment)
