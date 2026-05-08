@@ -55,7 +55,8 @@ hall_preds <- readr::read_csv('../RNAseq/GSEA_Hallmark/GSEA_results_Hallmark.csv
 
 sig_paths <-subset(hall_preds, DrugTreatment%in%drugs)|>subset(NES>0)|>subset(FDR_q_value<0.25)|>subset(p_value<0.05)
 
-ggplot(sig_paths,aes(x=Feature_set,y=NES,fill=tolower(DrugTreatment)))+geom_bar(position='dodge',stat='identity')+scale_fill_manual(values=drugCol)+
+ggplot(sig_paths,aes(x=Feature_set,y=NES,fill=tolower(DrugTreatment)))+geom_bar(position='dodge',stat='identity')+
+  scale_fill_manual(values=drugCol)+
   coord_flip()
 ```
 These drugs cause a lot of pathways to be up-regulated. 
@@ -94,7 +95,7 @@ moa.df <- do.call(rbind,
 }))
 
 ```
-## Correlate CCLE scores with drug response
+## Correlate CCLE scores with drug response and look at correlations
 
 Now we can do the same thing we did in the MPNST and look at
 correlations with various pathways and drugs
@@ -125,27 +126,47 @@ merged_res <- cor_res |> left_join(cor_sig) |>
 ```
 
 How do we visualize this many correlations? Let's do it one pathway at 
-a time.
+a time. We ccan do this when we want to look at drug class. 
 
 ```{r visualize}
-
-plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
+###old function, probably delete
+plot_pathway_correlation <- function(pathname, 
+                                     drugclass = NA,
+                                     ft=''){
 
   cr <- merged_res |> 
     subset(gene == pathname) |>
     mutate(Signif = ifelse(qval < 0.01,'**',ifelse(qval<0.05,'*',"")))
   
-  if(!is.na(drugclass))
+  if(!is.na(drugclass)){
     cr <- subset(cr,moa==drugclass)
+    coul <- brewer.pal(4, "Set2") 
+
+# Add more colors to this palette 
+     ccols <-  colorRampPalette(coul)(length(unique(cr$drug)))
+    #names(ccols)<-unique(cr$moa)
+     
   
+    #names(ccols)<-unique(cr$drug)
+  }else{
+    # Classic palette BuPu, with 4 colors
+  coul <- brewer.pal(4, "Set2") 
+# Add more colors to this palette 
+     ccols <-  colorRampPalette(coul)(length(unique(cr$moa)))
+    #names(ccols)<-unique(cr$moa)
+  }
   mv <- cr |> group_by(drug)|>
     summarize(mv = mean(corval,na.rm=T))|>
     arrange(mv)
   
   cr$drug = factor(cr$drug, levels=unique(mv$drug))
+  
+
+
   if(is.na(drugclass)){
     cr |> ggplot(aes(fill=moa,x=drug, y=corval,group=moa)) + 
      geom_bar(position='dodge',stat='identity') + 
+      scale_fill_manual(values=ccols)+
      #ggrepel::geom_text_repel(aes(label = Signif),nudge_y=-0.01)+
     #facet_grid(ttime~.) +
     ggtitle(paste("Drug response correlation with",pathname))    +
@@ -159,6 +180,7 @@ plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
      geom_bar(position='dodge',stat='identity') + 
      ggrepel::geom_text_repel(aes(label = Signif),nudge_y=-0.01)+
     #facet_grid(ttime~.) +
+            scale_fill_manual(values=ccols)+
     ggtitle(paste("Drug response correlation with",pathname))    +
     theme_bw() +    
    # scale_fill_manual(values=moaCol)+
@@ -174,18 +196,62 @@ plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
 
 ```
 
-Now can we look to see if other vorinostat up-regulated pathways are anti-correlated
-with MEK sensitivity?
+### Drug class pathways
+
+We now have two pathways we are interested in: HDAC inhibitors and MEK inhibitors, and are wondering
+if drugs in either class are anti-correlated with pathways up-regulated in our MPNST. 
+
+
 ```{r vorin mek check}
 
+##are any pathways associated with a mek inhibitor?
+sigmek <- subset(merged_res,qval < 0.05)|>
+  subset(moa%in%'MEK inhibitor') |>
+  subset(corval<0)
 
-vpaths <- sig_paths[sig_paths$DrugTreatment=='Vorinostat','Feature_set'] |> unique()
+##no pathwys anti-correalted with hdac drug response
+sighdac <- subset(merged_res,qval < 0.05)|>
+  subset(moa%in%'HDAC inhibitor') |>
+  subset(corval<0)
 
-lapply(vpaths$Feature_set, function(x) {
-  plot_pathway_correlation(x,'MEK inhibitor',paste0(x,'_correlation_MEKi'))
-})
-#plot_pathway_correlation("HALLMARK_KRAS_SIGNALING_UP",'kras_only')
 ```
+Turns out there are no pathways anti-correlated with HDAC inhibitors that
+pass the bar of statistical significance across all tumors.
+
+```{r mek inhib}
+
+coul <- brewer.pal(7, "Set2") 
+
+# Add more colors to this palette 
+ccols <-  colorRampPalette(coul)(length(unique(sigmek$gene)))
+names(ccols) <- sort(unique(sigmek$gene))
+#ccols <-  RColorBrewer::brewer.pal(length(unique(sigmek$gene)),"Set3")
+
+##let's plot the meki
+ggplot(sigmek, aes(x=drug, y = corval, fill = gene )) + 
+  geom_bar(stat='identity',position='dodge') + 
+  coord_flip() + theme_bw() + scale_fill_manual(values=ccols) +
+  ggtitle("Pathways negatively correlated with MEKi drugs")
+ggsave('MEKicorrelatedPathways.pdf')
+
+```
+
+There are a number of pathways that are anti-correlated with MEK inhibitors.
+Which ones are up-regulated in the MPNST?
+
+```{r}
+
+
+subset(sig_paths,Feature_set %in% sigmek$gene) |> 
+  ggplot(aes(x=DrugTreatment, y = NES, fill=Feature_set)) + 
+  geom_bar(position='dodge',stat='identity') + coord_flip() +facet_grid(~Time) +
+  theme_bw() + scale_fill_manual(values=ccols) +
+  ggtitle('MEKi correlated pathways activated in MPNST')
+ggsave('MEKicorrelatedPathwaysInMPNST.pdf')
+
+```
+
+
 ## Identify MOA that are enriched for each pathway
 
 Now we can use the MOA list to see if there are specific drug classes that are
@@ -223,16 +289,24 @@ What pathways are up-regulated in our own MPNST?
 
 ```{r}
 
-upreg_paths <- eres |>
-  subset(pathway %in% sig_paths$Feature_set) |>
+upreg_paths <- sig_paths |> 
+  dplyr::select(Time,DrugTreatment,pathway='Feature_set') |>
+  mutate(drug = tolower(DrugTreatment))|>
+  left_join(eres) |> #  subset(pathway %in% sig_paths$Feature_set) |>
   subset(BH_pvalue < 0.01) |> 
   subset(ingroup_mean < -1.0) 
 
 ##of course the ingroup mean is a z-score, so we need to re-compoute? 
+pcols <-RColorBrewer::brewer.pal(length(unique(upreg_paths$drugClass)),"Set3")
+coul <- brewer.pal(5, "Set2") 
 
-
+# Add more colors to this palette 
+pcols <-  colorRampPalette(coul)(length(unique(upreg_paths$drugClass)))
+     
 ggplot(upreg_paths,aes(x=reorder(pathway,ingroup_mean),y=ingroup_mean,fill=drugClass)) +
   geom_bar(position='dodge',stat='identity') +
+  scale_fill_manual(values = pcols) +
+  facet_grid(~drug) +
   xlab('Pathways up-regulated') + ylab("Mean correlation between AUC and pathway score in drug class")+
   coord_flip()
 
@@ -246,6 +320,7 @@ Here we can see the pathway activity of those pathways that are correaled with M
 ```{r validation perhaps}
 
 mekis <- upreg_paths[upreg_paths$drugClass=='MEK inhibitor',]
+
 
 subset(sig_paths,Feature_set%in%mekis$pathway) |>
   ggplot(aes(x=Feature_set, y = NES, fill = tolower(DrugTreatment))) + 
