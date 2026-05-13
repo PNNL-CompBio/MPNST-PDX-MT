@@ -38,12 +38,13 @@ sing_gsea <- readr::read_csv("../RNAseq/GSEA_Hallmark_individual/GSEA_results_Ha
 
 ##get aucs fro gene xpression samples
 
-daucs |> subset(PDX%in%sing_gsea$MPNST) |>
+tab<-daucs |> subset(PDX%in%sing_gsea$MPNST) |>
   group_by(drug1,drug2) |>
   summarize(`mean dAUC` = mean(dAUC,na.rm=T)) |>
   arrange(desc(`mean dAUC`)) |>
   subset(`mean dAUC`>1)
-
+tab
+readr::write_csv(tab,file='table2.csv')
 ```
 
 ## Compute Pathway correlations with single agent AUCs
@@ -327,6 +328,18 @@ res<-plot_combo_get_overlap(combo)
 
 ```
 
+## Mirda Trab
+
+```{r more combo}
+
+combo <- c("Mirdametinib",'Trabectedin')
+res <- plot_combo_get_overlap(combo)
+
+
+combo <- c("Mirdametinib",'Palbociclib')
+res <- plot_combo_get_overlap(combo)
+
+``` 
 ## Mechanisms of overlap
 What pathways are the most commonly involved in drug effective combinations? 
 

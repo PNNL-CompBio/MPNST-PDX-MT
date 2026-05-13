@@ -2,9 +2,6 @@
 rm(list=ls())
 library(plyr);library(dplyr);library(synapser);library(data.table);library(ggplot2);library(patchwork)
 synapser::synLogin()
-setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
-dir.create("PDX")
-setwd("PDX")
 
 #### PDX data: MEKi+HDACi ####
 #tumor.size <- read.csv("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/Wu225 Mirda + Vorinostat.csv")
@@ -36,13 +33,12 @@ names(cols1) <- c("DMSO", names(drug.info))
 scales::show_col(cols1[c("DMSO","mirdametinib","vorinostat")]) # black, brown, yellow?
 dot.df <- na.omit(tumor.size)
 dot.df$SD <- as.numeric(dot.df$SD)
-ggplot(dot.df,aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) + 
+ggplot(dot.df,aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) +
   geom_point() + geom_errorbar(aes(ymin=`Mean.Size`-SD, ymax=`Mean.Size`+SD))+
   geom_smooth(se=FALSE, linetype="dashed")+
   theme_classic() + labs(y="Mean Tumor Size (mm^3)", x="Treatment Duration (Days)") +
-  scale_color_manual(values=c("black","red","blue","forestgreen"), breaks=c("Vehicle","Mirdametinib","Vorinostat","Mirdametinib + Vorinostat")) + 
+  scale_color_manual(values=c("black","red","blue","forestgreen"), breaks=c("Vehicle","Mirdametinib","Vorinostat","Mirdametinib + Vorinostat")) +
   facet_wrap(.~MPNST, ncol=2)
-setwd("/Users/gara093/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT")
 ggsave("mirdaVorinostat_PDX.pdf", width=6, height=3) # was width 4
 write.csv(tumor.size,"PDX_mirdametinibVorinostat_meanTumorSize.csv", row.names=FALSE)
 tumor.size <- read.csv("PDX_mirdametinibVorinostat_meanTumorSize.csv")
@@ -50,12 +46,12 @@ tumor.size <- read.csv("PDX_mirdametinibVorinostat_meanTumorSize.csv")
 dot.df <- na.omit(tumor.size[tumor.size$MPNST %in% c("MN-2","WU-225"),])
 dot.df$SD <- as.numeric(dot.df$SD)
 ggplot(dot.df,
-       aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) + 
+       aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) +
   geom_point() + geom_errorbar(aes(ymin=`Mean.Size`-SD, ymax=`Mean.Size`+SD))+
   geom_smooth(se=FALSE, linetype="dashed")+
   theme_classic() + labs(y=paste0("Mean Tumor Size (m",expression("m^3"),")"), x="Treatment Duration (Days)") +
-  scale_color_manual(values=c("grey","red","blue","black"), 
-                     breaks=c("Vehicle","Mirdametinib","Vorinostat","Mirdametinib + Vorinostat")) + 
+  scale_color_manual(values=c("grey","red","blue","black"),
+                     breaks=c("Vehicle","Mirdametinib","Vorinostat","Mirdametinib + Vorinostat")) +
   facet_wrap(.~MPNST, ncol=2)
 ggsave("mirdaVorinostat_PDX_MN2-WU225.pdf", width=6, height=3) # was width 4
 ggsave("mirdaVorinostat_PDX_MN2-WU225_wide.pdf", width=12, height=3) # was width 4
@@ -91,27 +87,27 @@ for (m in mpnsts) {
                     m.tumor.size[m.tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater")
   combo.t # p = 0.07263
   t.df[t.df$test=="singleGreaterThanCombo",]$p <- combo.t$p.value
-  
+
   mek.combo.t <- t.test(m.tumor.size[m.tumor.size$Treatment == "Mirdametinib",]$`Mean.Size`,
                         m.tumor.size[m.tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater")
   mek.combo.t # p = 0.1716
   t.df[t.df$test=="mirdaGreaterThanCombo",]$p <- mek.combo.t$p.value
-  
+
   vor.combo.t <- t.test(m.tumor.size[m.tumor.size$Treatment == "Vorinostat",]$`Mean.Size`,
                         m.tumor.size[m.tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater")
   vor.combo.t # error due to unequal vector lengths
   t.df[t.df$test=="vorinGreaterThanCombo",]$p <- vor.combo.t$p.value
-  
+
   veh.mek.t <- t.test(m.tumor.size[m.tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
                       m.tumor.size[m.tumor.size$Treatment == "Mirdametinib",]$`Mean.Size`, "greater")
   veh.mek.t # error due to unequal vector lengths
   t.df[t.df$test=="vehicleGreaterThanMirda",]$p <- veh.mek.t$p.value
-  
+
   veh.vor.t <- t.test(m.tumor.size[m.tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
                       m.tumor.size[m.tumor.size$Treatment == "Vorinostat",]$`Mean.Size`, "greater")
   veh.vor.t # error due to unequal vector lengths
   t.df[t.df$test=="vehicleGreaterThanVorin",]$p <- veh.vor.t$p.value
-  
+
   veh.combo.t <- t.test(m.tumor.size[m.tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
                       m.tumor.size[m.tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater")
   veh.combo.t # error due to unequal vector lengths
@@ -125,51 +121,4 @@ write.csv(p.df,"PDX_mirdaVorin_pValues.csv",row.names=FALSE)
 p.df.h <- p.df[p.df$MPNST!="JH-2-002",]
 p.df.h$q <- qvalue::qvalue(p.df.h$p, pi0=1)$qvalues
 write.csv(p.df.h,"PDX_mirdaVorin_pValues_HirbeLab.csv",row.names=FALSE)
-# 
-# #### mirda combos predicted ####
-# mirda.sens <- sens[sens$DrugTreatment=="Mirdametinib" & sens$sig & sens$NES < 0,]
-# mirda.mean <- plyr::ddply(mirda.sens, .(Drug_set), summarize,
-#                           meanNES=mean(NES),
-#                           medianNES=median(NES),
-#                           sdNES=sd(NES),
-#                           N=dplyr::n(),
-#                           N_MPNST = length(unique(MPNST)),
-#                           MPNST = paste0(sort(unique(MPNST)), collapse=", "))
-# mirda.mean$Tested <- "plain"
-# mirda.mean[mirda.mean$Drug_set %in% drug.info2,]$Tested <- "bold"
-# ggplot(mirda.mean, aes(y=reorder(Drug_set, -meanNES), x=meanNES, fill=MPNST)) + 
-#   geom_bar(stat="identity") + theme_classic() + scale_y_discrete(position="right") +
-#   theme(axis.title.y=element_blank(), legend.position="bottom") + labs(x="Mean NES") +
-#   scale_fill_manual(values=RColorBrewer::brewer.pal(length(unique(mirda.mean$MPNST)),"Dark2"), breaks=unique(mirda.mean$MPNST))
-#   #scale_fill_manual(values=c("black","darkgrey","lightgrey"), breaks=c("JH-2-002 & MN-2","JH-2-002","MN-2"))
-# ggsave("Mirda_DMEA_predictions.pdf", width=5, height=5)
-# 
-# ggplot(mirda.mean, aes(x=reorder(Drug_set, meanNES), y=meanNES, fill=MPNST)) + 
-#   geom_bar(stat="identity") + theme_classic() + 
-#   theme(axis.title.x=element_blank(), legend.position="top", axis.text.x=element_text(angle=45, vjust=1, hjust=1)) + labs(y="Mean NES") +
-#   scale_fill_manual(values=RColorBrewer::brewer.pal(length(unique(mirda.mean$MPNST)),"Dark2"), breaks=unique(mirda.mean$MPNST))
-# ggsave("Mirda_DMEA_predictions_horizontal.pdf", width=5, height=5)
-# 
-# mirda.mean[mirda.mean$Drug_set == "protein tyrosine kinase inhibitor",]$Drug_set <- "Protein TKI"
-# mirda.mean[mirda.mean$Drug_set == "tyrosine kinase inhibitor",]$Drug_set <- "TKI"
-# mirda.mean[grepl("PDGFR", mirda.mean$Drug_set),]$Drug_set <- "PDGFRi"
-# mirda.mean[grepl("Aurora", mirda.mean$Drug_set),]$Drug_set <- "AURKi"
-# mirda.mean[grepl("bromodomain", mirda.mean$Drug_set),]$Drug_set <- "BRDi"
-# mirda.mean[grepl("adenosine", mirda.mean$Drug_set),]$Drug_set <- "P1i"
-# mirda.mean[grepl("glutamate", mirda.mean$Drug_set),]$Drug_set <- "GluRi"
-# mirda.mean[grepl("src", mirda.mean$Drug_set),]$Drug_set <- "SRCi"
-# mirda.mean[grepl("retinoid ", mirda.mean$Drug_set),]$Drug_set <- "RR Agonist"
-# mirda.mean[grepl("inhibitor", mirda.mean$Drug_set),]$Drug_set <- sub(" inhibitor","i",mirda.mean[grepl("inhibitor", mirda.mean$Drug_set),]$Drug_set)
-# ggplot(mirda.mean, aes(x=reorder(Drug_set, meanNES), y=meanNES, fill=MPNST)) + 
-#   geom_bar(stat="identity") + theme_classic() + 
-#   theme(axis.title.x=element_blank(), legend.position="top", axis.text.x=element_text(angle=45, vjust=1, hjust=1)) + labs(y="Mean NES") +
-#   scale_fill_manual(values=RColorBrewer::brewer.pal(length(unique(mirda.mean$MPNST)),"Dark2"), breaks=unique(mirda.mean$MPNST))
-# ggsave("Mirda_DMEA_predictions_horizontal_shortNames.pdf", width=5, height=3)
-# ggsave("Mirda_DMEA_predictions_horizontal_shortNames_lessWide.pdf", width=4, height=3)
-# 
-# ggplot(mirda.mean, aes(y=reorder(Drug_set, -meanNES), x=meanNES, fill=MPNST)) + 
-#   geom_bar(stat="identity") + theme_classic() + scale_y_discrete(position="right") +
-#   theme(axis.title.y=element_blank(), legend.position="bottom") + labs(x="Mean NES") +
-#   scale_fill_manual(values=RColorBrewer::brewer.pal(length(unique(mirda.mean$MPNST)),"Dark2"), breaks=unique(mirda.mean$MPNST))
-# ggsave("Mirda_DMEA_predictions_shortNames.pdf", width=4, height=5)
-# ggsave("Mirda_DMEA_predictions_shortNames_smaller.pdf", width=3, height=4)
+#
