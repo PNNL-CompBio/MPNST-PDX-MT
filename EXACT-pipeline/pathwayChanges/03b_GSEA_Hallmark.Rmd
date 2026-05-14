@@ -14,9 +14,20 @@ library(plyr);library(dplyr);library(ggplot2); library(patchwork)
 library(synapser);library(panSEA); library(data.table); 
  library(ComplexHeatmap)
 source("plottingParameters.R")
+synLogin()
+
+
 ```
 
 
+# Run GSEA on diffex genes
+We first run GSEA on diffex genes, both aggregated and on a PDX-specific basis 
+and sore reults
+
+```{r run}
+source('03a_runGSEA.R')
+
+```
 
 ### plot number of enriched pathways
 

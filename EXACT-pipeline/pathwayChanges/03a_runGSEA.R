@@ -23,7 +23,7 @@ diffexp <- diffexp[diffexp$Drug != "Irinotecan",] # since irinotecan isn't metab
 # get gene sets: Hallmark (H)
 gmt.Hallmark <- as.data.frame(msigdbr::msigdbr(collection = "H"))
 gmt.Hallmark <- DMEA::as_gmt(gmt.Hallmark, element.names="gene_symbol", set.names="gs_name") # 196 gene sets
-saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
+#saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
 
 synapse_id <- "syn65916546"
 timepoints <- na.omit(unique(diffexp$Timepoint))
@@ -78,7 +78,7 @@ diffexp <- diffexp[diffexp$Drug != "Irinotecan",] # since irinotecan isn't metab
 # GSEA NES > 0: pathways up-regulated in treated vs. untreated samples
 synapse_id <- "syn69910857"
 timepoints <- na.omit(unique(diffexp$Timepoint))
-base.path <- getwd()
+
 gsea.path <- file.path(base.path, "GSEA_Hallmark_individual")
 dir.create("GSEA_Hallmark_individual")
 mpnst<-unique(diffexp$individualID) ##ADDed by SG

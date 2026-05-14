@@ -14,7 +14,7 @@ library(tidyverse)
 library(ggplot2)
 library(synapser)
 synLogin()
-source("../RNAseq/plottingParameters.R")
+source("../pathwayChanges/plottingParameters.R")
 source("correlation_functions.R")
 
 ##get the transcript data, this is slow
@@ -34,7 +34,7 @@ data. We see six combinations with a dAUC above 1:
 daucs <- readr::read_csv(synGet('syn69978141')$path) |>
   tidyr::separate(Combo, into=c('drug1','drug2'), sep='\\+', remove = FALSE)
 
-sing_gsea <- readr::read_csv("../RNAseq/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
+sing_gsea <- readr::read_csv("../pathwayChanges/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
 
 ##get aucs fro gene xpression samples
 
@@ -126,7 +126,7 @@ Check for overlap between up-regulated pathways and those correlated with drug r
 ```{r combine perturbed pathways}
 
 #make sure we ran the RNA seq analysis first
-hall_preds <- readr::read_csv('../RNAseq/GSEA_Hallmark/GSEA_results_Hallmark.csv')
+hall_preds <- readr::read_csv('../pathwayChanges/GSEA_Hallmark/GSEA_results_Hallmark.csv')
 
 
 ##step 1: filter for up-regulated pathways
