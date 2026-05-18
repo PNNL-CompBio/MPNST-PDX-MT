@@ -48,8 +48,9 @@ source('../src/helper_funcs.R')
 
 
 ## Data collectiohn and preparation
-We first will collect the global and phospho-proteomics abundance data from
-synapse. The data files are located at https://www.synapse.org/Synapse:syn70987742
+We first will collect the global and phospho-proteomics abundance data as well
+as the metadata from synapse. The data files are located at:
+https://www.synapse.org/Synapse:syn70987742
 
 ```{r import-data, results='hide'}
 # opening synapse connection
@@ -60,7 +61,7 @@ synapseFileID = "syn74552028"
 fileEntity <- synapser::synGet(synapseFileID)
 global_dat <- readr::read_tsv(
   fileEntity$path,
-  na = c("0","", NA), # the file stored on synapse has '0's instead of NA or ''
+  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
   )
 
 # getting phospho-proteomics abundance data
@@ -68,7 +69,7 @@ synapseFileID = "syn74589783"
 fileEntity <- synapser::synGet(synapseFileID)
 phospho_dat <- readr::read_tsv(
   fileEntity$path,
-  na = c("0","",NA), # the file stored on synapse has '0's instead of NA or ''
+  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
   )
 
 # metadata ingest
@@ -79,6 +80,11 @@ meta_data <- readxl::read_xlsx(fileEntity$path, sheet = 2)
 # closing synpase conncetion
 tmp <- synapser::synLogout()
 ```
+Next we do some cleanup of the column names in the global proetomics and
+phosphosite abundance data files to align the column names with the sample ids
+in the metadata file. This step is necessary such that we can successfully
+generate a `SummarizedExperiment` object further down the line.
+
 ```{r sample-id-cleanup, eval=TRUE}
 
 # cleaning up the column names for the global proteomics data
@@ -94,6 +100,13 @@ names(phospho_dat) <- names(phospho_dat) %>%
   gsub("^[0-9]*_", "", .)
 
 ```
+
+Next we clean up and prepare the metadata for `SummarizedExperiment` object
+generation. The main 2 steps here are:
+
+- cleaning up the column names
+- adding a new coulmns for replicates (to distinguish individual samples of the 
+  same type) and combining treatment agent, timepoint and replicate
 
 ```{r meta-data-prep}
 new_col_names <- c(sample = 'Sample ID \r\n(abbrev)',
@@ -114,37 +127,79 @@ meta_data %<>%
   dplyr::rename(., all_of(new_col_names)) %>%
   ungroup()
 
-meta_data_global <- meta_data %>% select(., global_sample_id, condition, plate) %>% dplyr::rename(., sample = global_sample_id)
-meta_data_phospho <- meta_data %>% select(., phospho_sample_id, condition, plate) %>% dplyr::rename(., sample = phospho_sample_id)
+meta_data_global <- meta_data %>%
+  select(., global_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = global_sample_id)
+
+meta_data_phospho <- meta_data %>%
+  select(., phospho_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = phospho_sample_id)
 ```
+
+Finally we generate SummarizedExperiment objects for the global proteomics data
+as well as the phospho-proteomics data.
 
 ```{r summarized-experiment-creation}
-experiment_global <- prep_prot_data(proteomics_data = global_dat, proteomics_meta = meta_data_global, missingness_cutoff = 0.5, type = 'global') %>%
-  log_transform(., assay = "proteomics") %>%
-  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+experiment_global <- prep_prot_data(proteomics_data = global_dat,
+                                    proteomics_meta = meta_data_global,
+                                    missingness_cutoff = 0,
+                                    type = 'global')
 
-experiment_phospho <- prep_prot_data(proteomics_data = phospho_dat, proteomics_meta = meta_data_phospho, missingness_cutoff = 0.5, type = 'phospho') %>%
+experiment_phospho <- prep_prot_data(proteomics_data = phospho_dat,
+                                     proteomics_meta = meta_data_phospho,
+                                     missingness_cutoff = 0,
+                                     type = 'phospho')
+```
+
+```{r eval=TRUE}
+missingness_cutoff = 0.5
+imputation_method = "SampMin"
+
+experiment_global <- prep_prot_data(proteomics_data = global_dat,
+                                    proteomics_meta = meta_data_global,
+                                    missingness_cutoff = missingness_cutoff,
+                                    type = 'global')
+
+experiment_phospho <- prep_prot_data(proteomics_data = phospho_dat,
+                                     proteomics_meta = meta_data_phospho,
+                                     missingness_cutoff = missingness_cutoff,
+                                     type = 'phospho')
+
+experiment_global %<>% 
   log_transform(., assay = "proteomics") %>%
-  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+  impute_proteomics(., assay = "proteomics", imputation_method)
+
+experiment_phospho %<>% 
+  log_transform(., assay = "proteomics") %>%
+  impute_proteomics(., assay = "proteomics", imputation_method)
 ```
 
 
-
-
-```{r}
+```{r eval=FALSE}
 agents <- unique(meta_data$agent)
 controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls]
 
+
+plates <- unique(colData(experiment_global[, experiment_global$agent ==  agent])$plate)
+plates <- append(plates, 10)
+ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+sel <- c(ctrl, agent)
+
+experiment_subset <- experiment[, (experiment$plate %in% plates) & experiment$agent %in% sel]
+
+principal_components <- prcomp(t(assay(experiment_subset))) %$%
+  cbind(x, colData(experiment_subset))
+
 for(agent in agents){
- plot <- plot_pca(experiment_global, agent, "global")
- fname <- paste0("../output_figures/pca_global_", agent, ".png")
+ plot <- plot_pca(experiment_global, agent, "global", missingness = missingness_cutoff, imputation = imputation_method)
+ fname <- paste0("../output_figures/pca_global_by_drug_", agent, ".png")
  ggsave(fname, plot = plot, height = 5, width = 6)
 }
 
 for(agent in agents){
-  plot <- plot_pca(experiment_phospho, agent, "phospho")
- fname <- paste0("../output_figures/pca_phospho_", agent, ".png")
+  plot <- plot_pca(experiment_phospho, agent, "phospho", missingness = missingness_cutoff, imputation = imputation_method)
+ fname <- paste0("../output_figures/pca_phospho_by_drug_", agent, ".png")
  ggsave(fname, plot = plot, height = 5, width = 6)
 }
 ```

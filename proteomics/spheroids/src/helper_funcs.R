@@ -232,9 +232,16 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
   return(experiment)
 
 }
+#-------------------
+# plotting functions
+#-------------------
+
+color_vals_grey_first <- c('#BBBBBB', '#EE7733', '#0077BB', '#33BBEE', '#EE3377', '#CC3311', '#009988')
+color_vals_black_first <- c('#000000', '#EE7733', '#0077BB', '#33BBEE', '#EE3377', '#CC3311', '#009988')
+color_vals_default <- c('#EE7733', '#0077BB', '#33BBEE', '#EE3377', '#CC3311', '#009988', '#BBBBBB')
 
 
-plot_pca <- function(experiment, agent, type = c('global', 'phospho')){
+plot_pca <- function(experiment, agent, type = c('global', 'phospho'), missingness = 'None', imputation = "None"){
 
   prot_type <- match.arg(type)
 
@@ -251,6 +258,7 @@ plot_pca <- function(experiment, agent, type = c('global', 'phospho')){
     cbind(x, colData(experiment_subset))
 
   plot_title <- base::paste("Spheroid", prot_type, "proteomics for:", agent)
+  plot_subtitle <- base::paste("Missingness filter:", missingness ,"; Imputation:", imputation)
   color_vals <- c("#66c2a5", "#fc8d62", "#8da0cb")
   colors <- setNames(color_vals, c(agent, "DMSO", "Water"))
 
