@@ -118,13 +118,13 @@ calc_diff_ex <- function(experiment,
 
   result_table <- result_table %>%
     rownames_to_column(., var=align_by) %>%
-    as.tibble(.)
+    as_tibble(.)
 
   # This makes sure that the differential expression results for each feature
   # are properly aligned
 
   SummarizedExperiment::rowData(experiment) <- left_join(
-      as.tibble(SummarizedExperiment::rowData(experiment)),
+      as_tibble(SummarizedExperiment::rowData(experiment)),
       result_table,
       by = align_by)
 
