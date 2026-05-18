@@ -291,3 +291,53 @@ plot_pca <- function(experiment, agent, type = c('global', 'phospho'), missingne
 
 
 }
+
+
+plot_pca_by_plate <- function(experiment, plate, type = c('global', 'phospho'), missingness = 'None', imputation = "None"){
+
+  prot_type <- match.arg(type)
+
+  experiment_subset <- experiment[, experiment$plate == plate]
+
+  principal_components <- prcomp(t(assay(experiment_subset))) %$%
+    cbind(x, colData(experiment_subset))
+
+  plot_title <- base::paste("Spheroid", prot_type, "proteomics for Plate:", plate)
+  plot_subtitle <- base::paste("Missingness filter:", missingness ,"; Imputation:", imputation)
+  # color_vals <- c("#66c2a5", "#fc8d62", "#8da0cb")
+
+  agents <- unique(colData(experiment_subset)$agent)
+  ctrl <- ifelse(test = ("DMSO" %in% agents), yes = "DMSO", no = "Water")
+  agents_sel <- agents[agents != ctrl]
+  colors <- setNames(color_vals_black_first, append(c(ctrl), agents_sel))
+
+  plot <- (
+    ggplot(
+      principal_components,
+      aes(
+        x = PC1,
+        y = PC2,
+        # col = timepoint,
+        # shape = agent,
+        col = agent,
+        shape = timepoint,
+        label = condition
+      )
+    )
+    + geom_point(size = 2)
+    + geom_text_repel(max.overlaps = 10, size = 2)
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + scale_color_manual(values = colors)
+    # + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+    + labs(
+      title = plot_title,
+      subtitle = plot_subtitle
+    )
+
+  )
+  return(plot)
+
+
+}
+

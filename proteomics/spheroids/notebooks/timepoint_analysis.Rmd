@@ -205,3 +205,20 @@ for(agent in agents){
 ```
 
 
+```{r eval=FALSE}
+for(plate in 1:9){
+  plot <- plot_pca_by_plate(experiment_global, plate, "global", missingness = missingness_cutoff, imputation = imputation_method)
+  print(plot)
+  fname <- paste0("../output_figures/pca_global_by_plate_", plate, ".png")
+  ggsave(fname, plot = plot, height = 5, width = 6)  
+}
+
+for(plate in 1:9){
+  plot <- plot_pca_by_plate(experiment_phospho, plate, "phospho", missingness = missingness_cutoff, imputation = imputation_method)
+  print(plot)
+  fname <- paste0("../output_figures/pca_phospho_by_plate_", plate, ".png")
+  ggsave(fname, plot = plot, height = 5, width = 6)  
+}
+```
+
+
