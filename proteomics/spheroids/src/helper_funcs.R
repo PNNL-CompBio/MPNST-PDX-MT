@@ -396,3 +396,83 @@ plot_per_plate_na_overview <- function(experiment, type = c('global', 'phospho')
   return(plot)
 }
 
+plot_diff_ex <- function(experiment, agent, timepoint){
+
+  ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+  group_1 = paste0(timepoint, "_", ctrl)
+  group_2 = paste0(timepoint, "_", agent)
+
+  plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+  experiment_subset <- experiment[, experiment$plate == plate_sel]
+
+  align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group", no = "Protein.With.Phospho.Site")
+  diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2, align_by=align_by_group)
+
+  if(prot_type == "global"){
+    dfPlot <- subset(as.tibble(rowData(diff_ex)), select = c('Genes', 'logFC', 'adj.P.Val')) %>%
+      mutate(expression_change = case_when(
+        (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+        (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+        .default = 'not significant',
+      )) %>%
+      mutate(labels = case_when(
+        expression_change %in% c('up', 'down') ~ Genes,
+        .default = NA
+      ))
+  }
+
+  if(prot_type == "phospho"){
+    dfPlot <- subset(as.tibble(rowData(diff_ex)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>%
+      mutate(expression_change = case_when(
+        (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+        (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+        .default = 'not significant',
+      )) %>%
+      mutate(labels = case_when(
+        expression_change %in% c('up', 'down') ~ Protein.With.Phospho.Site,
+        .default = NA
+      ))
+  }
+
+  # plot_title = paste('Spheroid', prot_type ,'proteomics:', agent, "vs.", ctrl, "at", timepoint)
+  plot_subtitle = base::paste0(
+    timepoint, "; ",
+    "#down: ", dim(dfPlot[dfPlot$expression_change == 'down',])[1], " / ",
+    "#up: ", dim(dfPlot[dfPlot$expression_change == 'up',])[1]
+  )
+
+  plot <- (
+    ggplot(
+      data = dfPlot,
+      aes(
+        x = logFC,
+        y = -log10(adj.P.Val),
+        col = expression_change,
+        label = labels
+      )
+    )
+    + geom_vline(xintercept = c(-1, 1), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed')
+    + geom_point(size = .75)
+    + geom_text_repel(max.overlaps = 5, size = 2)
+    + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + labs(
+      # title = plot_title,
+      subtitle = plot_subtitle,
+      col = 'expression',
+      y = expression("-log"[10]*"p-Value")
+    )
+  )
+
+  plot
+}
+
+plot_diff_ex_grid <- function(plots, plot_title=NULL){
+
+  plot_grid <- ggpubr::ggarrange(plotlist = plots, ncol = 3, common.legend = TRUE, legend = "bottom")
+  plot_annotated <- ggpubr::annotate_figure(plot_grid, top = ggpubr::text_grob(plot_title, size = 14))
+
+  plot_annotated
+}

@@ -249,3 +249,47 @@ for(plate in 1:9){
 ```
 
 
+### Differential expression analysis
+
+Next we perform a differential expression analysis. To this end we will utilize
+some functions sourced from `helper_funcs.R`, specifically:
+- `plot_diff_ex` which internally calls a number of functions and calculates the
+  differential expression based on limma. The function then returns a plot which
+  we save into a named list where plots are accessible by agent and timepoint.
+- `plot_diff_ex_grid` which internally uses `ggarrange` from the `ggpubr`
+  package to generate plot grids, combining the previously generated volcano
+  plots of the differential expression for the three timepoints per agent.
+
+The result is one plot per agent, showing the differential expression for each
+of the timepoints.
+
+```{r differential-expression-volcano-plots, warning=FALSE}
+
+agents <- unique(meta_data$agent)
+controls <- c("Water", "DMSO")
+agents <- agents[!agents %in% controls & !agents == 'Ola']
+experiment_types <- list("global" = experiment_global, "phospho" = experiment_phospho)
+timepoints = c("8hr", "24hr", "48hr")
+
+
+for(prot_type in c('global', 'phospho')){
+  
+  experiment = experiment_types[[prot_type]]
+  plots <- list()
+  
+  for(agent in agents){
+    for(timepoint in timepoints){
+      plots[[agent]][[timepoint]] <- plot_diff_ex(experiment, agent, timepoint)
+    }
+    
+    plot_title <- paste('Spheroid', prot_type ,'proteomics:', agent, "vs. Control")
+    plot <- plot_diff_ex_grid(plots[[agent]], plot_title)
+    print(plot)
+    filename <- paste0("../output_figures/differential_expression_",prot_type, "_", agent, ".png")
+    ggsave(filename, plot, height = 5, width = 15)
+  }
+  
+} 
+
+```
+
