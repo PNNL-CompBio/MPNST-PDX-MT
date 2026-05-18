@@ -341,3 +341,58 @@ plot_pca_by_plate <- function(experiment, plate, type = c('global', 'phospho'), 
 
 }
 
+
+is_outlier <- function(x) {
+  return(
+    x < quantile(x, 0.25) - 1.5 * IQR(x) |
+    x > quantile(x, 0.75) + 1.5 * IQR(x)
+  )
+}
+
+plot_per_plate_na_overview <- function(experiment, type = c('global', 'phospho')){
+
+  prot_type <- match.arg(type)
+
+  summarized_data <- as_tibble(assay(experiment)) %>%
+    summarise(across(everything(), ~ sum(is.na(.)))) %>%
+    pivot_longer(cols = everything(), names_to = "sample_id", values_to = "NAs")
+
+  metadata <- colData(experiment) %>%
+    as.data.frame(.) %>%
+    rownames_to_column(., var = "sample_id") %>% as_tibble(.)
+
+  data_plot <- inner_join(metadata, summarized_data, by='sample_id') %>%
+    group_by(plate) %>%
+    mutate(outlier = ifelse(is_outlier(NAs), condition, NA)) %>%
+    mutate(., agent = replace_when(agent,
+                                   agent %in% c("DMSO", "Water") ~ "DMSO/Water"))
+
+
+  plot_title <- base::paste("Outliers in spheroid", prot_type, "proteomics")
+  plot_subtitle <- base::paste("# of NAs per sample out of", dim(assay(experiment))[1], ifelse(prot_type == "global", "proteins", "phospho-sites"))
+
+  plot <- (
+    ggplot(data_plot, aes(
+      x = plate,
+      y = NAs,
+      group = plate,
+      xmin = 1,
+      xmax = 10
+    ))
+    + geom_boxplot()
+    + geom_label_repel(aes(label = outlier),
+                       na.rm = TRUE,
+                       max.overlaps = 10,
+                       size = 2,
+                       min.segment.length = 0)
+    + theme_minimal()
+    + scale_x_continuous(breaks = seq(1, 10, 1))
+    + labs(
+      title = plot_title,
+      subtitle = plot_subtitle
+    )
+  )
+
+  return(plot)
+}
+

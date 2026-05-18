@@ -151,6 +151,33 @@ experiment_phospho <- prep_prot_data(proteomics_data = phospho_dat,
                                      type = 'phospho')
 ```
 
+
+
+```{r outlier-investigation}
+
+plot <- plot_per_plate_na_overview(experiment_global, "global")
+plot
+
+ggsave("../output_figures/outlier_by_plate_global.png",
+       plot = plot,
+       height = 5,
+       width = 5,
+       )
+```
+
+```{r}
+plot <- plot_per_plate_na_overview(experiment_phospho, "phospho")
+plot
+ggsave("../output_figures/outlier_by_plate_phospho.png",
+       plot = plot,
+       height = 5,
+       width = 5,
+       )
+
+
+
+```
+
 ```{r eval=TRUE}
 missingness_cutoff = 0.5
 imputation_method = "SampMin"
