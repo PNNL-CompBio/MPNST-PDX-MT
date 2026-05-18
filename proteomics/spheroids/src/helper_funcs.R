@@ -232,6 +232,46 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
   return(experiment)
 
 }
+
+#-------------------
+# stats functions
+#-------------------
+
+
+#' Generate principal components for SummarizedExperiment
+#'
+#' Helper function to generate principal components for an SummarizedExperiment
+#' object.
+#'
+#' @param summarized_experiment The {SummarizedExperiment} object for which the
+#'   principle components should be generated
+#' @returns
+#' Returns a named list containing the following components
+#'
+#' * prcomp_res The full output of `stats.prcomp()`
+#' * prcs A `data.frame` containing the combined principal component values per
+#'   sample including additional sample data extracted from
+#'   `colData(summarized_experiment)`
+#' * explained_variance A `data.frame` containing the portion of variance for
+#'   each PC
+#'
+generate_pca <- function(summarized_experiment) {
+
+  prc_res <- summarized_experiment |>
+    assay() |> # extracting the `assay` (e.g. proteomics) from the SE
+    t() |> # transposing `assay` object to fit with prcomp requirements
+    prcomp() %$% # prcomp requires samples = rows; features = columns
+    list(
+      prcomp_res = .,
+      prcs = cbind(x, colData(summarized_experiment)),
+      explained_variance = as.data.frame(summary(.)$importance)[2,]
+    )
+
+  prc_res
+
+}
+
+
 #-------------------
 # plotting functions
 #-------------------
