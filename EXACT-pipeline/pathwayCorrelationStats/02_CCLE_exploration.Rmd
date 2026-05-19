@@ -16,8 +16,12 @@ library(tidyverse)
 library(ggplot2)
 library(synapser)
 synLogin()
-source("../RNAseq/plottingParameters.R")
+source("../pathwayChanges/plottingParameters.R")
 source("correlation_functions.R")
+
+bs3 <- brewer.pal(4, "Set3") 
+
+
 ```
 
 
@@ -31,7 +35,7 @@ daucs <- readr::read_csv(synGet('syn69978141')$path) |>
   tidyr::separate(Combo, into=c('drug1','drug2'), sep='\\+', remove = FALSE)
 
 ##read in GSEA from treated samples
-sing_gsea <- readr::read_csv("../RNAseq/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
+sing_gsea <- readr::read_csv("../pathwayChanges/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
 
 ##get aucs fro gene xpression samples
 
@@ -51,11 +55,17 @@ combinations in other cell lines.
 ```{r pathways}
 
 drugs <- c('Mirdametinib','TNO155','Vorinostat','Capmatinib','Trabectedin','Doxorubicin')
-hall_preds <- readr::read_csv('../RNAseq/GSEA_Hallmark/GSEA_results_Hallmark.csv')
+hall_preds <- readr::read_csv('../pathwayChanges/GSEA_Hallmark/GSEA_results_Hallmark.csv')
 
-sig_paths <-subset(hall_preds, DrugTreatment%in%drugs)|>subset(NES>0)|>subset(FDR_q_value<0.25)|>subset(p_value<0.05)
+sig_paths <- subset(hall_preds, DrugTreatment%in%drugs)|> 
+  subset(NES > 0) |>
+  subset(FDR_q_value < 0.25) |>
+  subset(p_value<0.05)
 
-ggplot(sig_paths,aes(x=Feature_set,y=NES,fill=tolower(DrugTreatment)))+geom_bar(position='dodge',stat='identity')+scale_fill_manual(values=drugCol)+
+
+ggplot(sig_paths,aes(x=Feature_set,y=NES,fill=tolower(DrugTreatment))) +
+  geom_bar(position='dodge',stat='identity') +
+  scale_fill_manual(values=drugCol) +
   coord_flip()
 ```
 These drugs cause a lot of pathways to be up-regulated. 
@@ -69,10 +79,14 @@ is valid outside of MPNST for identifying novel drugs in combination.
 ```{r read in ccle data}
 
 #TODO: put these files on synapse
-r1 <- readRDS("../RNAseq/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_1-200.Rbin")
-r2 <- readRDS("../RNAseq/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_approved_symbols_only_201-327.Rbin")
+r1 <- readRDS(synGet('syn74935645')$path)
+r2 <- readRDS(synGet('syn74935650')$path)
 
-cmat <- rbind(r1,r2)|>as.data.frame()|>tibble::remove_rownames()|>tibble::column_to_rownames('CCLE_ID')|>t()
+cmat <- rbind(r1,r2) |>
+  as.data.frame() |>
+  tibble::remove_rownames() |>
+  tibble::column_to_rownames('CCLE_ID') |>
+  t()
 
 cmat <- cmat[-which(duplicated(rownames(cmat))),]
 
@@ -80,12 +94,9 @@ gmat <- get_gsea_scores(cmat)
 
 ##get MOA for later
 ##is it worth it to incorporate drug class? 
-gmt.drug <- leapR::read_gene_sets(paste0(
-           "https://raw.github.com/BelindaBGarana/DMEA/shiny-app/",
-           "Inputs/MOA_gmt_file_n6_no_special_chars.gmt"))
+gmt.drug <- leapR::read_gene_sets(synGet('syn74955107')$path)
 
-gmt.drug$matrix=t(gmt.drug$matrix) ##not sure why this is necessary
-
+gmt.drug$matrix <- t(gmt.drug$matrix)
 
 moa.df <- do.call(rbind,
                   lapply(c(1:nrow(gmt.drug$matrix)), function(i){
@@ -101,8 +112,7 @@ correlations with various pathways and drugs
 
 ```{r drug scores}
 
-prism <- read.csv(file = paste0("https://raw.github.com/BelindaBGarana/",
-         "DMEA/shiny-app/Inputs/PRISM_drug_mean_AUC_6-23-21.csv"), check.names=FALSE)
+prism <- read.csv(file = synGet('syn74955119')$path, check.names=FALSE) ##these are the names that map to moa
 
 p_exp <- prism[,2:ncol(prism)] |>
   tidyr::pivot_longer(-CCLE_ID,names_to='drug',values_to='auc')|>
@@ -113,11 +123,15 @@ cor_res <- do.call(rbind,lapply(unique(p_exp$drug), function(drug){
       compute_cor(p_exp,gmat,drug,'0hr',120)
                         })) #e  
 
+cor_res$drug <- sapply(cor_res$drug,function(x) gsub('-','.',x))
+
 ##and calculate significance
 print('computing gene/auc significance')
 cor_sig <- do.call(rbind,lapply(unique(p_exp$drug), function(drug){
       compute_sig(p_exp,gmat,drug,'0hr',120)
     })) #end drug iter
+
+cor_sig$drug <- sapply(cor_sig$drug,function(x) gsub('-','.',x))
 
 
 merged_res <- cor_res |> left_join(cor_sig) |>
@@ -137,7 +151,8 @@ plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
   
   if(!is.na(drugclass))
     cr <- subset(cr,moa==drugclass)
-  
+  if(!any(cr$qval<0.01))
+    return('No significant drugs in this class/pathway')
   mv <- cr |> group_by(drug)|>
     summarize(mv = mean(corval,na.rm=T))|>
     arrange(mv)
@@ -148,7 +163,7 @@ plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
      geom_bar(position='dodge',stat='identity') + 
      #ggrepel::geom_text_repel(aes(label = Signif),nudge_y=-0.01)+
     #facet_grid(ttime~.) +
-    ggtitle(paste("Drug response correlation with",pathname))    +
+    ggtitle(paste("Drug response correlation with",gsub('HALLMARK_','',pathname)))    +
     theme_bw() +    
    # scale_fill_manual(values=moaCol)+
     coord_flip()+
@@ -159,7 +174,7 @@ plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
      geom_bar(position='dodge',stat='identity') + 
      ggrepel::geom_text_repel(aes(label = Signif),nudge_y=-0.01)+
     #facet_grid(ttime~.) +
-    ggtitle(paste("Drug response correlation with",pathname))    +
+    ggtitle(paste("Drug response correlation with",gsub('HALLMARK_','',pathname)))    +
     theme_bw() +    
    # scale_fill_manual(values=moaCol)+
     coord_flip()+
@@ -181,8 +196,8 @@ with MEK sensitivity?
 
 vpaths <- sig_paths[sig_paths$DrugTreatment=='Vorinostat','Feature_set'] |> unique()
 
-lapply(vpaths$Feature_set, function(x) {
-  plot_pathway_correlation(x,'MEK inhibitor',paste0(x,'_correlation_MEKi'))
+res<-lapply(vpaths$Feature_set, function(x) {
+  plot_pathway_correlation(x,'MEK inhibitor',paste0('fig6a_',gsub("HALLMARK_",'',x),'_correlation_MEKi'))
 })
 #plot_pathway_correlation("HALLMARK_KRAS_SIGNALING_UP",'kras_only')
 ```
@@ -226,33 +241,65 @@ What pathways are up-regulated in our own MPNST?
 upreg_paths <- eres |>
   subset(pathway %in% sig_paths$Feature_set) |>
   subset(BH_pvalue < 0.01) |> 
-  subset(ingroup_mean < -1.0) 
+  subset(ingroup_mean < -1.0)  |>
+  mutate(pathname = stringr::str_replace(pathway,"HALLMARK_",""))
 
 ##of course the ingroup mean is a z-score, so we need to re-compoute? 
 
 
-ggplot(upreg_paths,aes(x=reorder(pathway,ingroup_mean),y=ingroup_mean,fill=drugClass)) +
+ggplot(upreg_paths,aes(x=reorder(pathname,ingroup_mean),y=ingroup_mean,fill=drugClass)) +
   geom_bar(position='dodge',stat='identity') +
   xlab('Pathways up-regulated') + ylab("Mean correlation between AUC and pathway score in drug class")+
   coord_flip()
 
-ggsave('drugClassCorrelation.pdf',width=12,height=8)
+#ggsave('fig_6c_drugClassCorrelation.pdf',width=12,height=8)
 ```
 We haven't tested a lot of drugs in these classes, so to validate we should look for evidence of 
 pathways that indicate successful treatment with MEK inhibition. 
 
 Here we can see the pathway activity of those pathways that are correaled with MEKi.
 
+First we want to see what MEKis are anti-correlated
+```{r plot meki drug paths}
+
+
+md <- subset(merged_res, moa=='MEK inhibitor')|>
+  subset(corval <0)|>
+  subset(qval<0.05)
+
+md$Pathway = gsub('HALLMARK_','',md$gene)
+coul <- colorRampPalette(bs3)(length(unique(md$gene)))
+
+ggplot(md,aes(x=reorder(drug, corval), y = corval, fill = Pathway)) +
+  geom_bar(position='dodge',stat='identity')+
+  coord_flip()+
+  scale_fill_manual(values=coul) +
+  xlab('Drug')+ylab('Correlation')
+
+ggsave('fig6a_meki_pathcor.pdf')
+
+```
+
 ```{r validation perhaps}
 
+
+# Add more colors to this palette :
+
 mekis <- upreg_paths[upreg_paths$drugClass=='MEK inhibitor',]
+coul <- colorRampPalette(bs3)(length(unique(mekis$pathname)))
+
+sig_paths$Pathway <- gsub('HALLMARK_','',sig_paths$Feature_set)
 
 subset(sig_paths,Feature_set%in%mekis$pathway) |>
-  ggplot(aes(x=Feature_set, y = NES, fill = tolower(DrugTreatment))) + 
-  scale_fill_manual(values=drugCol) + geom_bar(stat='identity', position='dodge') + 
-  xlab('Pathway') + ylab("Expression change in MPNST") + coord_flip() +
+  ggplot(aes(fill=Pathway, y = NES,x = DrugTreatment)) + 
+  #scale_fill_manual(values=drugCol) + 
+  geom_bar(stat='identity', position='dodge') + 
+  xlab('Drug') + ylab("Expression change in MPNST") + coord_flip() +
   ggtitle("MEKi correlated pathways") +
-  facet_grid(~Time)
+  facet_grid(~Time)+
+  scale_fill_manual(values=coul)
+
+ggsave('fig6b_mekiCorPathsInMPNST.pdf')
 
 #tikis <- upreg_paths[upreg_paths$drugClass=='topoisomerase inhibitor',]
 
@@ -269,23 +316,43 @@ plot_pathway_drug_class <- function(path='HALLMARK_KRAS_SIGNALING_UP',
                        
   drugs <- setdiff(gmt.drug$matrix[which(gmt.drug$names == drugclass),],c(NA,NULL,''))
   
-  dvals <-p_exp |>
+  dvals <- p_exp |>
     subset(drug %in% drugs) |>
     left_join(pscore) 
   
-  ggplot(dvals,aes(x=pathScore, y = auc, col=drug))+geom_point() + geom_smooth(method = "lm", se = TRUE) +
+  ggplot(dvals,aes(x=pathScore, y = auc, col=drug)) +
+    geom_point() + 
+    geom_smooth(method = "lm", se = TRUE) +
     ggtitle(paste(drugclass,'drugs and',path,'scores'))
 }
 
 plot_pathway_drug_class()
 
-ggsave('kras_up_meki.pdf',width=6)
+#ggsave('kras_up_meki.pdf',width=6)
 
 plot_pathway_drug_class('HALLMARK_KRAS_SIGNALING_DN','EGFR inhibitor')
-ggsave('kras_down_egfr.pdf',width=6)
+#ggsave('kras_down_egfr.pdf',width=6)
 
 plot_pathway_correlation("HALLMARK_KRAS_SIGNALING_DN",'EGFR inhibitor','kras_only_egfr')
 ```
+
 We can focus on pathways that are-regulated at both time point AND anti-correlated with
 
 ```{r}
+
+combined <- eres |>
+  dplyr::mutate(Pathway = gsub("HALLMARK_",'',pathway)) |>
+  right_join(sig_paths) |>
+  subset(BH_pvalue < (0.01)) |>
+  subset(ingroup_mean < (-1))
+
+ggplot(combined, aes(x=sort_by(Pathway, ingroup_mean), y =ingroup_mean, fill = drugClass)) +
+  geom_bar(position='dodge',stat='identity') +
+  coord_flip() +
+  facet_grid(~DrugTreatment) +scale_fill_manual(values =rev(colorRampPalette(bs3)(length(unique(combined$drugClass)))))+
+  xlab('Pathway') + ylab('Mean correlation with AUC across class') + 
+  theme_bw()
+
+ggsave('fig_6c_enrichmentStats.pdf',width=12)
+```
+

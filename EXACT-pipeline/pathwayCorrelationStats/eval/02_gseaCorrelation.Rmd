@@ -195,7 +195,7 @@ upregs <- subset(hall_preds, sig == TRUE & NES >0) |>
   
 head(combo_preds)
 
-readr::write_csv(combo_preds,file='SuppTable5_combinationScores.csv')
+#readr::write_csv(combo_preds,file='SuppTable5_combinationScores.csv')
 ```
 
 To view the combination predictions and select those agents that exhibit the most 

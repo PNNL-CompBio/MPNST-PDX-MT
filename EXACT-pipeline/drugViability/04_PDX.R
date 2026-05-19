@@ -39,7 +39,7 @@ ggplot(dot.df,aes(x=`Treatment.Day..`,y=`Mean.Size`, color=Treatment)) +
   theme_classic() + labs(y="Mean Tumor Size (mm^3)", x="Treatment Duration (Days)") +
   scale_color_manual(values=c("black","red","blue","forestgreen"), breaks=c("Vehicle","Mirdametinib","Vorinostat","Mirdametinib + Vorinostat")) +
   facet_wrap(.~MPNST, ncol=2)
-ggsave("mirdaVorinostat_PDX.pdf", width=6, height=3) # was width 4
+#ggsave("mirdaVorinostat_PDX.pdf", width=6, height=3) # was width 4
 write.csv(tumor.size,"PDX_mirdametinibVorinostat_meanTumorSize.csv", row.names=FALSE)
 tumor.size <- read.csv("PDX_mirdametinibVorinostat_meanTumorSize.csv")
 
@@ -53,28 +53,28 @@ ggplot(dot.df,
   scale_color_manual(values=c("grey","red","blue","black"),
                      breaks=c("Vehicle","Mirdametinib","Vorinostat","Mirdametinib + Vorinostat")) +
   facet_wrap(.~MPNST, ncol=2)
-ggsave("mirdaVorinostat_PDX_MN2-WU225.pdf", width=6, height=3) # was width 4
-ggsave("mirdaVorinostat_PDX_MN2-WU225_wide.pdf", width=12, height=3) # was width 4
-
-combo.t <- t.test(tumor.size[tumor.size$Treatment %in% c("Mirdametinib","Vorinostat"),]$`Mean.Size`,
-                  tumor.size[tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater")
-combo.t # p = 0.07263
-
-mek.combo.t <- t.test(tumor.size[tumor.size$Treatment == "Mirdametinib",]$`Mean.Size`,
-                  tumor.size[tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
-mek.combo.t # p = 0.1716
-
-vor.combo.t <- t.test(tumor.size[tumor.size$Treatment == "Vorinostat",]$`Mean.Size`,
-                      tumor.size[tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
-vor.combo.t # error due to unequal vector lengths
-
-veh.mek.t <- t.test(tumor.size[tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
-                      tumor.size[tumor.size$Treatment == "Mirdametinib",]$`Mean.Size`, "greater", paired=TRUE)
-veh.mek.t # error due to unequal vector lengths
-
-veh.vor.t <- t.test(tumor.size[tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
-                      tumor.size[tumor.size$Treatment == "Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
-veh.vor.t # error due to unequal vector lengths
+#ggsave("mirdaVorinostat_PDX_MN2-WU225.pdf", width=6, height=3) # was width 4
+ggsave("fig_7b_mirdaVorinostat_PDX_MN2-WU225_wide.pdf", width=12, height=3) # was width 4
+#
+# combo.t <- t.test(tumor.size[tumor.size$Treatment %in% c("Mirdametinib","Vorinostat"),]$`Mean.Size`,
+#                   tumor.size[tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater")
+# combo.t # p = 0.07263
+#
+# mek.combo.t <- t.test(tumor.size[tumor.size$Treatment == "Mirdametinib",]$`Mean.Size`,
+#                   tumor.size[tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
+# mek.combo.t # p = 0.1716
+#
+# vor.combo.t <- t.test(tumor.size[tumor.size$Treatment == "Vorinostat",]$`Mean.Size`,
+#                       tumor.size[tumor.size$Treatment == "Mirdametinib + Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
+# vor.combo.t # error due to unequal vector lengths
+#
+# veh.mek.t <- t.test(tumor.size[tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
+#                       tumor.size[tumor.size$Treatment == "Mirdametinib",]$`Mean.Size`, "greater", paired=TRUE)
+# veh.mek.t # error due to unequal vector lengths
+#
+# veh.vor.t <- t.test(tumor.size[tumor.size$Treatment == "Vehicle",]$`Mean.Size`,
+#                       tumor.size[tumor.size$Treatment == "Vorinostat",]$`Mean.Size`, "greater", paired=TRUE)
+# veh.vor.t # error due to unequal vector lengths
 
 mpnsts <- unique(tumor.size$MPNST)
 p.df <- data.frame()

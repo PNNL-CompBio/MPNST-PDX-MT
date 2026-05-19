@@ -18,7 +18,7 @@ source("../pathwayChanges/plottingParameters.R")
 source("correlation_functions.R")
 
 ##get the transcript data, this is slow
-if(!exists('full_tmat'))
+if (!exists('full_tmat'))
   full_tmat <- get_harmonized_gex()
 ```
 
@@ -32,17 +32,17 @@ data. We see six combinations with a dAUC above 1:
 
 ```{r read daucs}
 daucs <- readr::read_csv(synGet('syn69978141')$path) |>
-  tidyr::separate(Combo, into=c('drug1','drug2'), sep='\\+', remove = FALSE)
+  tidyr::separate(Combo, into = c('drug1','drug2'), sep='\\+', remove = FALSE)
 
 sing_gsea <- readr::read_csv("../pathwayChanges/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
 
 ##get aucs fro gene xpression samples
 
-tab<-daucs |> subset(PDX%in%sing_gsea$MPNST) |>
+tab <- daucs |> subset(PDX %in% sing_gsea$MPNST) |>
   group_by(drug1,drug2) |>
-  summarize(`mean dAUC` = mean(dAUC,na.rm=T)) |>
+  summarize(`mean dAUC` = mean(dAUC,na.rm = T)) |>
   arrange(desc(`mean dAUC`)) |>
-  subset(`mean dAUC`>1)
+  subset(`mean dAUC` > 1)
 tab
 readr::write_csv(tab,file='table2.csv')
 ```
@@ -58,7 +58,7 @@ and single agent AUC scores
 
 nmat <- full_tmat[,intersect(colnames(full_tmat),
                              sing_exp$improve_sample_id)] |>
-  as.data.frame()|>
+  as.data.frame() |>
   drop_na()
 
 tmat <- get_gsea_scores(nmat)
@@ -77,8 +77,8 @@ cor_res <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
 
 
 cor_res |>
-  ggplot(aes(x=corval,col=drug)) + geom_density() +
-  scale_color_manual(values=drugCol) + 
+  ggplot(aes(x = corval,col = drug)) + geom_density() +
+  scale_color_manual(values = drugCol) + 
   theme_bw() + facet_grid(~ttime)
 
 ```
@@ -101,7 +101,7 @@ cor_sig <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
 
 
 merged_res <- cor_res |> left_join(cor_sig) |>
-  subset(!drug %in%c('sn-38')) ##removing because we had too few samples
+  subset(!drug %in% c('sn-38')) ##removing because we had too few samples
 
 
 subset(merged_res, sig < 0.05) |>
@@ -115,7 +115,7 @@ subset(merged_res, sig < 0.05) |>
 ```{r ssgsea bubble}
 
 bubble_plot(merged_res)
-ggsave('t0_ssgseaCorrelation.pdf', height = 6,width=12)
+ggsave('fig3a_t0_ssgseaCorrelation.pdf', height = 6,width = 12)
 
 ```
 
@@ -130,7 +130,7 @@ hall_preds <- readr::read_csv('../pathwayChanges/GSEA_Hallmark/GSEA_results_Hall
 
 
 ##step 1: filter for up-regulated pathways
-upregs <- subset(hall_preds, sig == TRUE & NES >0) |>
+upregs <- subset(hall_preds, sig == TRUE & NES > 0) |>
         mutate(Pathway = stringr::str_replace_all(Feature_set,'HALLMARK_','')) |>
   mutate(DrugTreatment = tolower(DrugTreatment))
 
@@ -140,8 +140,8 @@ upregs <- subset(hall_preds, sig == TRUE & NES >0) |>
       mutate(Pathway = stringr::str_replace_all(gene,'HALLMARK_','')) |>
     right_join(upregs) |>
     subset(corP < 0.05) |>
-    subset(corval <0) |>
-    dplyr::select(Time,DrugTreatment,secondDrug,ttime,Pathway, pathScore='NES',pathwayCor='corval')
+    subset(corval < 0) |>
+    dplyr::select(Time,DrugTreatment,secondDrug,ttime,Pathway, pathScore='NES',pathwayCor = 'corval')
   
 head(combo_preds)
 ```
@@ -169,53 +169,53 @@ plot_pathway_with_drugs <- function(genes,
   gvals <- full_tmat[genes,intersect(colnames(full_tmat),samples$improve_sample_id[c(tsamps,csamps)])]
 #  gvals <- drop_na(as.data.frame(gvals))
   
-  meta <- data.frame(drug=c(rep(expr_drug,length(tsamps)),rep('untreated',length(csamps))),
+  meta <- data.frame(drug = c(rep(expr_drug,length(tsamps)),rep('untreated',length(csamps))),
                      sample = c(samples$common_name[tsamps],samples$common_name[csamps]))
   rownames(meta) <- samples$improve_sample_id[c(tsamps,csamps)]
-  anncol <- list(drug=c(drugCol[expr_drug],untreated='white'))
+  anncol <- list(drug=c(drugCol[expr_drug],untreated = 'white'))
   
   pheatmap::pheatmap(gvals, cellwidth = 10,cellheight = 10,annotation_col=meta, 
                     # clustering_distance_rows = 'correlation',
-                     clustering_method = 'ward.D2',main = pathwayname,
+                     clustering_method = 'ward.D2',main = gsub('HALLMARK_','',pathwayname),
                     annotation_colors = anncol,
                      filename = paste0(ft,'_heatmap.pdf'))
   
 }
 ##from sing_gsea results (up-regulation?) and merged_res, from other
 
-plot_pathway_correlation <- function(pathname,ft=''){
+plot_pathway_correlation <- function(pathname,ft = ''){
 
   cr <- merged_res |> 
     subset(gene == pathname) |>
     mutate(Signif = ifelse(sig < 0.01,'**',ifelse(sig<0.05,'*',"")))
   
-  mv <- cr |> group_by(drug)|>
-    summarize(mv = mean(corval))|>
+  mv <- cr |> group_by(drug) |>
+    summarize(mv = mean(corval)) |>
     arrange(mv)
   
   cr$drug = factor(cr$drug, levels=unique(mv$drug))
   cr |> ggplot(aes(fill=drug,x=drug, y=corval,group=drug)) + 
      geom_bar(position='dodge',stat='identity') + 
-     ggrepel::geom_text_repel(aes(label = Signif),nudge_y=-0.01)+facet_grid(ttime~.) +
-    ggtitle(paste("Drug response correlation with",pathname))    +
+     ggrepel::geom_text_repel(aes(label = Signif), nudge_y = -0.01) + facet_grid(ttime~.) +
+    ggtitle(paste("Drug response correlation with",gsub('HALLMARK_','',pathname)))    +
     theme_bw() +    
-    scale_fill_manual(values=drugCol)+
-    coord_flip()+
+    scale_fill_manual(values = drugCol) +
+    coord_flip() +
     ylab('AUC correlation') + xlab('Drug')+
-    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1))
-  ggsave(paste0(ft,'drugCor.pdf'),width=6)
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+  ggsave(paste0(ft,'drugCor.pdf'),width = 6)
 }
 
 ##this function takes a combination, finds pathways that
 ##are common in both, then plots the gene expression and AUCs
 ##
-plot_combo_get_overlap <- function(combo){
+plot_combo_get_overlap <- function(combo, prefix = ''){
   
   combo = tolower(combo)
 
   ##now we can look for overlap
-  c1 <- subset(combo_preds,DrugTreatment==combo[1])|>subset(secondDrug==combo[2])
-  c2 <- subset(combo_preds,DrugTreatment==combo[2])|>subset(secondDrug==combo[1])
+  c1 <- subset(combo_preds,DrugTreatment==combo[1]) |> subset(secondDrug==combo[2])
+  c2 <- subset(combo_preds,DrugTreatment==combo[2]) |> subset(secondDrug==combo[1])
   
   if(nrow(c1)>0){
     ##plot genes up-regulated?
@@ -226,7 +226,7 @@ plot_combo_get_overlap <- function(combo){
     genes <- stringr::str_split(hall_preds$Leading_edge[rv], pattern=', ') |>
       unlist()
 
-    title=paste0(paste0(combo,collapse='_'),'_',y[['Pathway']])
+    title=paste0(prefix,paste0(combo,collapse='_'),'_',y[['Pathway']])
     plot_pathway_with_drugs(genes,combo[1],
                             pathwayname=paste0('HALLMARK_',y[['Pathway']]),
                             ft=title)
@@ -246,7 +246,7 @@ plot_combo_get_overlap <- function(combo){
     genes <- stringr::str_split(hall_preds$Leading_edge[rv], pattern=', ') |>
       unlist()
     
-    title=paste0(paste0(rev(combo),collapse='_'),'_',y[['Pathway']])
+    title=paste0(prefix,paste0(rev(combo),collapse='_'),'_',y[['Pathway']])
     plot_pathway_with_drugs(genes,combo[2],
                             pathwayname=paste0('HALLMARK_',y[['Pathway']]),
                             ft=title)
@@ -284,10 +284,10 @@ It looks like a single pathway
 
 combo <- c("Mirdametinib",'TNO155')
 
-res<-plot_combo_get_overlap(combo)
+res <- plot_combo_get_overlap(combo, prefix = 'fig5_')
 
 
-plot_pathway_correlation(pathname='HALLMARK_KRAS_SIGNALING_UP',ft='kras_only_up')
+#plot_pathway_correlation(pathname='HALLMARK_KRAS_SIGNALING_UP',ft='kras_only_up')
 
 ##plot genes in pathway in treated samples?
 
@@ -300,18 +300,18 @@ plot_pathway_correlation(pathname='HALLMARK_KRAS_SIGNALING_UP',ft='kras_only_up'
 ```{r mirda vorin}
 
 combo <- c("Mirdametinib",'Vorinostat')
-res <- plot_combo_get_overlap(combo)
+res <- plot_combo_get_overlap(combo, prefix = 'fig5_')
 
 
 ```
 ## Vorin + Capmatinib
 
 
-```{r vorin cap}
+```{r vorin cap, eval = FALSE}
 
 combo <- c("Capmatinib",'Vorinostat')
 
-res<-plot_combo_get_overlap(combo)
+res<-plot_combo_get_overlap(combo,prefix='no_fig')
 
 ```
 Nothing overlaps here! Maybe we can reverse the sign and see if there is overlap
@@ -320,7 +320,7 @@ in pathways?
 
 ## TNO155 and doxorubicin
 
-```{r tno dox}
+```{r tno dox, eval = FALSE}
 combo <- c("TNO155",'Doxorubicin')
 
 res<-plot_combo_get_overlap(combo)
@@ -330,7 +330,7 @@ res<-plot_combo_get_overlap(combo)
 
 ## Mirda Trab
 
-```{r more combo}
+```{r more combo, eval = FALSE}
 
 combo <- c("Mirdametinib",'Trabectedin')
 res <- plot_combo_get_overlap(combo)

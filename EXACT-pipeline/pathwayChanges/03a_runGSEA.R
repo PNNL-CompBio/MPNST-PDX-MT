@@ -65,7 +65,7 @@ gsea.df <- data.table::rbindlist(gsea, use.names=TRUE, idcol="Time")
 write.csv(gsea.df,"GSEA_results_Hallmark.csv", row.names = FALSE)
 synapser::synStore(synapser::File("GSEA_results_Hallmark.csv", parent=synapse_id))
 
-
+setwd(base.path)
 #######now run individual results
 
 # RNA-seq data with HGNC symbols
@@ -123,4 +123,4 @@ setwd(gsea.path)
 gsea.df <- data.table::rbindlist(gsea, use.names=TRUE, idcol="Time")
 write.csv(gsea.df,"GSEA_results_Hallmark.csv", row.names = FALSE)
 synapser::synStore(synapser::File("GSEA_results_Hallmark.csv", parent=synapse_id))
-
+setwd(base.path)

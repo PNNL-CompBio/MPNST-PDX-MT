@@ -19,7 +19,7 @@ drug.info <- list("palbociclib" = "CDK inhibitor", "ribociclib" = "CDK inhibitor
                   "irinotecan" = "TOP inhibitor", "verteporfin" = "YAP inhibitor")
 
 ## load data
-viability <- read.table(synapser::synGet("syn65941820")$path, sep="\t", header = TRUE)
+viability <- read.table(synapser::synGet("syn65941820")$path, sep = "\t", header = TRUE)
 viability <- viability[viability$improve_drug_id != "irinotecan",]
 viability <- viability[viability$improve_drug_id != "avutometinib",]
 viability <- viability[viability$improve_drug_id != "defactinib",]
@@ -60,7 +60,7 @@ ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability),
   scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
   labs(size="SD",color="Mean\nViability\nat Cmax")
-ggsave("CmaxViability_heatmap_orderMeanViability_sizeInverseSqrtSD_final.pdf", width=4,height=4)
+ggsave("fig_2B_CmaxViability_heatmap_orderMeanViability_sizeInverseSqrtSD_final.pdf", width=4,height=4)
 
 ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability, FUN=median),
                                 color=meanViability, size=sdViability^-0.5)) +
@@ -68,9 +68,9 @@ ggplot(mean.viability.cmax, aes(x=PDX, y=reorder(Drug, -meanViability, FUN=media
   facet_wrap(.~timeD)+theme_classic() + scale_size_continuous(breaks=c(2.5,5,10,20)^-0.5,
                                                               labels=c(2.5,5,10,20)) +
   scale_color_gradient(high="grey",low="red",limits=c(0,ceiling(max(mean.viability.cmax$meanViability)))) +
-  theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) +
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 45, vjust=1, hjust=1)) +
   labs(size="SD",color="Mean\nViability\nat Cmax")
-ggsave("CmaxViability_heatmap_orderMedianViability_sizeInverseSqrtSD_final.pdf", width=4,height=4)
+#ggsave("CmaxViability_heatmap_orderMedianViability_sizeInverseSqrtSD_final.pdf", width=4,height=4)
 
 #### repeat using auc instead of fit_auc ####
 ## plot
@@ -101,18 +101,20 @@ for (q in names(quantiles)) {
 r2$Quantile <- factor(r2$Quantile, names(quantiles))
 
 # AUC with r2 fill
-auc.r2 <- merge(auc, r2, by=c("improve_drug_id","improve_sample_id", "time"))
-
-ggplot(auc.r2, aes(x=improve_sample_id, y=reorder(improve_drug_id, -dose_response_value.x),
-                   color=dose_response_value.x, size=dose_response_value.y)) +
+auc.r2 <- rbind(auc,r2) |>#merge(auc, r2, by=c("improve_drug_id","improve_sample_id", "time"))
+    dplyr::select(-Quantile)|>
+  tidyr::pivot_wider(names_from='dose_response_metric',values_from='dose_response_value')
+auc.r2$timeD = paste0(as.numeric(auc.r2$time)/24,"d")
+ggplot(auc.r2, aes(x=improve_sample_id, y=reorder(improve_drug_id, -auc),
+                   color=auc, size=fit_r2)) +
   geom_point() +
   facet_wrap(.~timeD)+theme_classic() + scale_color_gradient(high="grey",low="red",limits=c(0,1)) +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(size=expression(paste(R^2)),color="AUC")
-ggsave(paste0("AUC_heatmap_orderMeanAUC_sizeR2_",Sys.Date(),".pdf"), width=4,height=4)
+#ggsave(paste0("AUC_heatmap_orderMeanAUC_sizeR2_",Sys.Date(),".pdf"), width=4,height=4)
 
-ggplot(auc.r2, aes(x=improve_sample_id, y=reorder(improve_drug_id, -dose_response_value.x, FUN=median),
-                   color=dose_response_value.x, size=dose_response_value.y)) +
+ggplot(auc.r2, aes(x=improve_sample_id, y=reorder(improve_drug_id, -auc, FUN=median),
+                   color=auc, size=fit_r2)) +
   geom_point() +
   facet_wrap(.~timeD)+theme_classic() + scale_color_gradient(high="grey",low="red",limits=c(0,1)) +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(size=expression(paste(R^2)),color="AUC")
-ggsave(paste0("AUC_heatmap_orderMedianAUC_sizeR2_",Sys.Date(),".pdf"), width=4,height=4)
+ggsave(paste0("fig_2A_AUC_heatmap_orderMedianAUC_sizeR2_",Sys.Date(),".pdf"), width=4,height=4)

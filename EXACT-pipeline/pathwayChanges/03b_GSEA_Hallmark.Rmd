@@ -87,7 +87,7 @@ ggplot(npathways.overall,aes(x= DrugTreatment, y = Pathways, fill=Time))+
         axis.text.x=element_text(angle=45, vjust=1, hjust=1,color=classCol[low.drugs])) +
    labs(y='# of Differentially expressed pathways') 
 
-ggplot2::ggsave("N_enrichedPathways_overall.pdf", width=5, height=2)
+ggplot2::ggsave(file.path(base.path,"fig3c_N_enrichedPathways_overall.pdf"), width=5, height=2)
 ```
 
 ### plot all enriched pathways
@@ -130,7 +130,7 @@ dot.plot <- ggplot2::ggplot(
   facet_grid(.~Time)
 dot.plot
 # most are only in prot and not in RNA
-ggplot2::ggsave("enrichedPathways_dotPlot.pdf", dot.plot, width=10, height=8) 
+ggplot2::ggsave(file.path(base.path,"fig3d_enrichedPathways_dotPlot.pdf"), dot.plot, width=10, height=8) 
 ```
 
 
@@ -375,25 +375,25 @@ annot.colors = list(Class = classCol,
                     Timepoint = c("8h" = "#FFFFFF", "24h" = "#000000"))
 
 graphics.off()
-pdf("sigGSEACorr.pdf",width=6,height=4.5)
-pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
-         show_colnames=FALSE, show_rownames=FALSE)
-dev.off()
-
-genemat<-gsea.df|>
-  dplyr::select(Feature_set,NES,DrugTreatment,Time)|>
-  subset(!is.na(NES))|> 
-  tidyr::unite(Time,DrugTreatment,col='condition')|>
-  tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
-  tibble::column_to_rownames('Feature_set')|>
-  as.matrix()
-genecor<-cor(genemat,use='pairwise.complete.obs')
-write.csv(genecor,"GSEACorr.csv")
-graphics.off()
-pdf("GSEACorr.pdf",width=6,height=4.5)
-pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors)#,
-#         show_colnames=FALSE, show_rownames=FALSE)
-dev.off()
+# pdf("sigGSEACorr.pdf",width=6,height=4.5)
+# pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors,
+#          show_colnames=FALSE, show_rownames=FALSE)
+# dev.off()
+# 
+# genemat<-gsea.df|>
+#   dplyr::select(Feature_set,NES,DrugTreatment,Time)|>
+#   subset(!is.na(NES))|> 
+#   tidyr::unite(Time,DrugTreatment,col='condition')|>
+#   tidyr::pivot_wider(names_from=condition,values_from=NES,values_fn=mean,values_fill=0.0)|>
+#   tibble::column_to_rownames('Feature_set')|>
+#   as.matrix()
+# genecor<-cor(genemat,use='pairwise.complete.obs')
+# write.csv(genecor,"GSEACorr.csv")
+# graphics.off()
+# pdf("GSEACorr.pdf",width=6,height=4.5)
+# pheatmap(genecor, annotation_row=annot, annotation_col=annot, annotation_colors=annot.colors)#,
+# #         show_colnames=FALSE, show_rownames=FALSE)
+# dev.off()
 ```
 
 ```{r shared results MEK and HDAC, echo=FALSE, eval=FALSE}
@@ -457,6 +457,8 @@ ggplot2::ggsave("MEK_HDAC_Pathways_dotPlot_MPNST.pdf",
 library(ggplot2); library(synapser)
 synapser::synLogin()
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+if(!dir.exists(gsea.path))
+  dir.create(gsea.path)
 setwd(gsea.path)
 gsea.df <- read.csv(synapser::synGet("syn68702141")$path)
 gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)
@@ -613,6 +615,8 @@ write.csv(edges3, "mirdaVen_diffexpLeads_sigInBoth_target_edges.csv", row.names=
 ``` {r shared / unique results, echo=FALSE}
 
 gsea.path <- file.path(getwd(),"GSEA_Hallmark")
+if(!dir.exists(gsea.path))
+  dir.create(gsea.path)
 setwd(gsea.path)
 gsea.df <- read.csv("GSEA_results_Hallmark.csv")
 gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)

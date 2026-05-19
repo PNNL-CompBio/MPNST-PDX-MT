@@ -374,5 +374,5 @@ ntf.plot.overall <- ggplot2::ggplot(ntfs.overall, aes(x=Timepoint, y=N)) + geom_
        color = "Drug Treatment", shape = "Mechanism") +
   scale_shape_manual(values=1:length(all.moas), breaks=all.moas) + theme_classic(base_size=12) +
   theme(legend.box="horizontal")
-ggplot2::ggsave("N_DEGs_overall.pdf", ntf.plot.overall, width=6, height=4.5)
+ggplot2::ggsave("fig_3b_N_DEGs_overall.pdf", ntf.plot.overall, width=6, height=4.5)
 `

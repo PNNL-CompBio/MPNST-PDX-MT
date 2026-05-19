@@ -9,9 +9,12 @@ synapser::synLogin()
 
 #rel.conf <- read.csv("mpnst_combo_drug_response.csv")
 rel.conf <- read.csv(synapser::synGet("syn68156852")$path)
-musyc.scores <- read.csv(synapser::synGet("syn68736713")$path)
+musyc.scores <- read.csv(synapser::synGet("syn68736713")$path)|>
+  tidyr::separate(sample, into=c('sample','time'),sep='_')
 
-musyc.scores$time = 24*as.numeric(musyc.scores$time)
+musyc.scores$time <- sapply(musyc.scores$time,function(x) ifelse(x=='48hours',48,120))
+
+#musyc.scores$time = 24*as.numeric(musyc.scores$time)
 # try looking at Bliss scores
 bliss <- data.frame()
 
@@ -32,10 +35,10 @@ mean.conf <- mean.conf |>
 mean.conf$time <- sub("hours","",mean.conf$time)
 #mean.conf$time <- as.numeric(mean.conf$time)/24
 
-musyc.scores <- read.csv(synapser::synGet("syn68736713")$path) |>
-  tidyr::separate(sample,into=c('sample','time'),sep='_')
+#musyc.scores <- read.csv(synapser::synGet("syn68736713")$path) |>
+#  tidyr::separate(sample,into=c('sample','time'),sep='_')
 
-musyc.scores$time <- sapply(musyc.scores$time,function(x) ifelse(x=='48hours',48,120))
+#musyc.scores$time <- sapply(musyc.scores$time,function(x) ifelse(x=='48hours',48,120))
 
 # make scatter plot of a12 vs a21
 #ir.create(paste0("curves_",Sys.Date()))
@@ -56,9 +59,9 @@ musyc.scores <- subset(musyc.scores,!drugCombo%in%c("selumetinib+nazartinib","mi
 # ggsave("musyc_meanLogAlpha_heatmap_positive.pdf", width=4,height=4)
 
 ggplot(musyc.scores, aes(x=sample, y=reorder(drugCombo, meanLogAlpha), fill=meanLogAlpha)) + geom_tile(stat="identity") +
-  facet_wrap(.~paste0(time,'d'))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(-8,8)) +
+  facet_wrap(.~paste0(time/24,'d'))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(-8,8)) +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Mean\nLog|Alpha|")
-ggsave("musyc_meanLogAlpha_heatmap.pdf", width=5,height=4)
+ggsave("fig_s3D_musyc_meanLogAlpha_heatmap.pdf", width=5,height=4)
 
  bliss.musyc <- merge(bliss, musyc.scores, by=c("drugCombo","sample","time"))
  max.bliss <- plyr::ddply(bliss, .(drugCombo, sample, time), summarize,
@@ -141,9 +144,9 @@ bliss.musyc.tested <- merge(max.bliss.tested, musyc.scores, by=c("drugCombo","sa
 maxAbsBliss <- max(abs(max.bliss.tested$maxBliss)) # 65.87242
 minMaxBliss <- min(max.bliss.tested$maxBliss) # 0
 ggplot(max.bliss.tested, aes(x=sample, y=reorder(drugCombo, maxBliss), fill=maxBliss)) + geom_tile(stat="identity") +
-  facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
+  facet_wrap(.~paste0(time/24,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Max Bliss")
-ggsave("bliss_maxSynergyTested_heatmap.pdf", width=4.5,height=4)
+#ggsave("bliss_maxSynergyTested_heatmap.pdf", width=4.5,height=4)
 
 ##NEXT CHUNK commented by SG
  max.bliss$maxBliss <- as.numeric(max.bliss$maxBliss)
@@ -151,9 +154,9 @@ ggsave("bliss_maxSynergyTested_heatmap.pdf", width=4.5,height=4)
  maxAbsBliss <- max(abs(max.bliss$maxBliss)) # 65.87242
  minMaxBliss <- min(max.bliss$maxBliss) # 0
  ggplot(max.bliss, aes(x=sample, y=reorder(drugCombo, maxBliss), fill=maxBliss)) + geom_tile(stat="identity") +
-   facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
+   facet_wrap(.~paste0(time/24,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
    theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Max Bliss")
- ggsave("bliss_maxSynergy_heatmap.pdf", width=4.5,height=4)
+ ggsave("fig_s3E_bliss_maxSynergy_heatmap.pdf", width=4.5,height=4)
 
 # minNonZeroBliss <- min(max.bliss[max.bliss$maxBliss != 0,]$maxBliss) # 0
 # ggplot(max.bliss[max.bliss$maxBliss != 0,], aes(x=sample, y=reorder(drugCombo, maxBliss), fill=log10(maxBliss))) + geom_tile(stat="identity") +
@@ -164,16 +167,16 @@ ggsave("bliss_maxSynergyTested_heatmap.pdf", width=4.5,height=4)
 maxAbsBliss <- max(abs(max.bliss.tested$medianBliss)) # 0
 minMaxBliss <- min(max.bliss.tested$medianBliss) # 0
 ggplot(max.bliss.tested, aes(x=sample, y=reorder(drugCombo, medianBliss), fill=medianBliss)) + geom_tile(stat="identity") +
-  facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
+  facet_wrap(.~paste0(time/24,"d"))+theme_classic() + scale_fill_gradient(low="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Median Bliss")
-ggsave("bliss_medianSynergyTested_heatmap.pdf", width=4.5,height=4)
+#ggsave("bliss_medianSynergyTested_heatmap.pdf", width=4.5,height=4)
 
 maxAbsBliss <- max(abs(max.bliss.tested$meanBliss)) # 24.871
 minMaxBliss <- min(max.bliss.tested$meanBliss) # -24.871
 ggplot(max.bliss.tested, aes(x=sample, y=reorder(drugCombo, meanBliss), fill=meanBliss)) + geom_tile(stat="identity") +
-  facet_wrap(.~paste0(time,"d"))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
+  facet_wrap(.~paste0(time/24,"d"))+theme_classic() + scale_fill_gradient2(low="blue",mid="grey",high="red",limits=c(minMaxBliss,maxAbsBliss)) +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(fill="Mean Bliss")
-ggsave("bliss_meanSynergyTested_heatmap.pdf", width=4.5,height=4)
+#ggsave("bliss_meanSynergyTested_heatmap.pdf", width=4.5,height=4)
 
 #### spider plots ####
 # 6 drug combos tested in all 6 MPNSTs at 2 timepoints: mean MuSyC LogAlpha, median CI, median Bliss
@@ -201,7 +204,7 @@ ci$CI <- NULL
 
 # get delta AUC
 #SG updated to synapse
-dauc <- read.csv(syn$get('syn69978141')$path)|>
+dauc <- read.csv(synGet('syn69978141')$path)|>
   mutate(drugCombo = tolower(Combo)) |>
   dplyr::rename(rank='dAUC',sample='PDX')|>
   dplyr::select(drugCombo,sample,rank,time)
@@ -220,8 +223,9 @@ rownames(maxmin2) <- c("max","min")
 bliss.musyc.tested$drugCombo <- tolower(bliss.musyc.tested$drugCombo)
 ci$drugCombo <- tolower(ci$drugCombo)
 synergy <- merge(na.omit(ci), bliss.musyc.tested[,c("drugCombo","sample","time","maxBliss","meanLogAlpha")],
-                 by=c("drugCombo","sample","time"))
-dauc <- dplyr::rename(dauc,dAUC='rank') #not sure why we rename twice
+                 by=c("drugCombo","sample","time")) |>
+  dplyr::rename(CI='rank')
+dauc <- dplyr::rename(dauc,`Delta AUC`='rank') #not sure why we rename twice
 
 synergy <- synergy|>inner_join(na.omit(dauc),
                  by=c("drugCombo","sample","time"))
@@ -242,13 +246,13 @@ for (t in unique(synergyFull$time)) {
     # reformat data so that each column is an axis variable, rownames are samples except for first 2 rows which are max and min
     tempSynergy <- synergyFull[synergyFull$time == t & synergyFull$drugCombo == dc,]
     rownames(tempSynergy) <- tempSynergy$sample
-    data <- tempSynergy[,c("dAUC","rank","maxBliss","meanLogAlpha")]
+    data <- tempSynergy[,c("Delta AUC","CI","maxBliss","meanLogAlpha")]
     colnames(data) <- c("Delta AUC","CI", "Bliss", "MuSyC")
     #data <- rbind(maxmin2, tempSynergy)
     sampleColors <- allSampleColors[rownames(data)]
     if (length(unique(data$Bliss))>1 & length(unique(data$CI)) > 1 & length(unique(data$MuSyC)) > 1) {
       # prep to save plot
-      pdf(paste0(t,"d_",dc,"_spiderPlot_",Sys.Date(),".pdf"), width=5, height=4)
+      #pdf(paste0(t/24,"d_",dc,"_spiderPlot_",Sys.Date(),".pdf"), width=5, height=4)
 
       # create plot
       fmsb::radarchart(data, axistype=0, maxmin=FALSE, pcol=sampleColors,
@@ -258,7 +262,7 @@ for (t in unique(synergyFull$time)) {
              col=sampleColors, text.col="black", cex=0.8, pt.cex=1.2)
 
       # save plot
-      dev.off()
+      #dev.off()
     }
   }
 }
@@ -275,7 +279,7 @@ write.csv(corr.mat,"synergy_PearsonCorr.csv")
 
 # plot correlation matrix
 corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
-ggsave("synergy_PearsonCorr.pdf", corr.mat.plot, width=4, height=4)
+#ggsave("synergy_PearsonCorr.pdf", corr.mat.plot, width=4, height=4)
 
 # correlation matrix - Spearman
 corr.mat <- stats::cor(med.mat, method="spearman")
@@ -283,51 +287,120 @@ write.csv(corr.mat,"synergy_SpearmanCorr.csv")
 
 # plot correlation matrix
 corr.mat.plot <- ggcorrplot::ggcorrplot(corr.mat)
-ggsave("synergy_SpearmanCorr.pdf", corr.mat.plot, width=4, height=4)
+#ggsave("synergy_SpearmanCorr.pdf", corr.mat.plot, width=4, height=4)
 
 #### individual correlations ####
 others <- c("CI","Bliss","MuSyC")
 moa.med <- synergy
-colnames(moa.med)[4:7] <- c("Delta AUC", others)
-for (i in others) {
-  moa.med$rank <- moa.med[,i]
-  moa.med.cor <- cor.test(moa.med$`Delta AUC`, moa.med$rank)
-  stats_pearson <- substitute(
-    r == est * "," ~ ~"p" ~ "=" ~ p,
-    list(
-      est = format(as.numeric(moa.med.cor$estimate), digits = 3),
-      p = format(moa.med.cor$p.value, digits = 3)
-    )
-  )
-  ggplot(moa.med, aes(x=`Delta AUC`, y=rank)) + # could set shape=sample but only sample is JH-2-002
-    geom_point(aes(color=drugCombo, shape=sample, size=as.factor(time))) + theme_minimal() +
-    geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
-      x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE,
-      label = as.character(as.expression(stats_pearson)), size = 6
-    ) +
-    labs(x="Delta AUC",color="Drug Combo", shape="MPNST", size="Time (days)",
-         y=i)
-  ggsave(paste0(i,"_vs_","dAUC","_Pearson.pdf"),width=7,height=5)
+# #colnames(moa.med)[4:7] <- c("Delta AUC", others)
+# for (i in others) {
+#   moa.med$rank <- moa.med[,i]
+#   moa.med.cor <- cor.test(moa.med$`Delta AUC`, moa.med$rank)
+#   stats_pearson <- substitute(
+#     r == est * "," ~ ~"p" ~ "=" ~ p,
+#     list(
+#       est = format(as.numeric(moa.med.cor$estimate), digits = 3),
+#       p = format(moa.med.cor$p.value, digits = 3)
+#     )
+#   )
+#   ggplot(moa.med, aes(x=`Delta AUC`, y=rank)) + # could set shape=sample but only sample is JH-2-002
+#     geom_point(aes(color=drugCombo, shape=sample, size=as.factor(time))) + theme_minimal() +
+#     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+#       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+#       colour = "black", parse = TRUE,
+#       label = as.character(as.expression(stats_pearson)), size = 6
+#     ) +
+#     labs(x="Delta AUC",color="Drug Combo", shape="MPNST", size="Time (days)",
+#          y=i)
+# #  ggsave(paste0(i,"_vs_","dAUC","_Pearson.pdf"),width=7,height=5)
+#
+#   moa.med.cor <- cor.test(moa.med$`Delta AUC`, moa.med$rank, method="spearman")
+#   stats_spearman <- substitute(
+#     rho == est * "," ~ ~"p" ~ "=" ~ p,
+#     list(
+#       est = format(as.numeric(moa.med.cor$estimate), digits = 3),
+#       p = format(moa.med.cor$p.value, digits = 3)
+#     )
+#   )
+#   ggplot(moa.med, aes(x=`Delta AUC`, y=rank)) + # could set shape=sample but only sample is JH-2-002
+#     geom_point(aes(color=drugCombo, shape=sample, size=as.factor(time))) + theme_minimal() +
+#     geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
+#       x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+#       colour = "black", parse = TRUE,
+#       label = as.character(as.expression(stats_spearman)), size = 6
+#     ) +
+#     labs(x="Delta AUC",color="Drug Combo", shape="MPNST", size="Time (days)",
+#          y=i)
+#   ggsave(paste0('fig_s3_',i,"_vs_","dAUC","_Spearman.pdf"),width=7,height=5)
+#
+# }
 
-  moa.med.cor <- cor.test(moa.med$`Delta AUC`, moa.med$rank, method="spearman")
-  stats_spearman <- substitute(
-    rho == est * "," ~ ~"p" ~ "=" ~ p,
-    list(
-      est = format(as.numeric(moa.med.cor$estimate), digits = 3),
-      p = format(moa.med.cor$p.value, digits = 3)
-    )
-  )
-  ggplot(moa.med, aes(x=`Delta AUC`, y=rank)) + # could set shape=sample but only sample is JH-2-002
-    geom_point(aes(color=drugCombo, shape=sample, size=as.factor(time))) + theme_minimal() +
-    geom_smooth(method="lm",linetype="dashed",color="black") + ggplot2::geom_text(
-      x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
-      colour = "black", parse = TRUE,
-      label = as.character(as.expression(stats_spearman)), size = 6
-    ) +
-    labs(x="Delta AUC",color="Drug Combo", shape="MPNST", size="Time (days)",
-         y=i)
-  ggsave(paste0(i,"_vs_","dAUC","_Spearman.pdf"),width=7,height=5)
 
-}
+##avoided the for loop just did  manually
+
+#CI cor
+sest = cor.test(synergy$CI, synergy$`Delta AUC`, method = 'spearman')
+
+stats_spearman <- substitute(
+       rho == est * "," ~ ~"p" ~ "=" ~ p,
+       list(
+         est = format(as.numeric(sest$estimate), digits = 3),
+         p = format(sest$p.value, digits = 3)
+       )
+     )
+ggplot(synergy,aes(x=`Delta AUC`,y = `CI`)) +
+  geom_point(aes(color=drugCombo, shape=sample, size=as.factor(time))) +
+  geom_smooth(method="lm",linetype="dashed",color="black") +
+  ggplot2::geom_text(x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+           colour = "black", parse = TRUE,
+           label = as.character(as.expression(stats_spearman)), size = 6
+         ) +
+         labs(x="Delta AUC",color="Drug Combo", shape="MPNST", size="Time (days)",
+              y='CI')
+
+ggsave('fig_s3_CI_vs_dAUC_spearman.pdf')
+
+## bliss cor
+sest = cor.test(synergy$maxBliss, synergy$`Delta AUC`, method = 'spearman')
+
+stats_spearman <- substitute(
+  rho == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(sest$estimate), digits = 3),
+    p = format(sest$p.value, digits = 3)
+  )
+)
+ggplot(synergy,aes(x=`Delta AUC`,y = `maxBliss`)) +
+  geom_point(aes(color=drugCombo, shape=sample, size=as.factor(time))) +
+  geom_smooth(method="lm",linetype="dashed",color="black") +
+  ggplot2::geom_text(x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+                     colour = "black", parse = TRUE,
+                     label = as.character(as.expression(stats_spearman)), size = 6
+  ) +
+  labs(x="Delta AUC",color="Drug Combo", shape="MPNST", size="Time (days)",
+       y='Bliss')
+
+ggsave('fig_s3_maxBliss_vs_dAUC_spearman.pdf')
+
+##meanAlpha cor
+sest = cor.test(synergy$meanLogAlpha, synergy$`Delta AUC`, method = 'spearman')
+
+stats_spearman <- substitute(
+  rho == est * "," ~ ~"p" ~ "=" ~ p,
+  list(
+    est = format(as.numeric(sest$estimate), digits = 3),
+    p = format(sest$p.value, digits = 3)
+  )
+)
+ggplot(synergy,aes(x=`Delta AUC`,y = `meanLogAlpha`)) +
+  geom_point(aes(color=drugCombo, shape=sample, size=as.factor(time))) +
+  geom_smooth(method="lm",linetype="dashed",color="black") +
+  ggplot2::geom_text(x = -Inf, y = Inf, vjust = "inward", hjust = "inward",
+                     colour = "black", parse = TRUE,
+                     label = as.character(as.expression(stats_spearman)), size = 6
+  ) +
+  labs(x="Delta AUC",color="Drug Combo", shape="MPNST", size="Time (days)",
+       y='MuSyC')
+
+ggsave('fig_s3_meanLogAlpha_vs_dAUC_spearman.pdf')
 write.csv(moa.med,"synergy_forCorr.csv", row.names=FALSE)

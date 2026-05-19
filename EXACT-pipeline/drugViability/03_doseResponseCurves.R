@@ -87,13 +87,13 @@ rel.conf$drugCombo <- paste0(rel.conf$drug1,"+",rel.conf$drug2)
   #                                       hjust=1, vjust=1, show.legend=FALSE,
   #                                       colour=mid.color2)
     # ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.svg"),conf.plot,width=12,height=9, device="svg") # was height 4
-     ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.png"),conf.plot,width=12,height=9, device="png") # was height 4
+  #   ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.png"),conf.plot,width=12,height=9, device="png") # was height 4
     # ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.svg"),conf.plot,width=12,height=4, device="svg") # was height 4
-     ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.png"),conf.plot,width=12,height=4, device="png") # was height 4
+   #  ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.png"),conf.plot,width=12,height=4, device="png") # was height 4
      #ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.svg"),conf.plot,width=10,height=4, device="svg") # was height 4
-     ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.png"),conf.plot,width=10,height=4, device="png") # was height 4
+    # ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.png"),conf.plot,width=10,height=4, device="png") # was height 4
      #gsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.svg"),conf.plot,width=5,height=4, device="svg") # was height 4
-     ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.png"),conf.plot,width=5,height=4, device="png") # was height 4
+    # ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.png"),conf.plot,width=5,height=4, device="png") # was height 4
    }
 
 
@@ -115,7 +115,7 @@ conf.plot <- ggplot(mean.sing, aes(x=DOSE, y=meanGROWTH, color=improve_sample_id
   theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability", color="MPNST") +
   theme(plot.title=element_text(hjust=0.5,face="bold"), axis.text.x=element_text(angle=45, hjust=1, vjust=1))
 conf.plot # something is off- looks like MN2 isn't relative viability, same for some MN4
-ggsave("relativeViability_singleAgents.pdf", conf.plot, width=18, height=3)
+#ggsave("relativeViability_singleAgents.pdf", conf.plot, width=18, height=3)
 
 top.sing <- mean.sing[mean.sing$Drug %in% c("vorinostat","mirdametinib","RMC4630"),]
 top.sing$Drug <- factor(top.sing$Drug, levels=c("vorinostat","mirdametinib","RMC4630"))
@@ -129,6 +129,6 @@ conf.plot <- ggplot(top.sing,
   theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability", color="MPNST") +
   theme(plot.title=element_text(hjust=0.5,face="bold"), axis.text.x=element_text(angle=45, hjust=1, vjust=1))
 conf.plot # something is off- looks like MN2 isn't relative viability, same for some MN4
-ggsave("relativeViability_top3Drugs.pdf", conf.plot, width=6, height=6)
-ggsave("relativeViability_top3Drugs_w4h4.pdf", conf.plot, width=4, height=4)
-ggsave("relativeViability_top3Drugs_w5h5.pdf", conf.plot, width=5, height=5)
+#ggsave("relativeViability_top3Drugs.pdf", conf.plot, width=6, height=6)
+#ggsave("relativeViability_top3Drugs_w4h4.pdf", conf.plot, width=4, height=4)
+#ggsave("relativeViability_top3Drugs_w5h5.pdf", conf.plot, width=5, height=5)
