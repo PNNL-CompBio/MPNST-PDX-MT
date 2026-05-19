@@ -349,7 +349,7 @@ combined <- eres |>
 ggplot(combined, aes(x=sort_by(Pathway, ingroup_mean), y =ingroup_mean, fill = drugClass)) +
   geom_bar(position='dodge',stat='identity') +
   coord_flip() +
-  facet_grid(~DrugTreatment) +scale_fill_manual(values =rev(colorRampPalette(bs3)(length(unique(combined$drugClass)))))+
+  facet_grid(~DrugTreatment) +scale_fill_manual(values =colorRampPalette(bs3)(length(unique(combined$drugClass))))+
   xlab('Pathway') + ylab('Mean correlation with AUC across class') + 
   theme_bw()
 
