@@ -368,16 +368,16 @@ for(prot_type in c('global', 'phospho')){
 
 ### Barplots of differentially expressed proteins
 
-```{r eval=FALSE}
+```{r data-prep-for-diff-ex-comparison}
 
 agents <- unique(meta_data_raw$agent)
 controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
 
+df_diff_ex <- tibble()
 for(prot_type in c('global', 'phospho')) {
   experiment <- experiments[[prot_type]]
-  df_diff_ex <- tibble()
     
   for(agent in agents){
     for(timepoint in timepoints){
@@ -402,7 +402,8 @@ for(prot_type in c('global', 'phospho')) {
           mutate(labels = case_when(
             expression_change %in% c('up', 'down') ~ Genes,
             .default = NA
-          ))
+          )) %>%
+          mutate(omics_type = "global proteomics")
       }
     
       if(prot_type == "phospho"){
@@ -415,14 +416,15 @@ for(prot_type in c('global', 'phospho')) {
           mutate(labels = case_when(
             expression_change %in% c('up', 'down') ~ Protein.With.Phospho.Site,
             .default = NA
-          ))
+          )) %>%
+          mutate(omics_type = "phospho-proteomics")
       }
       
       diff_ex_sub %<>%
         subset(., expression_change %in% c('up', 'down')) %>%
         mutate(timepoint = timepoint) %>%
         mutate(agent = agent) %>%
-        dplyr::count(expression_change, timepoint, agent) %>%
+        dplyr::count(expression_change, timepoint, agent, omics_type) %>%
         mutate(n = if_else(expression_change == "down", n * -1, n)) %>%
         mutate(timepoint = factor(timepoint, levels = c('8hr', '24hr', '48hr'), labels = c('8h', '24h', '48h')))
       
@@ -430,27 +432,68 @@ for(prot_type in c('global', 'phospho')) {
   
     }
   }
-  
-  cpalette = c('up' = '#74add1', 'down' = '#f46d43')
-  
-  plot_title <- paste('Spheroid', prot_type ,'proteomics:',
-                      "agent vs. control") 
-  
-  plot <- (
-    ggplot(df_diff_ex, aes(x=timepoint, fill=expression_change, y=n))
-    + geom_bar(position="stack", stat="identity") 
-    + scale_fill_manual(values = cpalette)
-    + labs(
-        title = plot_title,
-        fill = 'expression'
-      )
-    + theme_minimal()
-    + theme(legend.position = "bottom")
-    + facet_wrap(~ agent, nrow = 1)
-  )
-  print(plot)
-    
 }
 
+```
 
+```{r plot-diffex-counts-agent-by-omics-type}
+cpalette = c('up' = '#74add1', 'down' = '#f46d43')
+plot_title <- paste(
+  "Differentially expressed proteins/phospho-sites in MN2",
+  "after treatment vs. control"
+  )
+
+plot_by_agent <- (
+  ggplot(df_diff_ex, aes(x=timepoint, fill=expression_change, y=n))
+  + geom_bar(position="stack", stat="identity") 
+  + scale_fill_manual(values = cpalette)
+  + labs(
+      title = plot_title,
+      x = "time after treatment",
+      y = "# of up/down regulated features",
+      fill = 'expression'
+    )
+  + theme_minimal()
+  + theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    )
+  + facet_grid(omics_type ~ agent)
+)
+print(plot_by_agent)
+```
+
+```{r plot-diffex-counts-timepoint-by-omics-type}
+cpalette = c('up' = '#74add1', 'down' = '#f46d43')
+plot_title <- paste(
+  "Differentially expressed proteins/phospho-sites in MN2",
+  "after treatment vs. control"
+  )
+
+plot_by_timepoint <- (
+  ggplot(df_diff_ex, aes(x=agent, fill=expression_change, y=n))
+  + geom_bar(position="stack", stat="identity")
+  + scale_fill_manual(values = cpalette)
+  + labs(
+      title = plot_title,
+      x = "treatment chemical agent",
+      y = "# of up/down regulated features",
+      fill = 'expression'
+    )
+  + theme_minimal()
+  + theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    )
+  + facet_grid(omics_type ~ timepoint)
+)
+print(plot_by_timepoint)
+```
+
+```{r save-diffex-counts-comp, eval=FALSE}
+filename <- "../output_figures/differential_expression_counts_agent_by_omic_type.png"
+ggsave(filename, plot_by_agent, height = 5, width = 10)
+
+filename <- "../output_figures/differential_expression_counts_timepoint_by_omic_type.png"
+ggsave(filename, plot_by_timepoint, height = 5, width = 10)
 ```
