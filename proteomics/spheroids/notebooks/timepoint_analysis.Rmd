@@ -74,7 +74,7 @@ phospho_dat <- readr::read_tsv(
 # metadata ingest
 synapseFileID <- "syn74755705"
 fileEntity <- synapser::synGet(synapseFileID)
-meta_data <- readxl::read_xlsx(fileEntity$path, sheet = 2)
+meta_data_raw <- readxl::read_xlsx(fileEntity$path, sheet = 2)
 
 # closing synpase conncetion
 tmp <- synapser::synLogout()
@@ -98,6 +98,12 @@ names(phospho_dat) <- names(phospho_dat) %>%
   gsub("_20Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
   gsub("^[0-9]*_", "", .)
 
+
+prot_data <- list(
+  "global" = global_dat,
+  "phospho" = phospho_dat
+)
+
 ```
 
 Next we clean up and prepare the metadata for `SummarizedExperiment` object
@@ -116,7 +122,7 @@ new_col_names <- c(sample = 'Sample ID \r\n(abbrev)',
                    plate = "Plate"
                    )
 
-meta_data %<>%
+meta_data_raw %<>%
   rowwise() %>%
   mutate(Drug = gsub(" ", "", Drug), Time = paste0(Time, "hr")) %>%
   mutate(group = paste(Time, Drug, sep = "_")) %>%
@@ -126,15 +132,64 @@ meta_data %<>%
   dplyr::rename(., all_of(new_col_names)) %>%
   ungroup()
 
-meta_data_global <- meta_data %>%
+meta_data_global <- meta_data_raw %>%
   select(., global_sample_id, condition, plate) %>%
   dplyr::rename(., sample = global_sample_id)
 
-meta_data_phospho <- meta_data %>%
+meta_data_phospho <- meta_data_raw %>%
   select(., phospho_sample_id, condition, plate) %>%
   dplyr::rename(., sample = phospho_sample_id)
+
+meta_data <- list(
+  "global" = meta_data_global,
+  "phospho" = meta_data_phospho
+)
 ```
 
+As final perpartion we define a few bespoke helper functions that are only
+applicable to this dataset:
+
+```{r bespoke-helper-functions}
+
+prep_experiment_data <- function(
+    prot_data,
+    meta_data,
+    missingness_cutoff=0,
+    imputation_method=c("none", 'SampMin', 'means', 'median')
+    ){
+  
+  imputation_method_sel <- match.arg(imputation_method)
+  
+  if(!is.na(missingness_cutoff) & !(missingness_cutoff >=0 | missingness_cutoff <= 1)){
+    stop(
+      base::paste(
+        "missingness_cutoff needs to be '0 <= missingness_cutoff <=1'",
+        "or 'NULL'. Supplied value:", missingness_cutoff),
+      call. = FALSE
+    )
+  }
+  
+  experiments <- list()
+  for(data_type in c('global', 'phospho')){
+    
+    experiment <- prep_prot_data(proteomics_data = prot_data[[data_type]],
+                                 proteomics_meta = meta_data[[data_type]],
+                                 missingness_cutoff = missingness_cutoff,
+                                 type = data_type)
+    
+    if(!(imputation_method_sel == 'none')){
+      experiment %<>% 
+        log_transform(., assay = "proteomics") %>%
+        impute_proteomics(., assay = "proteomics", imputation_method_sel)
+    }
+    experiments[[data_type]] <- experiment
+  }
+  
+  experiments
+}
+
+
+```
 
 
 ## Data quality control
@@ -158,28 +213,17 @@ data with *NO* missingness cut-off for feature removal and *Sample Minimum*
 can be extracted.
 
 ```{r prep-data-for-PCA, eval=TRUE}
+
 missingness_cutoff = 0.0
 imputation_method = "SampMin"
 
-experiment_global <- prep_prot_data(proteomics_data = global_dat,
-                                    proteomics_meta = meta_data_global,
-                                    missingness_cutoff = missingness_cutoff,
-                                    type = 'global')
-experiment_global %<>% 
-  log_transform(., assay = "proteomics") %>%
-  impute_proteomics(., assay = "proteomics", imputation_method)
+experiments <- prep_experiment_data(
+  prot_data,
+  meta_data,
+  missingness_cutoff,
+  imputation_method
+)
 
-
-experiment_phospho <- prep_prot_data(proteomics_data = phospho_dat,
-                                     proteomics_meta = meta_data_phospho,
-                                     missingness_cutoff = missingness_cutoff,
-                                     type = 'phospho')
-experiment_phospho %<>% 
-  log_transform(., assay = "proteomics") %>%
-  impute_proteomics(., assay = "proteomics", imputation_method)
-
-experiments <- list("global" = experiment_global,
-                    "phospho" = experiment_phospho)
 ```
 
 Next we generate PCA plots
@@ -216,17 +260,16 @@ for(prot_type in c('global', 'phospho')){
 ### Outlier investigation
 
 ```{r outlier-investigation}
+missingness_cutoff = 0
+imputation_method = 'none'
 
-experiment_global <- prep_prot_data(proteomics_data = global_dat,
-                                    proteomics_meta = meta_data_global,
-                                    missingness_cutoff = missingness_cutoff,
-                                    type = 'global')
-experiment_phospho <- prep_prot_data(proteomics_data = phospho_dat,
-                                     proteomics_meta = meta_data_phospho,
-                                     missingness_cutoff = missingness_cutoff,
-                                     type = 'phospho')
-experiments <- list("global" = experiment_global,
-                    "phospho" = experiment_phospho)
+experiments <- prep_experiment_data(
+  prot_data,
+  meta_data,
+  missingness_cutoff,
+  imputation_method
+)
+
 
 plots <- list()
 for(prot_type in c('global', 'phospho')){
@@ -272,25 +315,12 @@ expression analysis.
 missingness_cutoff = 0.5
 imputation_method = "SampMin"
 
-experiment_global <- prep_prot_data(proteomics_data = global_dat,
-                                    proteomics_meta = meta_data_global,
-                                    missingness_cutoff = missingness_cutoff,
-                                    type = 'global')
-experiment_global %<>% 
-  log_transform(., assay = "proteomics") %>%
-  impute_proteomics(., assay = "proteomics", imputation_method)
-
-
-experiment_phospho <- prep_prot_data(proteomics_data = phospho_dat,
-                                     proteomics_meta = meta_data_phospho,
-                                     missingness_cutoff = missingness_cutoff,
-                                     type = 'phospho')
-experiment_phospho %<>% 
-  log_transform(., assay = "proteomics") %>%
-  impute_proteomics(., assay = "proteomics", imputation_method)
-
-experiments <- list("global" = experiment_global,
-                    "phospho" = experiment_phospho)
+experiments <- prep_experiment_data(
+  prot_data,
+  meta_data,
+  missingness_cutoff,
+  imputation_method
+)
 ```
 
 Next we generate all the volcano plots for the differentially expressed proteins
@@ -298,7 +328,7 @@ and phosphosites.
 
 ```{r differential-expression-volcano-plots, warning=FALSE}
 
-agents <- unique(meta_data$agent)
+agents <- unique(meta_data_raw$agent)
 controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
@@ -335,20 +365,21 @@ for(prot_type in c('global', 'phospho')){
 }
 ```
 
+
+
+
 ### Barplots of differentially expressed proteins
 TODO: generate bar plots visualizing the number of up & down regulated proteins
 and phospho-sites listed in the differential expression volcano plots
 ```{r eval=FALSE}
 
-agents <- unique(meta_data$agent)
+agents <- unique(meta_data_raw$agent)
 controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
-experiment_types <- list("global" = experiment_global,
-                         "phospho" = experiment_phospho)
 timepoints = c("8hr", "24hr", "48hr")
 
 prot_type <- 'global'
-experiment <- experiment_types[[prot_type]]
+experiment <- experiments[[prot_type]]
 
 agent <- 'Mirda'
 
