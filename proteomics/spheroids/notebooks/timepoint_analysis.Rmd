@@ -366,11 +366,8 @@ for(prot_type in c('global', 'phospho')){
 ```
 
 
-
-
 ### Barplots of differentially expressed proteins
-TODO: generate bar plots visualizing the number of up & down regulated proteins
-and phospho-sites listed in the differential expression volcano plots
+
 ```{r eval=FALSE}
 
 agents <- unique(meta_data_raw$agent)
@@ -378,58 +375,82 @@ controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
 
-prot_type <- 'global'
-experiment <- experiments[[prot_type]]
-
-agent <- 'Mirda'
-
-ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
-group_1 = paste0(timepoint, "_", ctrl)
-group_2 = paste0(timepoint, "_", agent)
-
-plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
-experiment_subset <- experiment[, experiment$plate == plate_sel]
-
-align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
-                         no = "Protein.With.Phospho.Site")
-diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
-                        align_by=align_by_group)
-
-cpalette = c('up' = '#74add1', 'down' = '#f46d43')
-
-if(prot_type == "global"){
-  dfPlot <- subset(
-      as.tibble(rowData(diff_ex)),
-      select = c('Genes', 'logFC', 'adj.P.Val'
-    )) %>%
-    mutate(expression_change = case_when(
-      (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-      (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
-      .default = 'not significant',
-    )) %>%
-    mutate(labels = case_when(
-      expression_change %in% c('up', 'down') ~ Genes,
-      .default = NA
-    )) %>%
-    subset(., expression_change %in% c('up', 'down'))
+for(prot_type in c('global', 'phospho')) {
+  experiment <- experiments[[prot_type]]
+  df_diff_ex <- tibble()
+    
+  for(agent in agents){
+    for(timepoint in timepoints){
+      ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+      group_1 = paste0(timepoint, "_", ctrl)
+      group_2 = paste0(timepoint, "_", agent)
+      plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+      experiment_subset <- experiment[, experiment$plate == plate_sel]
+  
+      align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
+                           no = "Protein.With.Phospho.Site")
+      diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
+                          align_by=align_by_group)
+      
+      if(prot_type == "global"){
+        diff_ex_sub <- subset(as.tibble(rowData(diff_ex)), select = c('Genes', 'logFC', 'adj.P.Val')) %>%
+          mutate(expression_change = case_when(
+            (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+            (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+            .default = 'not significant',
+          )) %>%
+          mutate(labels = case_when(
+            expression_change %in% c('up', 'down') ~ Genes,
+            .default = NA
+          ))
+      }
+    
+      if(prot_type == "phospho"){
+        diff_ex_sub <- subset(as.tibble(rowData(diff_ex)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>%
+          mutate(expression_change = case_when(
+            (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+            (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+            .default = 'not significant',
+          )) %>%
+          mutate(labels = case_when(
+            expression_change %in% c('up', 'down') ~ Protein.With.Phospho.Site,
+            .default = NA
+          ))
+      }
+      
+      diff_ex_sub %<>%
+        subset(., expression_change %in% c('up', 'down')) %>%
+        mutate(timepoint = timepoint) %>%
+        mutate(agent = agent) %>%
+        dplyr::count(expression_change, timepoint, agent) %>%
+        mutate(n = if_else(expression_change == "down", n * -1, n)) %>%
+        mutate(timepoint = factor(timepoint, levels = c('8hr', '24hr', '48hr'), labels = c('8h', '24h', '48h')))
+      
+      df_diff_ex <- bind_rows(df_diff_ex, diff_ex_sub)
+  
+    }
+  }
+  
+  cpalette = c('up' = '#74add1', 'down' = '#f46d43')
+  
+  plot_title <- paste('Spheroid', prot_type ,'proteomics:',
+                      "agent vs. control") 
+  
+  plot <- (
+    ggplot(df_diff_ex, aes(x=timepoint, fill=expression_change, y=n))
+    + geom_bar(position="stack", stat="identity") 
+    + scale_fill_manual(values = cpalette)
+    + labs(
+        title = plot_title,
+        fill = 'expression'
+      )
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + facet_wrap(~ agent, nrow = 1)
+  )
+  print(plot)
+    
 }
 
-plot <- (
-  ggplot(
-    data = dfPlot,
-    aes(timepoint)
-  )
-  + geom_bar(aes(fill=expression_change), position = 'dodge2')
-  + scale_fill_manual(values = cpalette)
-  + theme_minimal()
-  + labs(
-    title = 'Spheroid phospho proteomics; DMSO vs Mirdametinib', 
-    subtitle = paste("Counts of significant differentially expressed proteins", 
-                     "( pVal < 0.05; -1  >= logFC >= 1 )"),
-    fill = 'expression'
-  )
-)
-
-print(plot)
 
 ```
