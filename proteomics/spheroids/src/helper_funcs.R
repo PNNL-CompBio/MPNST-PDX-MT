@@ -134,6 +134,7 @@ calc_diff_ex <- function(experiment,
 prep_prot_data <- function(proteomics_data, proteomics_meta,
                            type = c('global', 'phospho'),
                            missingness_cutoff = 0.5,
+                           samp_cutoff = 0.9,
                            sample_col_prefix = "cNF"){
 
   # checking that either global or phospho is selected for type
@@ -164,6 +165,11 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
       column_to_rownames(., var = "Protein.Group") %>%
       select(., contains(sample_col_prefix))
 
+    #What if we add a sample cutoff?
+    proteomics_data_clean %<>%
+      .[,colSums(!is.na(.))/nrow(.) >= samp_cutoff]# %>%
+      #rownames_to_column(., var = "Protein.Group")
+
     # TODO: add check to make sure missgness_cutoff is [0, 1]
     proteomics_data_clean %<>%
       .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
@@ -189,6 +195,10 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
       unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
       column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
       within(., rm("Protein.Names", "Gene.Names", "Sequence"))
+
+    ##add in missingness here
+    proteomics_data_clean %<>%
+      .[,colSums(!is.na(.))/nrow(.) >= samp_cutoff]#
 
     # TODO: add check to make sure missgness_cutoff is [0, 1]
     proteomics_data_clean %<>%
@@ -216,7 +226,7 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
 
     #calculate median abundnace for each phosphosite and rank
     medAbund <- apply(proteomics_data_clean, 1, function(x) median(x,na.rm = T))
-    qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1))
+    qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1),na.rm=TRUE)
     siteQuantile <- sapply(medAbund, function(x) names(qvals)[which(x <= qvals)[1]])
 
     proteomicsMapping$medAbundance = medAbund
@@ -451,8 +461,8 @@ plot_diff_ex <- function(experiment, agent, timepoint){
   if(prot_type == "global"){
     dfPlot <- subset(as.tibble(rowData(diff_ex)), select = c('Genes', 'logFC', 'adj.P.Val')) %>%
       mutate(expression_change = case_when(
-        (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-        (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+        (logFC >= .5 & adj.P.Val < 0.05) ~ 'up',
+        (logFC <= -.5 & adj.P.Val < 0.05) ~ 'down',
         .default = 'not significant',
       )) %>%
       mutate(labels = case_when(
@@ -462,14 +472,14 @@ plot_diff_ex <- function(experiment, agent, timepoint){
   }
 
   if(prot_type == "phospho"){
-    dfPlot <- subset(as.tibble(rowData(diff_ex)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>%
+    dfPlot <- subset(as.tibble(rowData(diff_ex)), select = c('Gene.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>%
       mutate(expression_change = case_when(
-        (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-        (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+        (logFC >= .5 & adj.P.Val < 0.05) ~ 'up',
+        (logFC <= -.5 & adj.P.Val < 0.05) ~ 'down',
         .default = 'not significant',
       )) %>%
       mutate(labels = case_when(
-        expression_change %in% c('up', 'down') ~ Protein.With.Phospho.Site,
+        expression_change %in% c('up', 'down') ~ Gene.With.Phospho.Site,
         .default = NA
       ))
   }

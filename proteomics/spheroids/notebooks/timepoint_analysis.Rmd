@@ -7,8 +7,8 @@ author:
   affiliation: Pacific Northwest National Laboratory
 date: "`r Sys.Date()`"
 output:
-  pdf_document:
-    toc: true
+ # pdf_document:
+#    toc: false
   html_notebook:
     toc: true
   html_document:
@@ -155,7 +155,9 @@ prep_experiment_data <- function(
     prot_data,
     meta_data,
     missingness_cutoff=0,
-    imputation_method=c("none", 'SampMin', 'means', 'median')
+    samp_cutoff = list(global = 0, phospho = 0),
+    imputation_method=c("none", 'SampMin', 'means', 'median'), 
+    batch_correct = TRUE
     ){
   
   imputation_method_sel <- match.arg(imputation_method)
@@ -171,16 +173,36 @@ prep_experiment_data <- function(
   
   experiments <- list()
   for(data_type in c('global', 'phospho')){
-    
+      
     experiment <- prep_prot_data(proteomics_data = prot_data[[data_type]],
                                  proteomics_meta = meta_data[[data_type]],
                                  missingness_cutoff = missingness_cutoff,
+                                 samp_cutoff = samp_cutoff[[data_type]],
                                  type = data_type)
     
     if(!(imputation_method_sel == 'none')){
       experiment %<>% 
         log_transform(., assay = "proteomics") %>%
         impute_proteomics(., assay = "proteomics", imputation_method_sel)
+      
+    }
+    
+    if(batch_correct && imputation_method_sel != 'none'){
+      #first we have to remove zero hour beacuse it is confounded by batch
+      #experiment <- experiment[,-which(colData(experiment)$timepoint=='0hr')]
+      prot_matrix <- assay(experiment)
+      batch_var = colData(experiment)$plate
+      cond_var = colData(experiment)$agent
+      mod_matrix <- model.matrix(~ as.factor(agent), data = colData(experiment))
+      corrected_prot <- sva::ComBat(
+             dat = prot_matrix,
+             batch = batch_var,
+             mod = mod_matrix,
+             par.prior = TRUE
+              )
+    assay(experiment) <- corrected_prot  
+
+      
     }
     experiments[[data_type]] <- experiment
   }
@@ -217,12 +239,16 @@ can be extracted.
 missingness_cutoff = 0.0
 imputation_method = "SampMin"
 
+samp_cutoff = list(global = 0, phospho = 0)
+
 experiments <- prep_experiment_data(
   prot_data,
   meta_data,
   missingness_cutoff,
+  samp_cutoff,
   imputation_method
 )
+
 
 ```
 
@@ -267,6 +293,7 @@ experiments <- prep_experiment_data(
   prot_data,
   meta_data,
   missingness_cutoff,
+  samp_cutoff,
   imputation_method
 )
 
@@ -313,12 +340,14 @@ expression analysis.
 
 ```{r data-prep-for-diff-ex, eval=TRUE}
 missingness_cutoff = 0.5
+samp_cutoff= list(global = 0, phospho = 0)
 imputation_method = "SampMin"
 
 experiments <- prep_experiment_data(
   prot_data,
   meta_data,
   missingness_cutoff,
+  samp_cutoff,
   imputation_method
 )
 ```
@@ -376,6 +405,7 @@ agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
 
 df_diff_ex <- tibble()
+all_diffex_stats <- tibble()
 for(prot_type in c('global', 'phospho')) {
   experiment <- experiments[[prot_type]]
     
@@ -393,32 +423,42 @@ for(prot_type in c('global', 'phospho')) {
                           align_by=align_by_group)
       
       if(prot_type == "global"){
-        diff_ex_sub <- subset(as.tibble(rowData(diff_ex)), select = c('Genes', 'logFC', 'adj.P.Val')) %>%
+        de_tab <- as.tibble(rowData(diff_ex)) |>
+          dplyr::select(Feature = 'Genes','logFC','adj.P.Val') 
+        diff_ex_sub <- subset(de_tab, select = c('Feature', 'logFC', 'adj.P.Val')) %>%
           mutate(expression_change = case_when(
-            (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-            (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+            (logFC >= .5 & adj.P.Val < 0.05) ~ 'up',
+            (logFC <= -.5 & adj.P.Val < 0.05) ~ 'down',
             .default = 'not significant',
           )) %>%
           mutate(labels = case_when(
-            expression_change %in% c('up', 'down') ~ Genes,
+            expression_change %in% c('up', 'down') ~ Feature,
             .default = NA
           )) %>%
           mutate(omics_type = "global proteomics")
       }
     
       if(prot_type == "phospho"){
-        diff_ex_sub <- subset(as.tibble(rowData(diff_ex)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>%
+        de_tab <- as.tibble(rowData(diff_ex)) |>
+          dplyr::select(Feature = 'Gene.With.Phospho.Site','logFC','adj.P.Val') 
+        diff_ex_sub <- subset(de_tab, select = c('Feature', 'logFC', 'adj.P.Val')) %>%
           mutate(expression_change = case_when(
-            (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-            (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+            (logFC >= .5 & adj.P.Val < 0.05) ~ 'up',
+            (logFC <= -.5 & adj.P.Val < 0.05) ~ 'down',
             .default = 'not significant',
           )) %>%
           mutate(labels = case_when(
-            expression_change %in% c('up', 'down') ~ Protein.With.Phospho.Site,
+            expression_change %in% c('up', 'down') ~ Feature,
             .default = NA
           )) %>%
           mutate(omics_type = "phospho-proteomics")
       }
+      
+      all_diffex_stats <- de_tab|>
+        mutate(omics_type = prot_type,
+               timepoint = timepoint, 
+               agent = agent) |>
+        rbind(all_diffex_stats)
       
       diff_ex_sub %<>%
         subset(., expression_change %in% c('up', 'down')) %>%
@@ -432,6 +472,7 @@ for(prot_type in c('global', 'phospho')) {
   
     }
   }
+  write.csv(all_diffex_stats,file='allDiffexFeatures.csv')
 }
 
 ```
@@ -444,9 +485,10 @@ plot_title <- paste(
   )
 
 plot_by_agent <- (
-  ggplot(df_diff_ex, aes(x=timepoint, fill=expression_change, y=n))
-  + geom_bar(position="stack", stat="identity") 
-  + scale_fill_manual(values = cpalette)
+  ggplot(df_diff_ex, aes(x=timepoint, y=n))
+  + geom_bar(position="stack", stat="identity", mapping = aes(fill=expression_change)) 
+  + scale_fill_manual(values = cpalette) 
+  + ggrepel::geom_text_repel(aes(label = n))
   + labs(
       title = plot_title,
       x = "time after treatment",
@@ -471,9 +513,10 @@ plot_title <- paste(
   )
 
 plot_by_timepoint <- (
-  ggplot(df_diff_ex, aes(x=agent, fill=expression_change, y=n))
-  + geom_bar(position="stack", stat="identity")
+  ggplot(df_diff_ex, aes(x=agent,y=n))
+  + geom_bar(aes(fill=expression_change), position="stack", stat="identity")
   + scale_fill_manual(values = cpalette)
+  + ggrepel::geom_text_repel(aes(label= n))
   + labs(
       title = plot_title,
       x = "treatment chemical agent",
