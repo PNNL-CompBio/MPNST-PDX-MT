@@ -39,6 +39,8 @@ library(SummarizedExperiment)
 library(ggrepel)
 library(magrittr)
 library(gridExtra)
+library(ggalluvial)
+library(sva)
 ```
 
 ```{r sourcing-cross-notebook-functions, results='hide'}
@@ -539,4 +541,133 @@ ggsave(filename, plot_by_agent, height = 5, width = 10)
 
 filename <- "../output_figures/differential_expression_counts_timepoint_by_omic_type.png"
 ggsave(filename, plot_by_timepoint, height = 5, width = 10)
+```
+
+### Alluvial plots of differentially expressed proteins across timepoints
+
+```{r}
+agents <- unique(meta_data_raw$agent)
+controls <- c("Water", "DMSO")
+agents <- agents[!agents %in% controls & !agents == 'Ola']
+timepoints = c("8hr", "24hr", "48hr")
+
+
+df_diff_ex <- tibble()
+for(prot_type in c('global', 'phospho')) {
+  experiment <- experiments[[prot_type]]
+    
+  for(agent in agents){
+    for(timepoint in timepoints){
+      ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+      group_1 = paste0(timepoint, "_", ctrl)
+      group_2 = paste0(timepoint, "_", agent)
+      plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+      experiment_subset <- experiment[, experiment$plate == plate_sel]
+  
+      align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
+                           no = "Protein.With.Phospho.Site")
+      diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
+                          align_by=align_by_group)
+      
+      if(prot_type == "global"){
+        diff_ex_sub <- subset(as_tibble(rowData(diff_ex)), select = c('Genes', 'logFC', 'adj.P.Val')) %>%
+          dplyr::rename(feature = Genes) %>%
+          mutate(expression_change = case_when(
+            (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+            (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+            .default = 'not significant',
+          )) %>%
+          mutate(labels = case_when(
+            expression_change %in% c('up', 'down') ~ feature,
+            .default = NA
+          )) %>%
+          mutate(omics_type = "global proteomics")
+      }
+    
+      if(prot_type == "phospho"){
+        diff_ex_sub <- subset(as_tibble(rowData(diff_ex)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>%
+          dplyr::rename(feature = Protein.With.Phospho.Site) %>%
+          mutate(expression_change = case_when(
+            (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
+            (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
+            .default = 'not significant',
+          )) %>%
+          mutate(labels = case_when(
+            expression_change %in% c('up', 'down') ~ feature,
+            .default = NA
+          )) %>%
+          mutate(omics_type = "phospho-proteomics")
+      }
+      
+      diff_ex_sub %<>%
+        subset(., expression_change %in% c('up', 'down')) %>%
+        mutate(timepoint = timepoint) %>%
+        mutate(agent = agent) %>%
+        mutate(timepoint = factor(timepoint, levels = c('8hr', '24hr', '48hr'), labels = c('8h', '24h', '48h')))
+      
+      df_diff_ex <- bind_rows(df_diff_ex, diff_ex_sub)
+      
+    }
+  }
+}
+
+```
+
+
+```{r}
+cpalette = c(
+  'up' = '#74add1',
+  'down' = '#f46d43',
+  'not significant' = 'lightgrey'
+  )
+
+for(agent_ in agents){
+  df_diff_ex_subset <- df_diff_ex |>
+    subset(agent == agent_) |>
+    group_by(omics_type) |>
+    complete(
+      feature, timepoint,
+      fill = list(expression_change = "not significant", agent = agent_)
+      ) |>
+    mutate(labels = feature) |>
+    mutate(
+      expression_change = factor(
+        expression_change,
+        levels = c('up', 'down', 'not significant')
+        )
+      )
+
+  plot <- (
+    ggplot(
+      df_diff_ex_subset,
+      aes(
+        x = timepoint,
+        stratum = expression_change,
+        alluvium = feature,
+        fill = expression_change,
+        label = expression_change
+        )
+      )
+    + scale_fill_manual(values = cpalette)
+    + geom_flow(
+        stat = "alluvium",
+        # color = "darkgray",
+        aes.flow = "forward",
+        lode.guidance = "forward",
+        )
+    + geom_stratum()
+    + theme_minimal()
+    + labs(
+      title = paste(agent_),
+      fill = 'expression',
+    )
+    + theme(
+        legend.position = "bottom",
+        )
+    + facet_wrap(~ omics_type, ncol = 2, scales = "free")
+    )
+  print(plot)
+    
+}
+
 ```
