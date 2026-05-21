@@ -363,7 +363,8 @@ agents <- unique(meta_data_raw$agent)
 controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
-
+log_fc = 0.5
+pval = 0.05
 
 for(prot_type in c('global', 'phospho')){
   
@@ -373,7 +374,13 @@ for(prot_type in c('global', 'phospho')){
   
   for(agent in agents){
     for(timepoint in timepoints){
-      plots[[agent]][[timepoint]] <- plot_diff_ex(experiment, agent, timepoint)
+      plots[[agent]][[timepoint]] <- plot_diff_ex(
+        experiment,
+        agent,
+        timepoint,
+        log_fc,
+        pval
+        )
     }
     
     plot_title <- paste('Spheroid', prot_type ,'proteomics:', agent,
@@ -405,6 +412,8 @@ agents <- unique(meta_data_raw$agent)
 controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
+log_fc = 0.5
+pval = 0.05
 
 df_diff_ex <- tibble()
 all_diffex_stats <- tibble()
@@ -427,32 +436,16 @@ for(prot_type in c('global', 'phospho')) {
       if(prot_type == "global"){
         de_tab <- as.tibble(rowData(diff_ex)) |>
           dplyr::select(Feature = 'Genes','logFC','adj.P.Val') 
-        diff_ex_sub <- subset(de_tab, select = c('Feature', 'logFC', 'adj.P.Val')) %>%
-          mutate(expression_change = case_when(
-            (logFC >= .5 & adj.P.Val < 0.05) ~ 'up',
-            (logFC <= -.5 & adj.P.Val < 0.05) ~ 'down',
-            .default = 'not significant',
-          )) %>%
-          mutate(labels = case_when(
-            expression_change %in% c('up', 'down') ~ Feature,
-            .default = NA
-          )) %>%
+        
+        diff_ex_sub <- diff_ex %>%
+          extract_diff_ex_features(., "Genes", log_fc, pval) %>%
           mutate(omics_type = "global proteomics")
-      }
-    
-      if(prot_type == "phospho"){
+      } else if(prot_type == "phospho"){
         de_tab <- as.tibble(rowData(diff_ex)) |>
           dplyr::select(Feature = 'Gene.With.Phospho.Site','logFC','adj.P.Val') 
-        diff_ex_sub <- subset(de_tab, select = c('Feature', 'logFC', 'adj.P.Val')) %>%
-          mutate(expression_change = case_when(
-            (logFC >= .5 & adj.P.Val < 0.05) ~ 'up',
-            (logFC <= -.5 & adj.P.Val < 0.05) ~ 'down',
-            .default = 'not significant',
-          )) %>%
-          mutate(labels = case_when(
-            expression_change %in% c('up', 'down') ~ Feature,
-            .default = NA
-          )) %>%
+        
+        diff_ex_sub <- diff_ex %>%
+          extract_diff_ex_features(., "Gene.With.Phospho.Site", log_fc, pval) %>%
           mutate(omics_type = "phospho-proteomics")
       }
       
@@ -550,6 +543,8 @@ agents <- unique(meta_data_raw$agent)
 controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
+log_fc = 0.5
+pval = 0.05
 
 
 df_diff_ex <- tibble()
@@ -570,32 +565,12 @@ for(prot_type in c('global', 'phospho')) {
                           align_by=align_by_group)
       
       if(prot_type == "global"){
-        diff_ex_sub <- subset(as_tibble(rowData(diff_ex)), select = c('Genes', 'logFC', 'adj.P.Val')) %>%
-          dplyr::rename(feature = Genes) %>%
-          mutate(expression_change = case_when(
-            (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-            (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
-            .default = 'not significant',
-          )) %>%
-          mutate(labels = case_when(
-            expression_change %in% c('up', 'down') ~ feature,
-            .default = NA
-          )) %>%
+        diff_ex_sub <- diff_ex %>%
+          extract_diff_ex_features(., "Genes", log_fc, pval) %>%
           mutate(omics_type = "global proteomics")
-      }
-    
-      if(prot_type == "phospho"){
-        diff_ex_sub <- subset(as_tibble(rowData(diff_ex)), select = c('Protein.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>%
-          dplyr::rename(feature = Protein.With.Phospho.Site) %>%
-          mutate(expression_change = case_when(
-            (logFC >= 1 & adj.P.Val < 0.05) ~ 'up',
-            (logFC <= -1 & adj.P.Val < 0.05) ~ 'down',
-            .default = 'not significant',
-          )) %>%
-          mutate(labels = case_when(
-            expression_change %in% c('up', 'down') ~ feature,
-            .default = NA
-          )) %>%
+      } else if(prot_type == "phospho"){
+        diff_ex_sub <- diff_ex %>%
+          extract_diff_ex_features(., "Gene.With.Phospho.Site", log_fc, pval) %>%
           mutate(omics_type = "phospho-proteomics")
       }
       

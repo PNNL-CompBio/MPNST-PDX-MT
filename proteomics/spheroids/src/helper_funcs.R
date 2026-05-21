@@ -446,7 +446,42 @@ plot_per_plate_na_overview <- function(experiment, type = c('global', 'phospho')
   return(plot)
 }
 
-plot_diff_ex <- function(experiment, agent, timepoint){
+
+extract_diff_ex_features <- function(diff_ex, feature_type, log_fc = 1, pval = 0.05){
+
+  df_ret <- rowData(diff_ex) |> as_tibble()
+
+  if(!feature_type %in% names(df_ret)){
+    stop(paste0(
+      "feature_type '",
+      feature_type,
+      "' not present in rowData of diff_ex",
+      )
+    )
+  }
+
+  df_ret %<>% dplyr::select(
+      feature = feature_type,
+      'logFC',
+      'adj.P.Val'
+    ) %>%
+    mutate(expression_change = case_when(
+      (logFC >= log_fc & adj.P.Val < pval) ~ 'up',
+      (logFC <= -log_fc & adj.P.Val < pval) ~ 'down',
+      .default = 'not significant',
+      )
+    ) %>%
+    mutate(labels = case_when(
+      expression_change %in% c('up', 'down') ~ feature,
+      .default = NA
+      )
+    )
+
+  df_ret
+}
+
+
+plot_diff_ex <- function(experiment, agent, timepoint, log_fc = 1, pval = 0.05){
 
   ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
   group_1 = paste0(timepoint, "_", ctrl)
@@ -459,29 +494,11 @@ plot_diff_ex <- function(experiment, agent, timepoint){
   diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2, align_by=align_by_group)
 
   if(prot_type == "global"){
-    dfPlot <- subset(as.tibble(rowData(diff_ex)), select = c('Genes', 'logFC', 'adj.P.Val')) %>%
-      mutate(expression_change = case_when(
-        (logFC >= .5 & adj.P.Val < 0.05) ~ 'up',
-        (logFC <= -.5 & adj.P.Val < 0.05) ~ 'down',
-        .default = 'not significant',
-      )) %>%
-      mutate(labels = case_when(
-        expression_change %in% c('up', 'down') ~ Genes,
-        .default = NA
-      ))
-  }
-
-  if(prot_type == "phospho"){
-    dfPlot <- subset(as.tibble(rowData(diff_ex)), select = c('Gene.With.Phospho.Site', 'logFC', 'adj.P.Val')) %>%
-      mutate(expression_change = case_when(
-        (logFC >= .5 & adj.P.Val < 0.05) ~ 'up',
-        (logFC <= -.5 & adj.P.Val < 0.05) ~ 'down',
-        .default = 'not significant',
-      )) %>%
-      mutate(labels = case_when(
-        expression_change %in% c('up', 'down') ~ Gene.With.Phospho.Site,
-        .default = NA
-      ))
+    dfPlot <- extract_diff_ex_features(diff_ex, "Genes", log_fc, pval)
+  } else if(prot_type == "phospho"){
+    dfPlot <- extract_diff_ex_features(diff_ex, "Gene.With.Phospho.Site", log_fc, pval)
+  } else {
+    stop(paste0("Invalid prot_type selected: ", prot_type))
   }
 
   # plot_title = paste('Spheroid', prot_type ,'proteomics:', agent, "vs.", ctrl, "at", timepoint)
@@ -501,8 +518,8 @@ plot_diff_ex <- function(experiment, agent, timepoint){
         label = labels
       )
     )
-    + geom_vline(xintercept = c(-1, 1), col = "gray", linetype = 'dashed')
-    + geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed')
+    + geom_vline(xintercept = c(-log_fc, log_fc), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(pval), col = "gray", linetype = 'dashed')
     + geom_point(size = .75)
     + geom_text_repel(max.overlaps = 5, size = 2)
     + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
