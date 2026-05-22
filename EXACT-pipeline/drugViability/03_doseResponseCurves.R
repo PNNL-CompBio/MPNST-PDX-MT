@@ -4,13 +4,14 @@ library(drc) # curve source: answer by greenjune: https://stackoverflow.com/ques
 # Sara shared these 2 links: https://stackoverflow.com/questions/68209998/plot-drc-using-ggplot; https://forum.posit.co/t/extract-out-points-in-dose-response-curve-produced-by-drc/159433
 
 synapser::synLogin()
-setwd("~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability")
-dataPath <- "~/Library/CloudStorage/OneDrive-PNNL/Documents/GitHub/MPNST-PDX-MT/drugViability"
-
+dataPath <- "./"
 #### prep data ####
 rel.conf <- read.csv(synapser::synGet("syn68156852")$path) # relative viability; mpnst_combo_drug_response.csv
-musyc.scores <- read.csv(synapser::synGet("syn68736713")$path) # musyc synergy; was: Deconvolved_musyc_20250812.csv
-#bliss <- read.csv("bliss.csv") # bliss synergy
+musyc.scores <- read.csv(synapser::synGet("syn68736713")$path) |> # musyc synergy; was: Deconvolved_musyc_20250812.csv
+  dplyr::rename(drug1='drug1_name',drug2='drug2_name')|>
+  tidyr::separate(sample, into=c('sample','time'), sep='_')
+musyc.scores$time <- ifelse(musyc.scores$time=='48hours',2,5)
+  #bliss <- read.csv("bliss.csv") # bliss synergy
 bliss <- read.csv(synapser::synGet("syn68900210")$path)
 
 # calculate mean and sd for each drug & dose combo, mpnst, time combo; also preserve sample and chr8q columns
@@ -38,9 +39,12 @@ bliss.tested <- merge(bliss, mean.conf, by=c("sample","time","drug1","drug2","co
 max.bliss.tested <- plyr::ddply(bliss.tested, .(drugCombo, sample, time), summarize,
                          maxBliss = max(Bliss_synergy)) # 111
 write.csv(max.bliss.tested,"maxBlissTested.csv", row.names=FALSE)
+results <- merge(mean.conf, musyc.scores, by=c("sample","time","drug1","drug2"), all.x=TRUE) |>
+  tidyr::unite('drug1','drug2',sep='+',col='drugCombo', remove=FALSE)
+musyc.scores <- musyc.scores|>tidyr::unite('drug1','drug2',sep='+',col='drugCombo', remove=FALSE)
 
 bliss.musyc.tested <- merge(max.bliss.tested, musyc.scores, by=c("drugCombo","sample","time"))
-results <- merge(mean.conf, musyc.scores, by=c("sample","time","drug1","drug2"), all.x=TRUE)
+
 results <- merge(results, max.bliss.tested, by=c("sample","time","drugCombo"), all.x=TRUE)
 write.csv(results,"results_viabilityBlissMusyc.csv", row.names=FALSE)
 synapser::synStore(synapser::File("results_viabilityBlissMusyc.csv", parent="syn68258288"))
@@ -50,45 +54,48 @@ results$timeD <- paste0(results$time,"d")
 results$conc12.ratio <- signif(as.numeric(results$drug1.conc/results$drug2.conc),3)
 results$drugCombo <- paste0(results$drug1,"+",results$drug2)
 rel.conf$drugCombo <- paste0(rel.conf$drug1,"+",rel.conf$drug2)
+#
+ combos <- unique(results$drugCombo) # 21
+# for (c in combos) {
+ c <- "mirdametinib+vorinostat"
+ combo.res <- results[results$drugCombo == c,]
+ d1 <- unique(combo.res$drug1)
+ d2 <- unique(combo.res$drug2)
+ if (nrow(combo.res) > 0) {
+     # generate plots
+     temp.cols2 <- c("blue","black","red")
+     if (length(unique(combo.res$conc12.ratio)) == 4) {temp.cols2 <- c("blue","black","grey","red")}
+     mid.color2 <- "black"
+    nres <- combo.res|>
+      tidyr::pivot_longer(cols=c(conc1,conc2), names_to='cval',values_to='conc') |>
+      dplyr::select(conc,meanGROWTH,conc12.ratio,timeD,sample,sdGROWTH) |> distinct()
+     conf.plot <- ggplot(nres, aes(x=conc, y=meanGROWTH, color=as.factor(conc12.ratio))) +
+       facet_grid(timeD ~ sample) +
+       geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
+       scale_x_continuous(transform="log10") + geom_point() +
+       geom_errorbar(aes(ymin=(meanGROWTH-sdGROWTH), ymax=(meanGROWTH+sdGROWTH))) +
+       ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols2) +
+       theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability",
+                                          color = paste("Ratio of",d1,"\nto",d2)) +
+       theme(plot.title=element_text(hjust=0.5,face="bold"),
+             axis.text.x=element_text(angle=45, hjust=1, vjust=1)) #+
+   #    geom_text(data=combo.res, mapping=aes(x=Inf, y=Inf, fontface="plain",
+  #                                           label=paste0("Log|",as.character("\u03b1|=("),
+  #                                                        signif(log_alpha12,2),",",signif(log_alpha21,2),
+  #                                                        "),\nMax Bliss=",
+  #                                                        signif(maxBliss,2))),
+  #                                       hjust=1, vjust=1, show.legend=FALSE,
+  #                                       colour=mid.color2)
+    # ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.svg"),conf.plot,width=12,height=9, device="svg") # was height 4
+  #   ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.png"),conf.plot,width=12,height=9, device="png") # was height 4
+    # ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.svg"),conf.plot,width=12,height=4, device="svg") # was height 4
+   #  ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.png"),conf.plot,width=12,height=4, device="png") # was height 4
+     #ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.svg"),conf.plot,width=10,height=4, device="svg") # was height 4
+    # ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.png"),conf.plot,width=10,height=4, device="png") # was height 4
+     #gsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.svg"),conf.plot,width=5,height=4, device="svg") # was height 4
+    # ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.png"),conf.plot,width=5,height=4, device="png") # was height 4
+   }
 
-combos <- unique(results$drugCombo) # 21
-for (c in combos) {
-  combo.res <- results[results$drugCombo == c,]
-  d1 <- unique(combo.res$drug1)
-  d2 <- unique(combo.res$drug2)
-  if (nrow(combo.res) > 0) {
-    # generate plots
-    temp.cols2 <- c("blue","black","red")
-    if (length(unique(combo.res$conc12.ratio)) == 4) {temp.cols2 <- c("blue","black","grey","red")}
-    mid.color2 <- "black"
-    
-    conf.plot <- ggplot(combo.res, aes(x=conc, y=100*meanGROWTH, color=as.factor(conc12.ratio))) +
-      facet_grid(timeD ~ sample) +
-      geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
-      scale_x_continuous(transform="log10") + geom_point() + 
-      geom_errorbar(aes(ymin=100*(meanGROWTH-sdGROWTH), ymax=100*(meanGROWTH+sdGROWTH))) +
-      ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols2) +
-      theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability",
-                                         color = paste("Ratio of",d1,"\nto",d2)) +
-      theme(plot.title=element_text(hjust=0.5,face="bold"), 
-            axis.text.x=element_text(angle=45, hjust=1, vjust=1)) + 
-      geom_text(data=combo.res, mapping=aes(x=Inf, y=Inf, fontface="plain",
-                                            label=paste0("Log|",as.character("\u03b1|=("),
-                                                         signif(log_alpha12,2),",",signif(log_alpha21,2),
-                                                         "),\nMax Bliss=",
-                                                         signif(maxBliss,2))),
-                                        hjust=1, vjust=1, show.legend=FALSE, 
-                                        colour=mid.color2)
-    ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.svg"),conf.plot,width=12,height=9, device="svg") # was height 4
-    ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain.png"),conf.plot,width=12,height=9, device="png") # was height 4
-    ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.svg"),conf.plot,width=12,height=4, device="svg") # was height 4
-    ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w12.png"),conf.plot,width=12,height=4, device="png") # was height 4
-    ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.svg"),conf.plot,width=10,height=4, device="svg") # was height 4
-    ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w10.png"),conf.plot,width=10,height=4, device="png") # was height 4
-    ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.svg"),conf.plot,width=5,height=4, device="svg") # was height 4
-    ggsave(paste0(d2,"_",d1,"_viability_log10_ratios_MuSyCmaxBlissTested_p_blueBlackRed_noR2plain_h4w5.png"),conf.plot,width=5,height=4, device="png") # was height 4
-  }
-}
 
 #### single agent curves ####
 sing.conf <- read.table(synapser::synGet("syn65986622")$path, sep="\t", header=TRUE) # mpnst_drug_response.tsv
@@ -102,26 +109,26 @@ mean.sing$timeD <- paste0(mean.sing$time/24,"d")
 conf.plot <- ggplot(mean.sing, aes(x=DOSE, y=meanGROWTH, color=improve_sample_id)) +
   facet_grid(timeD ~ Drug) +
   geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
-  scale_x_continuous(transform="log10") + geom_point() + 
+  scale_x_continuous(transform="log10") + geom_point() +
   geom_errorbar(aes(ymin=(meanGROWTH-sdGROWTH), ymax=(meanGROWTH+sdGROWTH))) +
   #ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols2) +
   theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability", color="MPNST") +
   theme(plot.title=element_text(hjust=0.5,face="bold"), axis.text.x=element_text(angle=45, hjust=1, vjust=1))
 conf.plot # something is off- looks like MN2 isn't relative viability, same for some MN4
-ggsave("relativeViability_singleAgents.pdf", conf.plot, width=18, height=3)
+#ggsave("relativeViability_singleAgents.pdf", conf.plot, width=18, height=3)
 
 top.sing <- mean.sing[mean.sing$Drug %in% c("vorinostat","mirdametinib","RMC4630"),]
 top.sing$Drug <- factor(top.sing$Drug, levels=c("vorinostat","mirdametinib","RMC4630"))
-conf.plot <- ggplot(top.sing, 
+conf.plot <- ggplot(top.sing,
                     aes(x=DOSE, y=meanGROWTH, color=improve_sample_id)) +
   facet_grid(Drug ~ timeD) +
   geom_smooth(linetype="dashed", se=FALSE, method=drc::drm, method.args=list(fct=L.4(), se=FALSE)) +
-  scale_x_continuous(transform="log10") + geom_point() + 
+  scale_x_continuous(transform="log10") + geom_point() +
   geom_errorbar(aes(ymin=(meanGROWTH-sdGROWTH), ymax=(meanGROWTH+sdGROWTH))) +
   #ggtitle(paste0(d1," + ",d2))+scale_color_manual(values=temp.cols2) +
   theme_classic(base_size=12) + labs(x="Concentration (uM)", y = "% Viability", color="MPNST") +
   theme(plot.title=element_text(hjust=0.5,face="bold"), axis.text.x=element_text(angle=45, hjust=1, vjust=1))
 conf.plot # something is off- looks like MN2 isn't relative viability, same for some MN4
-ggsave("relativeViability_top3Drugs.pdf", conf.plot, width=6, height=6)
-ggsave("relativeViability_top3Drugs_w4h4.pdf", conf.plot, width=4, height=4)
-ggsave("relativeViability_top3Drugs_w5h5.pdf", conf.plot, width=5, height=5)
+#ggsave("relativeViability_top3Drugs.pdf", conf.plot, width=6, height=6)
+#ggsave("relativeViability_top3Drugs_w4h4.pdf", conf.plot, width=4, height=4)
+#ggsave("relativeViability_top3Drugs_w5h5.pdf", conf.plot, width=5, height=5)

@@ -23,7 +23,7 @@ diffexp <- diffexp[diffexp$Drug != "Irinotecan",] # since irinotecan isn't metab
 # get gene sets: Hallmark (H)
 gmt.Hallmark <- as.data.frame(msigdbr::msigdbr(collection = "H"))
 gmt.Hallmark <- DMEA::as_gmt(gmt.Hallmark, element.names="gene_symbol", set.names="gs_name") # 196 gene sets
-saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
+#saveRDS(gmt.Hallmark,"gmt_Hallmark.rds")
 
 synapse_id <- "syn65916546"
 timepoints <- na.omit(unique(diffexp$Timepoint))
@@ -65,7 +65,7 @@ gsea.df <- data.table::rbindlist(gsea, use.names=TRUE, idcol="Time")
 write.csv(gsea.df,"GSEA_results_Hallmark.csv", row.names = FALSE)
 synapser::synStore(synapser::File("GSEA_results_Hallmark.csv", parent=synapse_id))
 
-
+setwd(base.path)
 #######now run individual results
 
 # RNA-seq data with HGNC symbols
@@ -78,7 +78,7 @@ diffexp <- diffexp[diffexp$Drug != "Irinotecan",] # since irinotecan isn't metab
 # GSEA NES > 0: pathways up-regulated in treated vs. untreated samples
 synapse_id <- "syn69910857"
 timepoints <- na.omit(unique(diffexp$Timepoint))
-base.path <- getwd()
+
 gsea.path <- file.path(base.path, "GSEA_Hallmark_individual")
 dir.create("GSEA_Hallmark_individual")
 mpnst<-unique(diffexp$individualID) ##ADDed by SG
@@ -123,4 +123,4 @@ setwd(gsea.path)
 gsea.df <- data.table::rbindlist(gsea, use.names=TRUE, idcol="Time")
 write.csv(gsea.df,"GSEA_results_Hallmark.csv", row.names = FALSE)
 synapser::synStore(synapser::File("GSEA_results_Hallmark.csv", parent=synapse_id))
-
+setwd(base.path)

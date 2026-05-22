@@ -236,7 +236,8 @@ ggsave('singleDrugAUC.pdf',width = 20)
 #   ggplot(aes(x  =  as.factor(time),y  =  dose_response_value,fill  =  improve_drug_id))+
 #  geom_bar(stat  =  'identity',position  =  'dodge') + facet_grid(improve_sample_id~.)
 
-combo_scores <- readr::read_csv(synGet('syn68258295')$path)
+combo_scores <- readr::read_csv(synGet('syn68736713')$path)|>
+  tidyr::separate(sample, into=c('sample','time'), sep='_')
 
 ##combinations have different effects on different samples
 ggplot(combo_scores,aes(x = as.factor(time),y  =  log_alpha12,
@@ -246,13 +247,13 @@ ggplot(combo_scores,aes(x = as.factor(time),y  =  log_alpha12,
 
 p1 <- ggplot(combo_scores,aes(x = time,
                         y = log_alpha12,fill = sample)) + 
-  facet_grid(drug1~drug2)+
+  facet_grid(drug1_name~drug2_name)+
   geom_bar(stat = 'identity',position = 'dodge') +
    scale_fill_manual(values = pcols)
 
 p2 <- ggplot(combo_scores,aes(x = time,
                         y = log_alpha21,fill = sample)) +
-  facet_grid(drug1~drug2) +
+  facet_grid(drug1_name~drug2_name) +
   geom_bar(stat = 'identity',position = 'dodge') +
    scale_fill_manual(values = pcols)
 
@@ -283,7 +284,7 @@ ggplot(combo_scores,
            colour = beta,shape = sample,size = 4)) +
   geom_point() +
   scale_color_viridis_c() +
-  facet_grid(drug1~drug2) + 
+  facet_grid(drug1_name~drug2_name) + 
   theme_bw()
 
 ggsave('musyc_scores.pdf',width = 12)

@@ -1,14 +1,13 @@
-# RNASeq EXACT analysis
+# EXACT pathway analysis
 
 We use the RNA-sequencing data to identify drugs that target similar pathways. Given the 
 dependencies across the analyses we recommend running them in order. 
 
 
-
 ## Differential expression
 
 For each drug and sample, we calculate the difference between treated and 
-DMSO samples. 
+DMSO samples. These values are then stored on Synapse. The scripts 
 
 ### Assemble batches
 
