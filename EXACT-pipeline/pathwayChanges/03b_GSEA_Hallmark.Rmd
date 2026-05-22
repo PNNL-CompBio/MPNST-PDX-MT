@@ -66,23 +66,28 @@ for (i in all.pathways) {
   }
 }
 
+drugOrder = tolower(names(drug.class))
+
 # generate plot
 npathways.overall$pathway <- factor(npathways.overall$pathway, levels=sort(na.omit(unique(npathways.overall$pathway))))
+
 npathway.plot.overall <- ggplot2::ggplot(npathways.overall, aes(x=Time, y=N)) + geom_violin(alpha=0) +
   geom_point(aes(color=DrugTreatment, shape=pathway)) +
-  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=all.drugs, values=drugCol) +
+  geom_boxplot(width=0.2, alpha = 0) + scale_color_manual(limits=drugOrder, values=drugCol) +
   labs(x="Time (Hours)", y="# of Enriched Pathways",
        color = "Drug Treatment", shape = "Mechanism") +
   scale_shape_manual(values=1:length(all.pathways), breaks=all.pathways) + theme_classic(base_size=12) +
-  theme(legend.box="horizontal")
+    theme(legend.box="horizontal",axis.text.x=element_text(angle=45, hjust=1, vjust=1,
+                                 color=classCol[drugOrder]))
 
 npathways.overall$DrugTreatment <- tolower(npathways.overall$DrugTreatment)
 npathways.overall$Pathways <- npathways.overall$N
-low.drugs = tolower(all.drugs)
+low.drugs = drugOrder[drugOrder%in%tolower(all.drugs)]
 
 ggplot(npathways.overall,aes(x= DrugTreatment, y = Pathways, fill=Time))+
   geom_bar(position='dodge',stat='identity') +
   theme_classic()+
+   scale_x_discrete(limits=low.drugs)+
   theme(axis.title=element_blank(), 
         axis.text.x=element_text(angle=45, vjust=1, hjust=1,color=classCol[low.drugs])) +
    labs(y='# of Differentially expressed pathways') 

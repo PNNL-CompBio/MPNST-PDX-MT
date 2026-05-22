@@ -254,12 +254,41 @@ ggplot(upreg_paths,aes(x=reorder(pathname,ingroup_mean),y=ingroup_mean,fill=drug
 
 #ggsave('fig_6c_drugClassCorrelation.pdf',width=12,height=8)
 ```
-We haven't tested a lot of drugs in these classes, so to validate we should look for evidence of 
-pathways that indicate successful treatment with MEK inhibition. 
 
-Here we can see the pathway activity of those pathways that are correaled with MEKi.
+## Figure Plots
 
-First we want to see what MEKis are anti-correlated
+### Fig 6b: MPNST Up-reg
+
+First we can plot the CCLE correlation of pathways up-regulated in MPNST. 
+
+```{r mpnst upreg}
+
+# Add more colors to this palette :
+
+mekis <- upreg_paths[upreg_paths$drugClass=='MEK inhibitor',]
+coul <- colorRampPalette(bs3)(length(unique(mekis$pathname)))
+
+sig_paths$Pathway <- gsub('HALLMARK_','',sig_paths$Feature_set)
+
+names(coul)<- unique(mekis$pathname)
+
+subset(sig_paths,Feature_set%in%mekis$pathway) |>
+  ggplot(aes(fill=Pathway, y = NES,x = DrugTreatment)) + 
+  #scale_fill_manual(values=drugCol) + 
+  geom_bar(stat='identity', position='dodge') + 
+  xlab('Drug') + ylab("Expression change in MPNST") + coord_flip() +
+  ggtitle("MEKi correlated pathways") +
+  facet_grid(~Time)+
+  scale_fill_manual(values=coul)
+
+ggsave('fig6b_mekiCorPathsInMPNST.pdf')
+
+
+```
+
+### Fig 6A: pathways associated with MEKi
+More broadly we can check to see what pathways are anticorrelated with MEKi
+
 ```{r plot meki drug paths}
 
 
@@ -268,7 +297,7 @@ md <- subset(merged_res, moa=='MEK inhibitor')|>
   subset(qval<0.05)
 
 md$Pathway = gsub('HALLMARK_','',md$gene)
-coul <- colorRampPalette(bs3)(length(unique(md$gene)))
+#coul <- colorRampPalette(bs3)(length(unique(md$gene)))
 
 ggplot(md,aes(x=reorder(drug, corval), y = corval, fill = Pathway)) +
   geom_bar(position='dodge',stat='identity')+
@@ -283,23 +312,6 @@ ggsave('fig6a_meki_pathcor.pdf')
 ```{r validation perhaps}
 
 
-# Add more colors to this palette :
-
-mekis <- upreg_paths[upreg_paths$drugClass=='MEK inhibitor',]
-coul <- colorRampPalette(bs3)(length(unique(mekis$pathname)))
-
-sig_paths$Pathway <- gsub('HALLMARK_','',sig_paths$Feature_set)
-
-subset(sig_paths,Feature_set%in%mekis$pathway) |>
-  ggplot(aes(fill=Pathway, y = NES,x = DrugTreatment)) + 
-  #scale_fill_manual(values=drugCol) + 
-  geom_bar(stat='identity', position='dodge') + 
-  xlab('Drug') + ylab("Expression change in MPNST") + coord_flip() +
-  ggtitle("MEKi correlated pathways") +
-  facet_grid(~Time)+
-  scale_fill_manual(values=coul)
-
-ggsave('fig6b_mekiCorPathsInMPNST.pdf')
 
 #tikis <- upreg_paths[upreg_paths$drugClass=='topoisomerase inhibitor',]
 
@@ -336,6 +348,7 @@ plot_pathway_drug_class('HALLMARK_KRAS_SIGNALING_DN','EGFR inhibitor')
 plot_pathway_correlation("HALLMARK_KRAS_SIGNALING_DN",'EGFR inhibitor','kras_only_egfr')
 ```
 
+### Fig 6c: MOA class scores by drug
 We can focus on pathways that are-regulated at both time point AND anti-correlated with
 
 ```{r}
