@@ -48,7 +48,7 @@ source('../src/helper_funcs.R')
 ```
 
 
-## Data collectiohn and preparation
+## Data collection and preparation
 We first will collect the global and phospho-proteomics abundance data as well
 as the metadata from synapse. The data files are located at:
 https://www.synapse.org/Synapse:syn70987742
@@ -159,7 +159,7 @@ prep_experiment_data <- function(
     missingness_cutoff=0,
     samp_cutoff = list(global = 0, phospho = 0),
     imputation_method=c("none", 'SampMin', 'means', 'median'), 
-    batch_correct = TRUE
+    batch_correct = FALSE
     ){
   
   imputation_method_sel <- match.arg(imputation_method)
@@ -180,7 +180,8 @@ prep_experiment_data <- function(
                                  proteomics_meta = meta_data[[data_type]],
                                  missingness_cutoff = missingness_cutoff,
                                  samp_cutoff = samp_cutoff[[data_type]],
-                                 type = data_type)
+                                 type = data_type, 
+                                 imputation_method=imputation_method_sel)
     
     if(!(imputation_method_sel == 'none')){
       experiment %<>% 
@@ -200,9 +201,9 @@ prep_experiment_data <- function(
              dat = prot_matrix,
              batch = batch_var,
              mod = mod_matrix,
-             par.prior = TRUE
+             par.prior = FALSE
               )
-    assay(experiment) <- corrected_prot  
+    assay(experiment,withDimnames = FALSE) <- corrected_prot  
 
       
     }
@@ -238,7 +239,7 @@ can be extracted.
 
 ```{r prep-data-for-PCA, eval=TRUE}
 
-missingness_cutoff = 0.0
+missingness_cutoff = 0
 imputation_method = "SampMin"
 
 samp_cutoff = list(global = 0, phospho = 0)
@@ -335,15 +336,15 @@ some functions sourced from `helper_funcs.R`, specifically:
 The result is one plot per agent, showing the differential expression for each
 of the timepoints.
 
-First we regenerate the `SummarizedExepirment` objects for the global and 
+[SARA SKIPPED THIS] First we regenerate the `SummarizedExepirment` objects for the global and 
 phospho-proteomics data, since we want to perform some missingness removal and
 need to impute the missing data, such that `limma` can perform the differential
 expression analysis.
 
-```{r data-prep-for-diff-ex, eval=TRUE}
+```{r data-prep-for-diff-ex, eval=FALSE}
 missingness_cutoff = 0.5
-samp_cutoff= list(global = 0, phospho = 0)
-imputation_method = "SampMin"
+samp_cutoff= list(global = .9, phospho = .3)
+imputation_method = "means"
 
 experiments <- prep_experiment_data(
   prot_data,
@@ -363,8 +364,11 @@ agents <- unique(meta_data_raw$agent)
 controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
-log_fc = 0.5
-pval = 0.05
+log_fc = .5
+pval = 0.1
+missingness_cutoff = 0
+samp_cutoff = list(global = 0, phospho = 0)
+imputation_method = 'SampMin'
 
 for(prot_type in c('global', 'phospho')){
   
@@ -374,8 +378,13 @@ for(prot_type in c('global', 'phospho')){
   
   for(agent in agents){
     for(timepoint in timepoints){
+         experiment_subset <- exp_subset(experiment, agent, timepoint) |>
+            filter_for_feature_missingness(missingness_cutoff) |>
+            filter_for_sample_cutoff(samp_cutoff[[prot_type]]) |> ##do we want to do this first? 
+            impute_proteomics(imputation_method = imputation_method) |>
+            log_transform()
       plots[[agent]][[timepoint]] <- plot_diff_ex(
-        experiment,
+        experiment_subset,
         agent,
         timepoint,
         log_fc,
@@ -413,7 +422,7 @@ controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
 log_fc = 0.5
-pval = 0.05
+pval = 0.1
 
 df_diff_ex <- tibble()
 all_diffex_stats <- tibble()
@@ -426,7 +435,11 @@ for(prot_type in c('global', 'phospho')) {
       group_1 = paste0(timepoint, "_", ctrl)
       group_2 = paste0(timepoint, "_", agent)
       plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
-      experiment_subset <- experiment[, experiment$plate == plate_sel]
+      experiment_subset <- exp_subset(experiment, agent, timepoint) |>#)experiment[, experiment$plate == plate_sel]|>
+                       filter_for_sample_cutoff(samp_cutoff[[prot_type]]) |>
+            filter_for_feature_missingness(missingness_cutoff) |>
+            impute_proteomics(imputation_method = imputation_method) |>
+            log_transform()
   
       align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
                            no = "Protein.With.Phospho.Site")
@@ -544,7 +557,7 @@ controls <- c("Water", "DMSO")
 agents <- agents[!agents %in% controls & !agents == 'Ola']
 timepoints = c("8hr", "24hr", "48hr")
 log_fc = 0.5
-pval = 0.05
+pval = 0.1
 
 
 df_diff_ex <- tibble()
@@ -557,7 +570,11 @@ for(prot_type in c('global', 'phospho')) {
       group_1 = paste0(timepoint, "_", ctrl)
       group_2 = paste0(timepoint, "_", agent)
       plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
-      experiment_subset <- experiment[, experiment$plate == plate_sel]
+      experiment_subset <- exp_subset(experiment, agent, timepoint) |>
+            filter_for_feature_missingness(missingness_cutoff) |>
+            filter_for_sample_cutoff(samp_cutoff[[prot_type]]) |> ##do we want to do this first? 
+            impute_proteomics(imputation_method = imputation_method) |>
+            log_transform()
   
       align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
                            no = "Protein.With.Phospho.Site")

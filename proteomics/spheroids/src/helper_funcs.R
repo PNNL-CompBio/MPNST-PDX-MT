@@ -72,9 +72,8 @@ impute_proteomics <- function(experiment,
 calc_diff_ex <- function(experiment,
                          group_1,
                          group_2,
-                         assay = "proteomics",
+                         assay_name = "proteomics",
                          align_by = "Protein.Group"){
-
 
   # making sure that the 'align_by' group is present in the SummarizedExperiment
   if(!align_by %in% colnames(rowData(experiment))){
@@ -105,7 +104,7 @@ calc_diff_ex <- function(experiment,
   # next we extract the assay of interest from the `SummarizedExperiment`
   # object and create the differential expression result table. Note that we
   # switch the order of groups here for `limma`
-  dat <- SummarizedExperiment::assays(experiment)[[assay]]
+  dat <- SummarizedExperiment::assays(experiment)[[assay_name]]
 
   result_table <- dat[, c(samples_2, samples_1)] %>%
     limma::lmFit(., design) %>%
@@ -131,17 +130,60 @@ calc_diff_ex <- function(experiment,
   return(experiment)
 }
 
+filter_for_feature_missingness <- function(experiment,
+                                           missingness_cutoff = 0.5){
+
+  pdat <- assay(experiment)
+
+  # TODO: add check to make sure missgness_cutoff is [0, 1]
+  pdat %<>%
+    .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,]
+
+  rdat <- rowData(experiment)[rownames(pdat),]
+
+  experiment <- SummarizedExperiment(
+    assays = list(proteomics = pdat),
+    rowData = rdat,
+    colData = colData(experiment)
+  )
+  return(experiment)
+}
+
+
+filter_for_sample_cutoff <- function(experiment,
+                                     samp_cutoff=0.1){
+
+  pdat <- assay(experiment)
+
+  #What if we add a sample cutoff?
+  pdat %<>%
+    .[,colSums(!is.na(.))/nrow(.) >= samp_cutoff]# %>%
+  #rownames_to_column(., var = "Protein.Group")
+
+  rdat <- colData(experiment)[colnames(pdat),]
+
+  experiment <- SummarizedExperiment(
+    assays = list(proteomics = pdat),
+    rowData = rowData(experiment),
+    colData = rdat
+  )
+
+  return(experiment)
+}
+
+
 prep_prot_data <- function(proteomics_data, proteomics_meta,
                            type = c('global', 'phospho'),
                            missingness_cutoff = 0.5,
                            samp_cutoff = 0.9,
-                           sample_col_prefix = "cNF"){
+                           sample_col_prefix = "cNF",
+                           imputation_method = 'none'){
 
   # checking that either global or phospho is selected for type
   # match.arg() will throw an error otherwise and execution will stop
   sel_type <- match.arg(type)
 
-  # cleaning up the metadata by
+   # cleaning up the metadata by
   #
   proteomics_meta_clean <- proteomics_meta %>%
     separate_wider_regex(
@@ -149,7 +191,7 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
       col = "condition",
       c("group" = ".*", "_", "replicate" = ".*"),
       cols_remove = FALSE
-    ) %>%
+    )  %>%
     separate_wider_delim(
       .,
       col = "group",
@@ -160,20 +202,12 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
     ) |>
     tibble::column_to_rownames('sample') # adding rownames for SummarizedExperiment
 
-  if(sel_type == 'global'){
+  if (sel_type == 'global') {
     proteomics_data_clean <- proteomics_data %>%
       column_to_rownames(., var = "Protein.Group") %>%
-      select(., contains(sample_col_prefix))
+      select(., contains(sample_col_prefix)) |>
+      rownames_to_column("Protein.Group")
 
-    #What if we add a sample cutoff?
-    proteomics_data_clean %<>%
-      .[,colSums(!is.na(.))/nrow(.) >= samp_cutoff]# %>%
-      #rownames_to_column(., var = "Protein.Group")
-
-    # TODO: add check to make sure missgness_cutoff is [0, 1]
-    proteomics_data_clean %<>%
-      .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
-      rownames_to_column(., var = "Protein.Group")
 
     proteomicsMapping <- proteomics_data[0:4] %>%
       separate_wider_delim(
@@ -181,7 +215,7 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
         col = "Genes",
         names = c("Genes", NA),
         delim = ";",
-        cols_remove=TRUE,
+        cols_remove = TRUE,
         too_few = "align_start",
         too_many = "drop"
       ) %>%
@@ -194,16 +228,17 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
       unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
       unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
       column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
-      within(., rm("Protein.Names", "Gene.Names", "Sequence"))
+      within(., rm("Protein.Names", "Gene.Names", "Sequence")) |>
+      rownames_to_column('Protein.With.Phospho.Site')
 
-    ##add in missingness here
-    proteomics_data_clean %<>%
-      .[,colSums(!is.na(.))/nrow(.) >= samp_cutoff]#
-
-    # TODO: add check to make sure missgness_cutoff is [0, 1]
-    proteomics_data_clean %<>%
-      .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
-      rownames_to_column(., var = "Protein.With.Phospho.Site")
+    # ##add in missingness here
+    # proteomics_data_clean %<>%
+    #   .[,colSums(!is.na(.))/nrow(.) >= samp_cutoff]#
+    #
+    # # TODO: add check to make sure missgness_cutoff is [0, 1]
+    # proteomics_data_clean %<>%
+    #   .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
+    #   rownames_to_column(., var = "Protein.With.Phospho.Site")
 
     proteomicsMapping <- proteomics_data[0:5] %>%
       separate_wider_delim(
@@ -239,6 +274,8 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
     colData = proteomics_meta_clean[colnames(proteomics_data_clean),]
   )
 
+  experiment <- filter_for_sample_cutoff(experiment, samp_cutoff)
+  experiment <- filter_for_feature_missingness(experiment, missingness_cutoff)
   return(experiment)
 
 }
@@ -480,18 +517,42 @@ extract_diff_ex_features <- function(diff_ex, feature_type, log_fc = 1, pval = 0
   df_ret
 }
 
-
-plot_diff_ex <- function(experiment, agent, timepoint, log_fc = 1, pval = 0.05){
+exp_subset <- function(experiment,
+                       agent,
+                       timepoint){
 
   ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
   group_1 = paste0(timepoint, "_", ctrl)
   group_2 = paste0(timepoint, "_", agent)
-
   plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
   experiment_subset <- experiment[, experiment$plate == plate_sel]
+  #experiment_subset <- experiment[, experiment$timepoint == timepoint]
+  experiment_subset <- experiment_subset[, experiment_subset$agent %in% c(agent, ctrl)]
 
-  align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group", no = "Protein.With.Phospho.Site")
-  diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2, align_by=align_by_group)
+  ##make sure that there are no additional features that we are adding back
+  all_nas <- which(apply(assay(experiment_subset),1, function(x) all(is.na(x))))
+  #print(paste('Found',length(all_nas),'rows that are all na'))
+  experiment_subset <- experiment_subset[-all_nas,]
+  return(experiment_subset)
+
+
+}
+
+plot_diff_ex <- function(experiment, agent, timepoint,
+                         log_fc = 1, pval = 0.05){
+
+   align_by_group <- ifelse(test = (prot_type == 'global'),
+                            yes = "Protein.Group",
+                            no = "Protein.With.Phospho.Site")
+
+
+
+   ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+   group_1 = paste0(timepoint, "_", ctrl)
+   group_2 = paste0(timepoint, "_", agent)
+
+  diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
+                          align_by=align_by_group)
 
   if(prot_type == "global"){
     dfPlot <- extract_diff_ex_features(diff_ex, "Genes", log_fc, pval)
@@ -542,4 +603,18 @@ plot_diff_ex_grid <- function(plots, plot_title=NULL){
   plot_annotated <- ggpubr::annotate_figure(plot_grid, top = ggpubr::text_grob(plot_title, size = 14))
 
   plot_annotated
+}
+
+
+plot_feature_across_samples <- function(experiment,
+                                        feature,
+                                        agent,
+                                        timepoint,
+                                        ftype = 'Gene.With.Phospho.Site'){
+
+    fexp <- experiment[rowData(experiment)[,ftype]%in%feature,]
+    tp <- which(colData(fexp)$timepoint==timepoint)
+    cols <- which(colData(fexp)$agent==c(agent,ifelse(agent=='Trab','Water','DMSO')))
+    fexp <- fexp[,intersect(tp,cols)]
+
 }
