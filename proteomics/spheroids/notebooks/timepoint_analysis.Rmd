@@ -183,10 +183,15 @@ prep_experiment_data <- function(
                                  type = data_type, 
                                  imputation_method=imputation_method_sel)
     
+    if(imputation_method_sel == "none"){
+      experiment %<>%
+        log_transform(., assay = "proteomics")
+    }
+    
     if(!(imputation_method_sel == 'none')){
       experiment %<>% 
-        log_transform(., assay = "proteomics") %>%
-        impute_proteomics(., assay = "proteomics", imputation_method_sel)
+        impute_proteomics(., assay = "proteomics", imputation_method_sel) %>%
+        log_transform(., assay = "proteomics")
       
     }
     
@@ -249,7 +254,8 @@ experiments <- prep_experiment_data(
   meta_data,
   missingness_cutoff,
   samp_cutoff,
-  imputation_method
+  imputation_method,
+  # batch_correct = TRUE
 )
 
 
@@ -319,6 +325,8 @@ for(prot_type in c('global', 'phospho')){
          )
 }
 ```
+
+
 
 
 ## Differential expression analysis
@@ -660,6 +668,180 @@ for(agent_ in agents){
     )
   print(plot)
     
+}
+
+```
+### Pathway enrichment
+
+```{r load-geneset, results='hide'}
+# data("msigdb")
+data("ncipid")
+data("krbpaths")
+```
+
+#### Data prep
+Below we (re-)generate the differential expression objects for all combinations of `protein_type`, `agent` and `timepoint`.
+The resulting "diffex" objects - really just `SummarizedExeperimet` objects with added information about differential expression - are stored into a named list (with 3 levels) for easier access.
+```{r leapR-pathway-enrichment, message=FALSE}
+
+agents <- unique(meta_data_raw$agent)
+controls <- c("Water", "DMSO")
+agents <- agents[!agents %in% controls & !agents == 'Ola']
+timepoints = c("8hr", "24hr", "48hr")
+
+
+all_diff_ex <- list()
+for(prot_type in c('global', 'phospho')) {
+  experiment <- experiments[[prot_type]]
+    
+  for(agent in agents){
+    for(timepoint in timepoints){
+      ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+      group_1 = paste0(timepoint, "_", ctrl)
+      group_2 = paste0(timepoint, "_", agent)
+      plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+      experiment_subset <- exp_subset(experiment, agent, timepoint) |>#)experiment[, experiment$plate == plate_sel]|>
+                       filter_for_sample_cutoff(samp_cutoff[[prot_type]]) |>
+            filter_for_feature_missingness(missingness_cutoff) |>
+            impute_proteomics(imputation_method = imputation_method) |>
+            log_transform()
+  
+      align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
+                           no = "Protein.With.Phospho.Site")
+      diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
+                          align_by=align_by_group)
+      
+      all_diff_ex[[prot_type]][[agent]][[timepoint]] <- diff_ex
+    }
+  }
+}
+```
+
+### Pathway enrichments
+
+#### Global
+
+First we are using the KEGG pathway information to detect enriched KEGG pathways in our datasets.
+
+```{r}
+pval <- 0.1
+prot_type <- "global"
+
+for(agent in agents){
+  for(timepoint in timepoints){
+    tryCatch({
+      enriched_pathways <- leapR(
+      geneset = krbpaths,
+      eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = "Genes",
+      primary_column = "adj.P.Val",
+      threshold = pval,
+      greaterthan = FALSE
+      )
+    plot <- plot_leapr_bar(
+      enriched_pathways,
+      paste(agent, 'at', timepoint)
+    )
+    print(plot)
+    }, error = function(msg){
+      message(
+        paste0(
+          "pval of '", pval,
+          "' did not result in differentially expressed proteins for agent '", agent,
+          "' at timepoint '", timepoint, "'"
+        )
+      )
+      return(NA)
+      }
+    )
+  }
+}
+
+```
+
+Then we repeat the same thing for the pathways in the NCI pathway interaction database:
+
+```{r}
+pval <- 0.1
+prot_type <- "global"
+
+for(agent in agents){
+  for(timepoint in timepoints){
+    tryCatch({
+      enriched_pathways <- leapR(
+      geneset = ncipid,
+      eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = "Genes",
+      primary_column = "adj.P.Val",
+      threshold = pval,
+      greaterthan = FALSE
+      )
+    plot <- plot_leapr_bar(
+      enriched_pathways,
+      paste(agent, 'at', timepoint)
+    )
+    print(plot)
+    }, error = function(msg){
+      message(
+        paste0(
+          "pval of '", pval,
+          "' did not result in differentially expressed proteins for agent '", agent,
+          "' at timepoint '", timepoint, "'"
+        )
+      )
+      return(NA)
+      }
+    )
+  }
+}
+
+```
+
+#### Phospho
+
+```{r load-leapR-gmt}
+data("kinasesubstrates")
+```
+
+```{r}
+pval <- 0.1
+prot_type <- "phospho"
+id_column <- "Gene.With.Phospho.Site"
+
+for(agent in agents){
+  for(timepoint in timepoints){
+    tryCatch({
+      enriched_pathways <- leapR(
+      geneset = kinasesubstrates,
+      eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "adj.P.Val",
+      threshold = pval,
+      greaterthan = FALSE
+      )
+    plot <- plot_leapr_bar(
+      enriched_pathways,
+      paste(agent, 'at', timepoint)
+    )
+    print(plot)
+    }, error = function(msg){
+      message(
+        paste0(
+          "pval of '", pval,
+          "' did not result in differentially expressed proteins for agent '", agent,
+          "' at timepoint '", timepoint, "'"
+        )
+      )
+      return(NA)
+      }
+    )
+  }
 }
 
 ```
