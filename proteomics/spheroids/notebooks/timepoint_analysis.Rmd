@@ -726,16 +726,20 @@ First we are using the KEGG pathway information to detect enriched KEGG pathways
 ```{r}
 pval <- 0.1
 prot_type <- "global"
+id_column <- "Genes"
+geneset <- krbpaths
 
 for(agent in agents){
   for(timepoint in timepoints){
+    # doing a try catch because not for all diffEx sets we have results for the
+    # defined pval threshold
     tryCatch({
       enriched_pathways <- leapR(
-      geneset = krbpaths,
+      geneset = geneset,
       eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
       enrichment_method = "enrichment_in_sets",
       assay_name = 'proteomics',
-      id_column = "Genes",
+      id_column = id_column,
       primary_column = "adj.P.Val",
       threshold = pval,
       greaterthan = FALSE
@@ -766,16 +770,20 @@ Then we repeat the same thing for the pathways in the NCI pathway interaction da
 ```{r}
 pval <- 0.1
 prot_type <- "global"
+id_column <- "Genes"
+geneset <- ncipid
 
 for(agent in agents){
   for(timepoint in timepoints){
     tryCatch({
+      # doing a try catch because not for all diffEx sets we have results for the
+      # defined pval threshold
       enriched_pathways <- leapR(
-      geneset = ncipid,
+      geneset = geneset,
       eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
       enrichment_method = "enrichment_in_sets",
       assay_name = 'proteomics',
-      id_column = "Genes",
+      id_column = id_column,
       primary_column = "adj.P.Val",
       threshold = pval,
       greaterthan = FALSE
@@ -811,12 +819,15 @@ data("kinasesubstrates")
 pval <- 0.1
 prot_type <- "phospho"
 id_column <- "Gene.With.Phospho.Site"
+geneset <- kinasesubstrates
 
 for(agent in agents){
   for(timepoint in timepoints){
     tryCatch({
+      # doing a try catch because not for all diffEx sets we have results for the
+      # defined pval threshold
       enriched_pathways <- leapR(
-      geneset = kinasesubstrates,
+      geneset = geneset,
       eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
       enrichment_method = "enrichment_in_sets",
       assay_name = 'proteomics',
