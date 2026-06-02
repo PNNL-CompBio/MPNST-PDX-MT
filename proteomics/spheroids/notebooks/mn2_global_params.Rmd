@@ -1,5 +1,5 @@
 ---
-title: "timepoint_analysis"
+title: "Global Timepoint Comparison"
 author:
 - name: Yannick Mahlich
   affiliation: Pacific Northwest National Laboratory
@@ -7,13 +7,13 @@ author:
   affiliation: Pacific Northwest National Laboratory
 date: "`r Sys.Date()`"
 output:
+  html_document:
+    toc: true
+    df_print: paged
  # pdf_document:
 #    toc: false
   html_notebook:
     toc: true
-  html_document:
-    toc: true
-    df_print: paged
 ---
 
 ## Library & Data import
@@ -815,7 +815,7 @@ for(agent in agents){
 data("kinasesubstrates")
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
 pval <- 0.1
 prot_type <- "phospho"
 id_column <- "Gene.With.Phospho.Site"
@@ -832,8 +832,8 @@ for(agent in agents){
       enrichment_method = "enrichment_in_sets",
       assay_name = 'proteomics',
       id_column = id_column,
-      primary_column = "adj.P.Val",
-      threshold = pval,
+      primary_column = "logFC",#,
+      threshold = -1,
       greaterthan = FALSE
       )
     plot <- plot_leapr_bar(
