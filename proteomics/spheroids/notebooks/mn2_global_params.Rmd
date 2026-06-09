@@ -65,13 +65,7 @@ global_dat <- readr::read_tsv(
   na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
   )
 
-# getting phospho-proteomics abundance data
-synapseFileID = "syn74589783"
-fileEntity <- synapser::synGet(synapseFileID)
-phospho_dat <- readr::read_tsv(
-  fileEntity$path,
-  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
-  )
+
 
 # metadata ingest
 synapseFileID <- "syn74755705"
@@ -94,17 +88,8 @@ names(global_dat) <- names(global_dat) %>%
   gsub("_16Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
   gsub("^[0-9]*_", "", .)
 
-# cleaning up the column names for the phospho-proteomics data
-names(phospho_dat) <- names(phospho_dat) %>% 
-  gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\PhosphoRawData\\\\", "", .) %>% 
-  gsub("_20Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
-  gsub("^[0-9]*_", "", .)
 
 
-prot_data <- list(
-  "global" = global_dat,
-  "phospho" = phospho_dat
-)
 
 ```
 
@@ -148,465 +133,80 @@ meta_data <- list(
 )
 ```
 
-As final perpartion we define a few bespoke helper functions that are only
-applicable to this dataset:
-
-```{r bespoke-helper-functions}
-
-prep_experiment_data <- function(
-    prot_data,
-    meta_data,
-    missingness_cutoff=0,
-    samp_cutoff = list(global = 0, phospho = 0),
-    imputation_method=c("none", 'SampMin', 'means', 'median'), 
-    batch_correct = FALSE
-    ){
-  
-  imputation_method_sel <- match.arg(imputation_method)
-  
-  if(!is.na(missingness_cutoff) & !(missingness_cutoff >=0 | missingness_cutoff <= 1)){
-    stop(
-      base::paste(
-        "missingness_cutoff needs to be '0 <= missingness_cutoff <=1'",
-        "or 'NULL'. Supplied value:", missingness_cutoff),
-      call. = FALSE
-    )
-  }
-  
-  experiments <- list()
-  for(data_type in c('global', 'phospho')){
-      
-    experiment <- prep_prot_data(proteomics_data = prot_data[[data_type]],
-                                 proteomics_meta = meta_data[[data_type]],
-                                 missingness_cutoff = missingness_cutoff,
-                                 samp_cutoff = samp_cutoff[[data_type]],
-                                 type = data_type, 
-                                 imputation_method=imputation_method_sel)
-    
-    if(imputation_method_sel == "none"){
-      experiment %<>%
-        log_transform(., assay = "proteomics")
-    }
-    
-    if(!(imputation_method_sel == 'none')){
-      experiment %<>% 
-        impute_proteomics(., assay = "proteomics", imputation_method_sel) %>%
-        log_transform(., assay = "proteomics")
-      
-    }
-    
-    if(batch_correct && imputation_method_sel != 'none'){
-      #first we have to remove zero hour beacuse it is confounded by batch
-      #experiment <- experiment[,-which(colData(experiment)$timepoint=='0hr')]
-      prot_matrix <- assay(experiment)
-      batch_var = colData(experiment)$plate
-      cond_var = colData(experiment)$agent
-      mod_matrix <- model.matrix(~ as.factor(agent), data = colData(experiment))
-      corrected_prot <- sva::ComBat(
-             dat = prot_matrix,
-             batch = batch_var,
-             mod = mod_matrix,
-             par.prior = FALSE
-              )
-    assay(experiment,withDimnames = FALSE) <- corrected_prot  
-
-      
-    }
-    experiments[[data_type]] <- experiment
-  }
-  
-  experiments
-}
 
 
-```
 
 
-## Data quality control
+## Differential expression analysis parameter sweep
 
-As a first step we are doing some quality control & assessment for the global
-and phospho-proteomics data.
-To that end we are generating PCA plots for each of the plates that have been
-prepared and run through the Mass-spectrometry pipeline.
-Each plate contains 60 wells, each containing spheroids treated with a chemical
-agent where four wells each were pooled into one sample.
 
-In general each plate contains:
+First we want to evaluate the missingness options to see how they alter the
+differential expression and pathways. 
 
-- 4 chemical agents (3 samples each)
-- 1 control (DMSO - 3 samples each)
-- at one timepoint.
-
-We generate `SummarizedExperiment` objects for the global & phospho-proteomics
-data with *NO* missingness cut-off for feature removal and *Sample Minimum*
-*imputation*. The imputation step is necessary such that principal components
-can be extracted.
-
-```{r prep-data-for-PCA, eval=TRUE}
-
+```{r diff-ex-parameter-sweep, eval=FALSE}
 missingness_cutoff = 0
-imputation_method = "SampMin"
+samp_cutoff= 0
+imputation_method = "none"
 
-samp_cutoff = list(global = 0, phospho = 0)
+agents <- unique(meta_data_raw$agent)
+controls <- c("Water", "DMSO")
+agents <- agents[!agents %in% controls & !agents == 'Ola']
+timepoints = c("8hr", "24hr", "48hr")
 
-experiments <- prep_experiment_data(
-  prot_data,
-  meta_data,
-  missingness_cutoff,
-  samp_cutoff,
-  imputation_method,
-  # batch_correct = TRUE
-)
+prot_type = 'global'
 
+logfc = 0.5
+pval = 0.05
 
-```
-
-Next we generate PCA plots
-
-```{r gen-per-plate-pca-plots, eval=TRUE}
-plots <- list()
-
-for(prot_type in c('global', 'phospho')){
-  for(plate in 1:9){
-    experiment <- experiments[[prot_type]]
-    plot <- plot_pca_by_plate(experiment,
-                              plate,
-                              prot_type,
-                              missingness = missingness_cutoff,
-                              imputation = imputation_method
-                              )
-    plots[[prot_type]][[plate]] <- plot
-    print(plot)
-  }
-}
-```
-
-And save them if desired (set `eval=TRUE`)
-```{r save-per-plate-pca-plots, eval=FALSE}
-for(prot_type in c('global', 'phospho')){
-  for(plate in 1:9){
-    fname <- paste0("../output_figures/pca_", prot_type,
-                    "_by_plate_", plate, ".png")
-    ggsave(fname, plot = plots[[prot_type]][[plate]], height = 5, width = 6)
-  }
-}
-```
-
-### Outlier investigation
-
-```{r outlier-investigation}
-missingness_cutoff = 0
-imputation_method = 'none'
-
-experiments <- prep_experiment_data(
-  prot_data,
-  meta_data,
+experiment <- prep_experiment_data(
+  global_dat,
+  data_type = 'global',
+   meta_data_global,
   missingness_cutoff,
   samp_cutoff,
   imputation_method
-)
+  )
 
+##one table for diffex diffex stats, one for enrichment
+all_diff_ex <- tibble()
 
-plots <- list()
-for(prot_type in c('global', 'phospho')){
-  experiment <- experiments[[prot_type]]
-  plots[[prot_type]] <- plot_per_plate_na_overview(experiment, prot_type)
-  print(plots[[prot_type]])
-}
-```
-
-```{r save-outlier-plots, eval=FALSE}
-for(prot_type in c('global', 'phospho')){
-  fname <- paste0("../output_figures/outlier_by_plate_", prot_type, ".png")
-  ggsave(fname,
-         plot = plots[[prot_type]],
-         height = 5,
-         width = 5,
-         )
-}
-```
-
-
-
-
-## Differential expression analysis
-
-Next we perform a differential expression analysis. To this end we will utilize
-some functions sourced from `helper_funcs.R`, specifically:
-
-- `plot_diff_ex` which internally calls a number of functions and calculates the
-  differential expression based on limma. The function then returns a plot which
-  we save into a named list where plots are accessible by agent and timepoint.
-- `plot_diff_ex_grid` which internally uses `ggarrange` from the `ggpubr`
-  package to generate plot grids, combining the previously generated volcano
-  plots of the differential expression for the three timepoints per agent.
-
-The result is one plot per agent, showing the differential expression for each
-of the timepoints.
-
-[SARA SKIPPED THIS] First we regenerate the `SummarizedExepirment` objects for the global and 
-phospho-proteomics data, since we want to perform some missingness removal and
-need to impute the missing data, such that `limma` can perform the differential
-expression analysis.
-
-```{r data-prep-for-diff-ex, eval=FALSE}
-missingness_cutoff = 0.5
-samp_cutoff= list(global = .9, phospho = .3)
-imputation_method = "means"
-
-experiments <- prep_experiment_data(
-  prot_data,
-  meta_data,
-  missingness_cutoff,
-  samp_cutoff,
-  imputation_method
-)
-```
-
-Next we generate all the volcano plots for the differentially expressed proteins
-and phosphosites.
-
-```{r differential-expression-volcano-plots, warning=FALSE}
-
-agents <- unique(meta_data_raw$agent)
-controls <- c("Water", "DMSO")
-agents <- agents[!agents %in% controls & !agents == 'Ola']
-timepoints = c("8hr", "24hr", "48hr")
-log_fc = .5
-pval = 0.1
-missingness_cutoff = 0
-samp_cutoff = list(global = 0, phospho = 0)
-imputation_method = 'SampMin'
-
-for(prot_type in c('global', 'phospho')){
+for (mc in c(0,0.1,0.25,0.5)){ ##fraction of features that are present
+  for(sc in c(0.1, 0.25, 0.5)){ #fraction of samples that have a measuremetn
+    for( im in c('SampMin','means')){
+      for(agent in agents){
+        for(timepoint in timepoints){
+          ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+          group_1 = paste0(timepoint, "_", ctrl)
+          group_2 = paste0(timepoint, "_", agent)
+          plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+          experiment_subset <- exp_subset(experiment, agent, timepoint) |>#)experiment[, experiment$plate == plate_sel]|>
+          filter_for_sample_cutoff(sc) |>
+          filter_for_feature_missingness(mc) |>
+          impute_proteomics(imputation_method = im)
   
-  experiment = experiments[[prot_type]]
-  plots <- list()
-  plots_agents <- list()
-  
-  for(agent in agents){
-    for(timepoint in timepoints){
-         experiment_subset <- exp_subset(experiment, agent, timepoint) |>
-            filter_for_feature_missingness(missingness_cutoff) |>
-            filter_for_sample_cutoff(samp_cutoff[[prot_type]]) |> ##do we want to do this first? 
-            impute_proteomics(imputation_method = imputation_method) |>
-            log_transform()
-      plots[[agent]][[timepoint]] <- plot_diff_ex(
-        experiment_subset,
-        agent,
-        timepoint,
-        log_fc,
-        pval
-        )
-    }
-    
-    plot_title <- paste('Spheroid', prot_type ,'proteomics:', agent,
-                        "vs. Control")
-    plots_agents[[agent]] <- plot_diff_ex_grid(plots[[agent]], plot_title)
-    print(plots_agents[[agent]])
-  }
-  
-} 
-```
-
-Finally we save the plots (if desired - change to `eval=TRUE`)
-```{r save-diff-ex-volcano-plots, eval=FALSE}
-for(prot_type in c('global', 'phospho')){
-  for(agent in agents){
-    filename <- paste0("../output_figures/differential_expression_", prot_type,
-                       "_", agent, ".png")
-    ggsave(filename, plots_agents[[agent]], height = 5, width = 15)
-  }
-}
-```
-
-
-### Barplots of differentially expressed proteins
-
-```{r data-prep-for-diff-ex-comparison}
-
-agents <- unique(meta_data_raw$agent)
-controls <- c("Water", "DMSO")
-agents <- agents[!agents %in% controls & !agents == 'Ola']
-timepoints = c("8hr", "24hr", "48hr")
-log_fc = 0.5
-pval = 0.1
-
-df_diff_ex <- tibble()
-all_diffex_stats <- tibble()
-for(prot_type in c('global', 'phospho')) {
-  experiment <- experiments[[prot_type]]
-    
-  for(agent in agents){
-    for(timepoint in timepoints){
-      ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
-      group_1 = paste0(timepoint, "_", ctrl)
-      group_2 = paste0(timepoint, "_", agent)
-      plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
-      experiment_subset <- exp_subset(experiment, agent, timepoint) |>#)experiment[, experiment$plate == plate_sel]|>
-                       filter_for_sample_cutoff(samp_cutoff[[prot_type]]) |>
-            filter_for_feature_missingness(missingness_cutoff) |>
-            impute_proteomics(imputation_method = imputation_method) |>
-            log_transform()
-  
-      align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
-                           no = "Protein.With.Phospho.Site")
-      diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
-                          align_by=align_by_group)
-      
-      if(prot_type == "global"){
-        de_tab <- as.tibble(rowData(diff_ex)) |>
-          dplyr::select(Feature = 'Genes','logFC','adj.P.Val') 
-        
-        diff_ex_sub <- diff_ex %>%
-          extract_diff_ex_features(., "Genes", log_fc, pval) %>%
-          mutate(omics_type = "global proteomics")
-      } else if(prot_type == "phospho"){
-        de_tab <- as.tibble(rowData(diff_ex)) |>
-          dplyr::select(Feature = 'Gene.With.Phospho.Site','logFC','adj.P.Val') 
-        
-        diff_ex_sub <- diff_ex %>%
-          extract_diff_ex_features(., "Gene.With.Phospho.Site", log_fc, pval) %>%
-          mutate(omics_type = "phospho-proteomics")
+          align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
+                       no = "Protein.With.Phospho.Site")
+          diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
+                        align_by=align_by_group) 
+          ##getting stats
+          sig_diff <- as.tibble(rowData(diff_ex))|>
+           # dplyr::select(Feature = 'Gene','logFC','adj.P.Val') |>
+            subset(abs(logFC) > logfc) |>
+            subset(adj.P.Val < pval) 
+          n_up = subset(sig_diff, logFC > 0) |>nrow()
+          n_down = subset(sig_diff, logFC < 0) |>nrow()
+          
+          stat_list <- tibble(exp = list(diff_ex), #yes i'm embedding an object in a table for leapR i hate it
+                            agent = agent, 
+                            timepoint = timepoint, 
+                            missing = mc, 
+                            sample = sc, 
+                            imputation = im,
+                            up_features = n_up,
+                            down_features = n_down)
+         all_diff_ex <- rbind(all_diff_ex, stat_list)
+        }
       }
-      
-      all_diffex_stats <- de_tab|>
-        mutate(omics_type = prot_type,
-               timepoint = timepoint, 
-               agent = agent) |>
-        rbind(all_diffex_stats)
-      
-      diff_ex_sub %<>%
-        subset(., expression_change %in% c('up', 'down')) %>%
-        mutate(timepoint = timepoint) %>%
-        mutate(agent = agent) %>%
-        dplyr::count(expression_change, timepoint, agent, omics_type) %>%
-        mutate(n = if_else(expression_change == "down", n * -1, n)) %>%
-        mutate(timepoint = factor(timepoint, levels = c('8hr', '24hr', '48hr'), labels = c('8h', '24h', '48h')))
-      
-      df_diff_ex <- bind_rows(df_diff_ex, diff_ex_sub)
-  
-    }
-  }
-  write.csv(all_diffex_stats,file='allDiffexFeatures.csv')
-}
-
-```
-
-```{r plot-diffex-counts-agent-by-omics-type}
-cpalette = c('up' = '#74add1', 'down' = '#f46d43')
-plot_title <- paste(
-  "Differentially expressed proteins/phospho-sites in MN2",
-  "after treatment vs. control"
-  )
-
-plot_by_agent <- (
-  ggplot(df_diff_ex, aes(x=timepoint, y=n))
-  + geom_bar(position="stack", stat="identity", mapping = aes(fill=expression_change)) 
-  + scale_fill_manual(values = cpalette) 
-  + ggrepel::geom_text_repel(aes(label = n))
-  + labs(
-      title = plot_title,
-      x = "time after treatment",
-      y = "# of up/down regulated features",
-      fill = 'expression'
-    )
-  + theme_minimal()
-  + theme(
-      legend.position = "bottom",
-      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
-    )
-  + facet_grid(omics_type ~ agent)
-)
-print(plot_by_agent)
-```
-
-```{r plot-diffex-counts-timepoint-by-omics-type}
-cpalette = c('up' = '#74add1', 'down' = '#f46d43')
-plot_title <- paste(
-  "Differentially expressed proteins/phospho-sites in MN2",
-  "after treatment vs. control"
-  )
-
-plot_by_timepoint <- (
-  ggplot(df_diff_ex, aes(x=agent,y=n))
-  + geom_bar(aes(fill=expression_change), position="stack", stat="identity")
-  + scale_fill_manual(values = cpalette)
-  + ggrepel::geom_text_repel(aes(label= n))
-  + labs(
-      title = plot_title,
-      x = "treatment chemical agent",
-      y = "# of up/down regulated features",
-      fill = 'expression'
-    )
-  + theme_minimal()
-  + theme(
-      legend.position = "bottom",
-      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
-    )
-  + facet_grid(omics_type ~ timepoint)
-)
-print(plot_by_timepoint)
-```
-
-```{r save-diffex-counts-comp, eval=FALSE}
-filename <- "../output_figures/differential_expression_counts_agent_by_omic_type.png"
-ggsave(filename, plot_by_agent, height = 5, width = 10)
-
-filename <- "../output_figures/differential_expression_counts_timepoint_by_omic_type.png"
-ggsave(filename, plot_by_timepoint, height = 5, width = 10)
-```
-
-### Alluvial plots of differentially expressed proteins across timepoints
-
-```{r}
-agents <- unique(meta_data_raw$agent)
-controls <- c("Water", "DMSO")
-agents <- agents[!agents %in% controls & !agents == 'Ola']
-timepoints = c("8hr", "24hr", "48hr")
-log_fc = 0.5
-pval = 0.1
-
-
-df_diff_ex <- tibble()
-for(prot_type in c('global', 'phospho')) {
-  experiment <- experiments[[prot_type]]
-    
-  for(agent in agents){
-    for(timepoint in timepoints){
-      ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
-      group_1 = paste0(timepoint, "_", ctrl)
-      group_2 = paste0(timepoint, "_", agent)
-      plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
-      experiment_subset <- exp_subset(experiment, agent, timepoint) |>
-            filter_for_feature_missingness(missingness_cutoff) |>
-            filter_for_sample_cutoff(samp_cutoff[[prot_type]]) |> ##do we want to do this first? 
-            impute_proteomics(imputation_method = imputation_method) |>
-            log_transform()
-  
-      align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
-                           no = "Protein.With.Phospho.Site")
-      diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
-                          align_by=align_by_group)
-      
-      if(prot_type == "global"){
-        diff_ex_sub <- diff_ex %>%
-          extract_diff_ex_features(., "Genes", log_fc, pval) %>%
-          mutate(omics_type = "global proteomics")
-      } else if(prot_type == "phospho"){
-        diff_ex_sub <- diff_ex %>%
-          extract_diff_ex_features(., "Gene.With.Phospho.Site", log_fc, pval) %>%
-          mutate(omics_type = "phospho-proteomics")
-      }
-      
-      diff_ex_sub %<>%
-        subset(., expression_change %in% c('up', 'down')) %>%
-        mutate(timepoint = timepoint) %>%
-        mutate(agent = agent) %>%
-        mutate(timepoint = factor(timepoint, levels = c('8hr', '24hr', '48hr'), labels = c('8h', '24h', '48h')))
-      
-      df_diff_ex <- bind_rows(df_diff_ex, diff_ex_sub)
-      
     }
   }
 }
@@ -614,245 +214,258 @@ for(prot_type in c('global', 'phospho')) {
 ```
 
 
-```{r}
-cpalette = c(
-  'up' = '#74add1',
-  'down' = '#f46d43',
-  'not significant' = 'lightgrey'
-  )
+Now we can go ahead and plot the results
 
-for(agent_ in agents){
-  df_diff_ex_subset <- df_diff_ex |>
-    subset(agent == agent_) |>
-    group_by(omics_type) |>
-    complete(
-      feature, timepoint,
-      fill = list(expression_change = "not significant", agent = agent_)
-      ) |>
-    mutate(labels = feature) |>
-    mutate(
-      expression_change = factor(
-        expression_change,
-        levels = c('up', 'down', 'not significant')
-        )
-      )
 
-  plot <- (
-    ggplot(
-      df_diff_ex_subset,
-      aes(
-        x = timepoint,
-        stratum = expression_change,
-        alluvium = feature,
-        fill = expression_change,
-        label = expression_change
-        )
-      )
-    + scale_fill_manual(values = cpalette)
-    + geom_flow(
-        stat = "alluvium",
-        # color = "darkgray",
-        aes.flow = "forward",
-        lode.guidance = "forward",
-        )
-    + geom_stratum()
-    + theme_minimal()
-    + labs(
-      title = paste(agent_),
-      fill = 'expression',
-    )
-    + theme(
-        legend.position = "bottom",
-        )
-    + facet_wrap(~ omics_type, ncol = 2, scales = "free")
-    )
-  print(plot)
-    
-}
+### Plot across parameters
+
+First we get the diffex stats and plot
+```{r diffex stats}
+
+
+all_diff_ex |> 
+  subset(imputation=='means') |>
+  mutate(df = -1 * down_features) |>
+  tidyr::pivot_longer(c(up_features, df), names_to='dir', values_to='features') |>
+  ggplot(aes(x=timepoint, y=features, fill=agent, shape = imputation)) + 
+  geom_bar(stat='identity') +
+  facet_grid(missing~sample) + 
+    ggtitle("Means imputation")
+  
+  all_diff_ex |> 
+  subset(imputation=='SampMin') |>
+  mutate(df = -1 * down_features) |>
+  tidyr::pivot_longer(c(up_features, df), names_to='dir', values_to='features') |>
+  ggplot(aes(x=timepoint, y=features, fill=agent, shape = imputation)) + 
+  geom_bar(stat='identity') +
+  facet_grid(missing~sample) + 
+    ggtitle("sample minimum imputation")
 
 ```
-### Pathway enrichment
+
+Now we can refine our search based on what we see.
+
+
+
+### Pathway enrichment across parameters
+Now we can see how many pathways are enriched across parameters.
+
+I first create three helper functions to evaluate differences in substrate 
+distribution, up-regulation, and down-regulation. 
 
 ```{r load-geneset, results='hide'}
-# data("msigdb")
 data("ncipid")
-data("krbpaths")
+
+ppval <- 0.05
+
+hoc <- msigdbr::msigdbr(collection = "H")
+#gs <- leapR::read_gene_sets()
+##create function to call leapR
+get_leapr_order <- function(exp,
+                          geneset=ncipid,
+                          id_column="Genes"){
+  res <- data.frame()
+  try(
+    res <- leapR(
+      geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_order",
+      assay_name = 'proteomics',
+      id_column = id_column,
+     # method = 'ztest',
+      primary_column = "logFC") |>
+      tibble::rownames_to_column('feature')
+      )
+  return(res)
+}
+
+
+get_leapr_sig <- function(exp,
+                          geneset = ncipid,
+                          id_column ='Genes'){
+    res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "adj.P.Val",
+        threshold = 0.05,
+      greaterthan = FALSE) |>
+      tibble::rownames_to_column('feature')
+  )
+  return(res)
+}
+get_leapr_sets_down <- function(exp,
+                          geneset=ncipid,
+                          id_column="Genes"){
+  res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "logFC",
+        threshold = -1,
+      greaterthan = FALSE) |>
+      tibble::rownames_to_column('feature')
+  )
+  return(res)
+}
+
+get_leapr_sets_up <- function(exp,
+                          geneset=ncipid,
+                          id_column="Genes"){
+  res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "logFC",
+        threshold = 1,
+      greaterthan = TRUE)  |>
+      tibble::rownames_to_column('feature')
+      )
+  return(res)
+}
+
+get_sig_feats <- function(res, ppval = 0.1){
+    subset(res,BH_pvalue < ppval) |>
+    nrow()
+}
+
 ```
 
-#### Data prep
-Below we (re-)generate the differential expression objects for all combinations of `protein_type`, `agent` and `timepoint`.
-The resulting "diffex" objects - really just `SummarizedExeperimet` objects with added information about differential expression - are stored into a named list (with 3 levels) for easier access.
-```{r leapR-pathway-enrichment, message=FALSE}
+Now we cycle through the parameters again and calculate the differentially
+enriched kinases. 
 
-agents <- unique(meta_data_raw$agent)
-controls <- c("Water", "DMSO")
-agents <- agents[!agents %in% controls & !agents == 'Ola']
-timepoints = c("8hr", "24hr", "48hr")
+## Global pathway enrichment
+
+Here we look at how many kinases are enriched using three approaches:
+1. Enrichment in order/ks test
+2. how many pathways have increased activity
+3. how many pathways have decreased activity
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE, error=FALSE}
+
+prot_type <- "global"
+id_column <- "Genes"
 
 
-all_diff_ex <- list()
-for(prot_type in c('global', 'phospho')) {
-  experiment <- experiments[[prot_type]]
-    
-  for(agent in agents){
-    for(timepoint in timepoints){
-      ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
-      group_1 = paste0(timepoint, "_", ctrl)
-      group_2 = paste0(timepoint, "_", agent)
-      plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
-      experiment_subset <- exp_subset(experiment, agent, timepoint) |>#)experiment[, experiment$plate == plate_sel]|>
-                       filter_for_sample_cutoff(samp_cutoff[[prot_type]]) |>
-            filter_for_feature_missingness(missingness_cutoff) |>
-            impute_proteomics(imputation_method = imputation_method) |>
-            log_transform()
+##let's run all the enrichment
+dp <- all_diff_ex |>
+#  subset(missing != 0.75) |>
+  subset(imputation == 'SampMin') |>
+  rowwise() |>
+  mutate(pathEnrichOrder = list(get_leapr_order(exp))) |>
+  rowwise() |>
+  mutate(pathEnrichPval = list(get_leapr_sig(exp)))
+
+##then get all the counts we need
+
+dp <- dp |>
+  rowwise() |>
+  mutate(numpathsOrder = get_sig_feats(pathEnrichOrder)) |>
+  rowwise() |>
+  mutate(pathEnrichPval = get_sig_feats(pathEnrichPval))
+
+
+```
+
+
+Now we have calculated the number of kinases and can plot across various parameters
+
+```{r plot path enrichment}
+
+dp |>
+  ggplot(aes(x=timepoint, y = numpathsOrder, fill = agent))+
+  geom_bar(stat='identity',position = 'dodge')+
+  facet_grid(sample~missing) +
+  ggtitle('Enriched pathways in order')
+
+
+dp |>
+  ggplot(aes(x=timepoint, y = pathEnrichPval, fill = agent))+
+  geom_bar(stat='identity',position = 'dodge')+
+  facet_grid(sample~missing) +
+  ggtitle('Enriched pathways significant')
+
+```
+
+## Known global targets
+
+For some genes there is a clear response
+
+
+```{r knwon mirda targs}
+
+down_genes <- c("DUSP4", "DUSP6", "SPRY2", "SPRY4", "ETV4", "ETV5", "CCND1", "CDK5R1", "DDX21", "NGFR", "BCL3", "STK17B")
+
+  plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=down_genes,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype =  'Genes',
+                                  fmapping = 'Genes') +
+   ggtitle('Mirda targs')
   
-      align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
-                           no = "Protein.With.Phospho.Site")
-      diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
-                          align_by=align_by_group)
-      
-      all_diff_ex[[prot_type]][[agent]][[timepoint]] <- diff_ex
-    }
-  }
-}
 ```
+Next we can plot hte pathways at each time point. It seems that no filtering is needed for these datsets.
 
-### Pathway enrichments
 
-#### Global
+```{r plot enriched pathways, warning=FALSE}
 
-First we are using the KEGG pathway information to detect enriched KEGG pathways in our datasets.
-
-```{r}
-pval <- 0.1
-prot_type <- "global"
-id_column <- "Genes"
-geneset <- krbpaths
-
-for(agent in agents){
-  for(timepoint in timepoints){
-    # doing a try catch because not for all diffEx sets we have results for the
-    # defined pval threshold
-    tryCatch({
-      enriched_pathways <- leapR(
-      geneset = geneset,
-      eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
-      enrichment_method = "enrichment_in_sets",
-      assay_name = 'proteomics',
-      id_column = id_column,
-      primary_column = "adj.P.Val",
-      threshold = pval,
-      greaterthan = FALSE
-      )
-    plot <- plot_leapr_bar(
-      enriched_pathways,
-      paste(agent, 'at', timepoint)
-    )
-    print(plot)
-    }, error = function(msg){
-      message(
-        paste0(
-          "pval of '", pval,
-          "' did not result in differentially expressed proteins for agent '", agent,
-          "' at timepoint '", timepoint, "'"
-        )
-      )
-      return(NA)
-      }
-    )
+ rp <- subset(dp, missing == 0.5) |>
+   subset(imputation == 'SampMin') |>
+   subset(sample == 0.5)
+  
+full_tab <- do.call(rbind, lapply(unique(rp$agent), function(ag) {
+  ap <- subset(rp, agent == ag)
+  
+  tab <- format_enrich_result(
+    ap$pathEnrichOrder,  #list of enrichment results
+    ap$timepoint, #list of timepoints
+    ag,
+    pval_thresh = 0.1)
+  
+  if(nrow(tab) > 0) {
+  p <- plot_enrich_result(
+   tab,
+     ap$exp, #list of differential expression results
+   ap$pathEnrichOrder,
+    agent = ag,
+    fmapping = 'Genes')
+  print(p)
   }
-}
+  return(tab)
+}))
 
-```
+##ploting params
+tps <- full_tab|>
+  group_by(feature) |>
+  summarize(meanz = mean(zscore)) |>
+  arrange(rev(meanz))
+  
+forder <- unique(tps$feature)
+torder <- c('8hr','24hr','48hr')
+full_tab$timepoint <- factor(full_tab$timepoint, levels = torder)
 
-Then we repeat the same thing for the pathways in the NCI pathway interaction database:
+maxz = max(abs(full_tab$zscore))
+ggplot(full_tab, aes(y = feature, x = agent, color = zscore, size = -log10(pval))) +
+   geom_point() +
+   ggplot2::scale_y_discrete(limits = forder) +
+  # ggplot2::scale_x_discrete(limits = torder) +
+   scale_color_gradient2(low="#2266bb",high="#cc3311", mid="lightgrey",
+                         limits=c(-maxz, maxz)) +
+   theme_minimal(base_size=12)+
+  facet_grid(~timepoint)+
+   geom_point(data = subset(full_tab, sig), col = "black", stroke = 1, shape = 21) 
 
-```{r}
-pval <- 0.1
-prot_type <- "global"
-id_column <- "Genes"
-geneset <- ncipid
+ggsave('allPathEnrichment.pdf',width=22,height=14)
 
-for(agent in agents){
-  for(timepoint in timepoints){
-    tryCatch({
-      # doing a try catch because not for all diffEx sets we have results for the
-      # defined pval threshold
-      enriched_pathways <- leapR(
-      geneset = geneset,
-      eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
-      enrichment_method = "enrichment_in_sets",
-      assay_name = 'proteomics',
-      id_column = id_column,
-      primary_column = "adj.P.Val",
-      threshold = pval,
-      greaterthan = FALSE
-      )
-    plot <- plot_leapr_bar(
-      enriched_pathways,
-      paste(agent, 'at', timepoint)
-    )
-    print(plot)
-    }, error = function(msg){
-      message(
-        paste0(
-          "pval of '", pval,
-          "' did not result in differentially expressed proteins for agent '", agent,
-          "' at timepoint '", timepoint, "'"
-        )
-      )
-      return(NA)
-      }
-    )
-  }
-}
-
-```
-
-#### Phospho
-
-```{r load-leapR-gmt}
-data("kinasesubstrates")
-```
-
-```{r, warning=FALSE, echo=FALSE, message=FALSE}
-pval <- 0.1
-prot_type <- "phospho"
-id_column <- "Gene.With.Phospho.Site"
-geneset <- kinasesubstrates
-
-for(agent in agents){
-  for(timepoint in timepoints){
-    tryCatch({
-      # doing a try catch because not for all diffEx sets we have results for the
-      # defined pval threshold
-      enriched_pathways <- leapR(
-      geneset = geneset,
-      eset = all_diff_ex[[prot_type]][[agent]][[timepoint]],
-      enrichment_method = "enrichment_in_sets",
-      assay_name = 'proteomics',
-      id_column = id_column,
-      primary_column = "logFC",#,
-      threshold = -1,
-      greaterthan = FALSE
-      )
-    plot <- plot_leapr_bar(
-      enriched_pathways,
-      paste(agent, 'at', timepoint)
-    )
-    print(plot)
-    }, error = function(msg){
-      message(
-        paste0(
-          "pval of '", pval,
-          "' did not result in differentially expressed proteins for agent '", agent,
-          "' at timepoint '", timepoint, "'"
-        )
-      )
-      return(NA)
-      }
-    )
-  }
-}
 
 ```

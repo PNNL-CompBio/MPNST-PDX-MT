@@ -1,4 +1,6 @@
 
+
+library(rstatix)
 log_transform <- function(experiment,
                           assay = "proteomics"){
 
@@ -132,7 +134,7 @@ calc_diff_ex <- function(experiment,
 }
 
 filter_for_feature_missingness <- function(experiment,
-                                           missingness_cutoff = 0.5){
+                                           missingness_cutoff = 0){
 
   pdat <- assay(experiment)
 
@@ -140,6 +142,10 @@ filter_for_feature_missingness <- function(experiment,
   pdat %<>%
     .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,]
 
+  if (ncol(pdat) == 0) {
+    print('All data removed')
+    return(NULL)
+  }
   rdat <- rowData(experiment)[rownames(pdat),]
 
   experiment <- SummarizedExperiment(
@@ -241,8 +247,8 @@ prep_experiment_data <- function(
 
 prep_prot_data <- function(proteomics_data, proteomics_meta,
                            type = c('global', 'phospho'),
-                           missingness_cutoff = 0.5,
-                           samp_cutoff = 0.9,
+                           missingness_cutoff = 0.0,
+                           samp_cutoff = 0,
                            sample_col_prefix = "cNF",
                            imputation_method = 'none'){
 
@@ -591,8 +597,13 @@ exp_subset <- function(experiment,
   ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
   group_1 = paste0(timepoint, "_", ctrl)
   group_2 = paste0(timepoint, "_", agent)
-  plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
-  experiment_subset <- experiment[, experiment$plate == plate_sel]
+  ##the old data doesn't have a plate
+  if ('plate' %in% names(colData(experiment))) {
+    plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+    experiment_subset <- experiment[, experiment$plate == plate_sel]
+  } else{
+    experiment_subset <- experiment[, experiment$timepoint == timepoint]
+  }
   #experiment_subset <- experiment[, experiment$timepoint == timepoint]
   experiment_subset <- experiment_subset[, experiment_subset$agent %in% c(agent, ctrl)]
 
@@ -675,15 +686,223 @@ plot_diff_ex_grid <- function(plots, plot_title=NULL){
 }
 
 
-plot_feature_across_samples <- function(experiment,
-                                        feature,
+
+plot_features_across_timepoints <- function(experiment,
+                                        features,
                                         agent,
-                                        timepoint,
-                                        ftype = 'Gene.With.Phospho.Site'){
+                                        timepoints = c('8hr','24hr','48hr'),
+                                        ftype = 'Gene.Names',
+                                        fmapping = 'Gene.With.Phospho.Site'){
 
-    fexp <- experiment[rowData(experiment)[,ftype]%in%feature,]
-    tp <- which(colData(fexp)$timepoint==timepoint)
-    cols <- which(colData(fexp)$agent==c(agent,ifelse(agent=='Trab','Water','DMSO')))
-    fexp <- fexp[,intersect(tp,cols)]
 
+    fexp <- experiment[rowData(experiment)[,ftype]%in%features,]
+
+    if(nrow(fexp)==0){
+      print(paste(paste(features,collapse=','), 'not found in this data'))
+      return(NULL)
+    }
+
+    rd <- rowData(experiment) |>
+      as.data.frame() |>
+      tibble::rownames_to_column('feature') |>
+      dplyr::rename(feature_name = fmapping)|>
+      dplyr::select(feature,feature_name)
+
+    ##now we can get those features across timepoints and agents
+    full_dat <- do.call(rbind,lapply(timepoints, function(tp){
+      do.call(rbind, lapply(agent, function(ag){
+          ##annoying but we have to do this for every time point
+          te <- exp_subset(fexp,ag,tp)
+
+          if(nrow(te)==0){
+            return(data.frame())
+          }
+          te <- te |>
+                impute_proteomics()#|>
+                #log_transform()
+
+
+          df <- assay(te) |>
+            as.data.frame() |>
+            tibble::rownames_to_column('feature') |>
+            left_join(rd) |>
+            tidyr::pivot_longer(-c(feature,feature_name),names_to='sample',values_to='expression') |>
+            left_join(tibble::rownames_to_column(as.data.frame(colData(te)),'sample'))
+        }))
+    }))
+
+
+    ##now calculate p-values
+    #first filter for complete values
+
+     complete = full_dat|>
+        drop_na() |>
+          group_by(timepoint, feature_name) |>
+          summarize(ngroups=n_distinct(agent))
+
+     if (length(agent) == 1){
+       complete <- complete |>
+        subset(ngroups==2) |>ungroup()
+
+        pdat <- full_dat |>
+          inner_join(complete) |> ###only filters for those that are complete
+          group_by(timepoint, feature_name) |>
+          summarize(pval=t.test(expression~agent)$p.value) |>
+          mutate(pval = sprintf("p = %.3f", pval))
+     }else {
+       pdat <- full_dat |>
+         dplyr::select('agent', 'timepoint', 'feature_name')|>
+         distinct() |>
+         mutate(pval = "")
+     }
+
+    ninf <- which(is.finite(full_dat$expression))
+
+    full_dat <- full_dat[ninf,]
+
+    #now do the plot
+    full_dat|>
+      left_join(pdat) |>
+      rowwise() |>
+      mutate(newgroup = paste(feature_name,agent,timepoint,sep='_'))|>
+      ggplot(aes(x=feature_name, y = expression, color=agent,
+                        fill = agent, label=pval)) +
+      geom_boxplot()+
+    #    geom_jitter()+
+      geom_text(data=pdat, color='black',aes(label = pval,
+                               x = feature_name,
+                               y = max(full_dat$expression,na.rm=T) *.9), size=2)+
+        facet_grid(timepoint ~ .) +
+      scale_fill_manual(values = c("#74ADDc","#BFC3A4","#F8BC8D",
+                                   '#f46d43','#a35667','#a4ba5a',
+                                   '#eee110','#0088cf','#aa55bb',
+                                   '#a3aabb','#a4ee55','#88aabb')) +
+      scale_color_manual(values = c("#74ADDc","#BFC3A4","#F8BC8D",
+                                    '#f46d43','#a35667','#a4ba5a',
+                                    '#eee110','#0088Cf','#aa55bb',
+                                    '#a3aabb','#a4ee55','#88aabb')) +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+}
+
+
+##plot enrichment results of a single drug across time points
+format_enrich_result <- function(enrichlist,  #list of enrichment results
+                               timepoints, #list of timepoints
+                               agent,
+                               pval_thresh = 0.05){
+
+  ##get a data frame of all kinases
+  names(enrichlist) <- timepoints
+
+  all.kin <- do.call (rbind, lapply(timepoints, function(tp) {
+    lres <- enrichlist[[tp]]
+     data.frame(feature = lres$feature, zscore = lres$zscore,
+                      pval = lres$BH_pvalue, timepoint = tp)
+  }))
+
+  if (nrow(all.kin) == 0) {
+    print(paste("No enrichmed features for",agent))
+    return(NULL)
+  }
+
+
+  ##now only select those kinases that are significant in at least one time
+  tps <- all.kin |>
+    subset(pval < pval_thresh) |>
+    arrange(rev(zscore))
+
+
+  forder <- unique(tps$feature)
+  torder <- timepoints
+
+ all.kin <- all.kin |>
+   subset(feature %in% tps$feature) |>
+   mutate(sig = pval < pval_thresh) |>
+   mutate(agent = agent)
+
+ return(all.kin)
+}
+
+plot_enrich_result <- function(all.kin,
+                               expdatalist, #list of differential expression results
+                               enrichlist, #list of enrichment
+                               agent,
+                               fmapping = 'Gene.With.Phospho.Site'){
+
+
+
+  tps <- all.kin |>
+    arrange(rev(zscore))
+
+  forder <- unique(tps$feature)
+  #get max z for color
+  maxz = max(abs(all.kin$zscore))
+
+ p1<- ggplot(all.kin, aes(y=feature, x=timepoint, color=zscore, size = -log10(pval))) +
+   geom_point() +
+   ggplot2::scale_y_discrete(limits = forder) +
+   ggplot2::scale_x_discrete(limits=unique(all.kin$timepoint)) +
+   scale_color_gradient2(low="#2266bb",high="#cc3311", mid="lightgrey",
+                         limits=c(-maxz, maxz)) +
+   theme_minimal(base_size=12)+
+   geom_point(data = subset(all.kin, sig), col = "black", stroke = 1, shape = 21) +
+   ggtitle(paste(agent,'Enrichment'))
+
+ ##which kinases show up at all three timepoints?
+
+
+ tops <- tps |>
+   subset(sig)|>
+    group_by(feature)|>
+    summarize(tps = n()) |>
+   subset(tps == length(timepoints))
+
+ print(paste('found',nrow(tops),'that are enriched at all time points'))
+ names(expdatalist) <- unique(all.kin$timepoint)
+ names(enrichlist) <- unique(all.kin$timepoint)
+  ##now we plot the substrates in distribution compared to other features
+  sub.tab <- do.call(rbind, lapply(timepoints, function(tp) {
+    exp <- expdatalist[[tp]]
+
+    ##get all features
+    all.feats <- rowData(exp)[,fmapping]
+    ##now we have, for each kinase/pathway, the features that drive it
+    el <- enrichlist[[tp]] |>
+      subset(feature %in% tops$feature) |>
+      dplyr::select(feature, ingroupnames) |>
+      tidyr::separate_longer_delim(ingroupnames, delim = ', ') |>
+      subset(ingroupnames %in% all.feats) |>
+      mutate(type = 'in group')
+
+    ##now get off targets
+    nt <- do.call(rbind, lapply(tops$feature, function(path) {
+      targs <- el |>
+          subset(feature == path)
+      offtargs <- setdiff(all.feats, targs$ingroupnames)
+      data.frame(feature = path, ingroupnames = offtargs, type = 'out group')
+    }))
+
+    ##now we have full table with annotations
+    full_df <- rbind(el, nt) |>
+      mutate(timepoint = tp) |>
+      left_join(dplyr::select(as.data.frame(rowData(exp)),
+                              ingroupnames=fmapping,'logFC'))
+
+    return(full_df)
+  }))
+    ##now we can plot the substrates
+
+  if(nrow(sub.tab)>0){
+  p2<- ggplot(sub.tab, aes(x=logFC, fill = type, alpha = 0.5)) +
+    geom_density() +
+    facet_grid(feature~timepoint) +
+    scale_fill_manual(values = c("#2266bb","#cc3311")) +
+    theme_minimal(base_size=12) +
+    ggtitle(paste(agent,'Enrichment drivers'))
+  }else{
+    p2 <- NULL
+  }
+  return(c(p1, p2))
 }

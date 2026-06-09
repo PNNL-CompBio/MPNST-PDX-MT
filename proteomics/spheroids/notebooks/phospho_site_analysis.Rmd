@@ -1,0 +1,527 @@
+---
+title: "Targeted site comparison"
+author: "Sara Gosline"
+date: "2026-06-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+## Library & Data import
+
+The notebook itself relies on a number of R libraries to import and analyze the
+proteomics data. Library imports are not shown here, but include packages like:
+
+- synapser
+- readxl
+- limma
+
+```{r imports, echo=FALSE, results='hide', warning = FALSE, message = FALSE}
+library(synapser)
+library(readxl)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
+library(ggrepel)
+library(magrittr)
+library(gridExtra)
+library(ggalluvial)
+library(sva)
+```
+
+```{r sourcing-cross-notebook-functions, results='hide'}
+source('../src/helper_funcs.R')
+```
+
+
+## Data collection and preparation
+We first will collect the global and phospho-proteomics abundance data as well
+as the metadata from synapse. The data files are located at:
+https://www.synapse.org/Synapse:syn70987742
+
+```{r import-data, results='hide'}
+# opening synapse connection
+tmp <- synapser::synLogin(silent = TRUE)
+
+# getting phospho-proteomics abundance data
+synapseFileID = "syn74589783"
+fileEntity <- synapser::synGet(synapseFileID)
+phospho_dat <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
+  )
+
+# metadata ingest
+synapseFileID <- "syn74755705"
+fileEntity <- synapser::synGet(synapseFileID)
+meta_data_raw <- readxl::read_xlsx(fileEntity$path, sheet = 2)
+
+# closing synpase conncetion
+tmp <- synapser::synLogout()
+```
+Next we do some cleanup of the column names in the global proetomics and
+phosphosite abundance data files to align the column names with the sample ids
+in the metadata file. This step is necessary such that we can successfully
+generate a `SummarizedExperiment` object further down the line.
+
+```{r sample-id-cleanup, eval=TRUE}
+# cleaning up the column names for the phospho-proteomics data
+names(phospho_dat) <- names(phospho_dat) %>% 
+  gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\PhosphoRawData\\\\", "", .) %>% 
+  gsub("_20Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
+  gsub("^[0-9]*_", "", .)
+
+
+```
+
+Next we clean up and prepare the metadata for `SummarizedExperiment` object
+generation. The main 2 steps here are:
+
+- cleaning up the column names
+- adding a new coulmns for replicates (to distinguish individual samples of the 
+  same type) and combining treatment agent, timepoint and replicate
+
+```{r meta-data-prep}
+new_col_names <- c(sample = 'Sample ID \r\n(abbrev)',
+                   global_sample_id = "Proteomics Sample ID",
+                   phospho_sample_id = "Phosphoproteomics Sample ID",
+                   agent = "Drug",
+                   timepoint = "Time",
+                   plate = "Plate"
+                   )
+
+meta_data_raw %<>%
+  rowwise() %>%
+  mutate(Drug = gsub(" ", "", Drug), Time = paste0(Time, "hr")) %>%
+  mutate(group = paste(Time, Drug, sep = "_")) %>%
+  group_by(group) %>%
+  mutate(replicate = paste0('r', 1:n())) %>%
+  mutate(condition = paste(Time, Drug, replicate, sep='_')) %>%
+  dplyr::rename(., all_of(new_col_names)) %>%
+  ungroup()
+
+meta_data_global <- meta_data_raw %>%
+  select(., global_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = global_sample_id)
+
+meta_data_phospho <- meta_data_raw %>%
+  select(., phospho_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = phospho_sample_id)
+
+meta_data <- list(
+  "global" = meta_data_global,
+  "phospho" = meta_data_phospho
+)
+```
+
+Now load in the data
+
+```{r load dadta}
+missingness_cutoff = 0
+samp_cutoff= 0
+imputation_method = "none"
+
+  
+experiment <- prep_experiment_data(
+  phospho_dat,
+  data_type = 'phospho',
+   meta_data_phospho,
+  missingness_cutoff,
+  samp_cutoff,
+  imputation_method
+  )
+
+```
+
+## Individual kinase analysis
+
+Now we can look into the individual drug targets to see where we observe the 
+expected results. Since we collected all the results in the table we should be 
+individually.
+
+### Mirdametinib MAP2K1 and MAP2K2
+```{r mirda targs, eval = FALSE, warning=FALSE, error=FALSE}
+##now we have the 
+targs <- c('MAP2K1','MAP2K2')
+
+getPvalueForFeature <- function(tab, protein){
+  subset(tab, feature==protein)|>
+    dplyr::select(pvalue)
+}
+
+ m2k <-dp |>
+  subset(agent%in% c('Mirda')) |>
+  rowwise() |>
+  mutate(map2k1_order_pval = getPvalueForFeature(kinEnrichOrder,'MAP2K1')) |>
+  rowwise() |>
+  mutate(map2k1_up_pval = getPvalueForFeature(kinEnrichUp,'MAP2K1')) |>
+  rowwise() |>
+  mutate(map2k1_down_pval = getPvalueForFeature(kinEnrichDown,'MAP2K1')) 
+ 
+ 
+ m2k2 <-dp |>
+  subset(agent%in% c('Mirda')) |>
+  rowwise() |>
+  mutate(map2k1_order_pval = getPvalueForFeature(kinEnrichOrder,'MAP2K2')) |>
+  rowwise() |>
+  mutate(map2k1_up_pval = getPvalueForFeature(kinEnrichUp,'MAP2K2')) |>
+  rowwise() |>
+  mutate(map2k1_down_pval = getPvalueForFeature(kinEnrichDown,'MAP2K2')) 
+ 
+```
+This didnt' work very well, going to plot targets manually
+
+Mirdametinib blocks the non-ATP-competitive allosteric site of MEK1/2, preventing the dual-phosphorylation of downstream ERK1/2. Literature validation for this signature, downstream targets, and functional impacts can be reviewed via [PMID: 39695081](https://pubmed.ncbi.nlm.nih.gov/39695081/) and [PMID: 41816962](https://pubmed.ncbi.nlm.nih.gov/41816962/).
+
+
+| Protein Node | Gene Name-Phosphosite | Functional Significance | Source Evidence |
+| :--- | :--- | :--- | :--- |
+| **Core Pathway** | MAPK3-T202<br>MAPK3-Y204<br>MAPK1-T185<br>MAPK1-Y187 | Primary ERK1/2 activation loop (TEY motif) | [PMC11083651](https://pmc.ncbi.nlm.nih.gov/articles/PMC11083651/) |
+| **Downstream Kinases** | RPS6KA1-T359<br>RPS6KA1-S363<br>RPS6KA1-T573<br>RPS6KA3-T365<br>RPS6KA3-S369<br>RPS6KA5-T581<br>RPS6KA5-S360 | RSK and MSK family activation loops | [PMC11083651](https://pmc.ncbi.nlm.nih.gov/articles/PMC11083651/) |
+| **Transcription Factors** | FOSL1-S252<br>FOSL1-S265<br>FOS-S362<br>FOS-S374 | FRA1 and c-Fos stabilization dynamics | [PMC11083651](https://pmc.ncbi.nlm.nih.gov/articles/PMC11083651/) |
+| **Cytoskeleton & Adapters** | STMN1-S25<br>GAB1-S552 | Microtubule and scaffold assembly | [PMC11083651](https://pmc.ncbi.nlm.nih.gov/articles/PMC11083651/) |
+| **Feedback Loops** | MAP2K1-T292<br>MAP2K1-T386<br>SOS1-S1137<br>SOS1-S1167<br>SOS1-S1178<br>SOS1-S1193<br>EGFR-T669 | ERK-mediated inhibitory feedback loop sites | [PMC11655561](https://pmc.ncbi.nlm.nih.gov/articles/PMC11655561/) |
+
+
+ 
+```{r plot results, echo = FALSE, message= FALSE}
+ direct_targs <- c('MAPK3-T202','MAPK3-Y204','MAPK1-Y187','MAPK1-T185')
+
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=direct_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Direct mirda targs')
+ 
+ plot_features_across_timepoints(experiment,
+                                 agent =setdiff(experiment$agent,'DMSO'),
+                                  features=direct_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Direct mirda targs')
+ 
+ 
+ 
+```
+
+
+
+
+
+
+```{r secondary mirdametinib targets, message=FALSE} 
+ 
+  second_targs <- c('RPS6KA1-T359', 'RPS6KA1-S363','RPS6KA1-T573',
+                   'RPS6KA3-T365', "RPS6KA3-S369","RPS6KA5-T581", "RPS6KA5-S360")
+
+  plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=second_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype =  'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Secondary mirda targs')
+
+```
+
+
+```{r other affected targets, message=FALSE}  
+ cyto_targs <-  c("FOSL1-S252", "FOSL1-S265", 
+                  "FOS-S362", "FOS-S374",
+                  "STMN1-S25", "GAB1-S552")
+
+   plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=cyto_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype =  'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Other mirda targs')
+   
+
+```
+   
+```{r known feedback mechanisms, message=FALSE}
+   feedback_targs <- c( "MAP2K1-T292", "MAP2K1-T386", 
+                     "SOS1-S1137", "SOS1-S1167", 
+                    "SOS1-S1178", "SOS1-S1193", "EGFR-T669")  
+    plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=feedback_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype =  'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Potential feedback mirda targs')
+  
+```
+
+
+
+
+### Palbociclib CDK4 and CDK6 
+
+Now we look at targets that would be affected by CDK4/6 inhibition
+
+Palbociclib stops G1-phase cell cycle progression by selectively preventing CDK4/6 from phosphorylating Retinoblastoma protein (Rb). Quantitative proteomic, chemoproteomic, and phenotypic shift evidence can be examined in [PMID: 27571378](https://pubmed.ncbi.nlm.nih.gov/27571378/) and [PMC9273754](https://pmc.ncbi.nlm.nih.gov/articles/PMC9273754/).
+
+
+| Protein Node | Gene Name-Phosphosite | Functional Significance | Source Evidence |
+| :--- | :--- | :--- | :--- |
+| **Primary Target** | RB1-S780<br>RB1-S795<br>RB1-S807<br>RB1-S811 | Canonical CDK4/6 inhibitory sites on Rb | [PMC6317929](https://pmc.ncbi.nlm.nih.gov/articles/PMC6317929/) / [PMID: 27571378](https://pubmed.ncbi.nlm.nih.gov/27571378/) |
+| **Downstream E2F Targets** | CDK2-T160<br>CCNE1-S384<br>E2F1-S364 | Transcriptional suppression of G1/S machinery | [PMC8794533](https://pmc.ncbi.nlm.nih.gov/articles/PMC8794533/) |
+| **Cell Cycle & Replication** | MCM2-S40<br>MCM2-S108<br>FOXM1-T600<br>FOXM1-S715 | Pre-replication complex and mitotic signaling loops | [PMC6115463](https://pmc.ncbi.nlm.nih.gov/articles/PMC6115463/) |
+| **Feedback Loops** | CDKN1A-T145<br>CDKN1B-T157<br>CDKN1B-T187 | p21/p27 cell-localization stability shifts | [PMC6343717](https://pmc.ncbi.nlm.nih.gov/articles/PMC6343717/) |
+
+---
+
+
+```{r palbo kinases, message=FALSE}
+
+direct_targs <- c("RB1-S780", "RB1-S795", "RB1-S807", "RB1-S811")
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Palbo',
+                                  features=direct_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Direct palbo targs')
+
+```
+
+
+```{r downstream targets, message=FALSE}
+downstream_targs <- c("CDK2-T160", "CCNE1-S384", "E2F1-S364")
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Palbo',
+                                  features=downstream_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Secondary palbo targs')
+
+```
+
+
+why is this failing? 
+```{r other targets, message=FALSE, eval = FALSE}
+other_targs <- c("MCM2-S40","MCM2-S41", "MCM2-S108", "FOXM1-T600", "FOXM1-S715")##added S41 since it was cloes
+
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Palbo',
+                                  features=other_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Other palbo targs')
+
+
+
+```
+
+```{r feedback mechanisms, message=FALSE}
+feedback_targs <- c("CDKN1A-T145", "CDKN1B-T157", "CDKN1B-T187")
+
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Palbo',
+                                  features=feedback_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Likely feedback palbo targs')
+
+```
+
+
+### Afatinib EGFR
+
+Afatinib covalently binds to EGFR (ERBB1), HER2 (ERBB2), and HER4 (ERBB4), globally abolishing receptor trans-autophosphorylation and silencing its downstream docking partners. Direct chemical kinome analysis and resistance tracking data can be found via [PMID: 24435321](https://pubmed.ncbi.nlm.nih.gov/24435321/) and [PMC11031815](https://pmc.ncbi.nlm.nih.gov/articles/PMC11031815/).
+
+
+| Protein Node | Gene Name-Phosphosite | Functional Significance | Source Evidence |
+| :--- | :--- | :--- | :--- |
+| **Primary Targets** | EGFR-Y1068<br>EGFR-Y1092<br>EGFR-Y1110<br>EGFR-Y1172<br>EGFR-Y1197<br>ERBB2-Y1221<br>ERBB2-Y1248 | RTK receptor C-terminal autophosphorylation | [PMID: 24435321](https://pubmed.ncbi.nlm.nih.gov/24435321/) |
+| **Adaptor & Scaffold Proteins** | GAB1-Y627<br>GAB1-Y689<br>SHC1-Y349<br>SHC1-Y350<br>ERRFI1-Y394 | Disruption of SH2/PTB effector docking | [PMC8182571](https://pmc.ncbi.nlm.nih.gov/articles/PMC8182571/) |
+| **Downstream Effectors** | STAT5A-Y694<br>AKT1-T308<br>AKT1-S473<br>MAPK1-T185<br>MAPK1-Y187<br>MAPK3-T202<br>MAPK3-Y204 | Simultaneous PI3K/Akt and MAPK axis crash | [PMC10003401](https://pmc.ncbi.nlm.nih.gov/articles/PMC10003401/) / [PMID: 28590019](https://pubmed.ncbi.nlm.nih.gov/28590019/) |
+| **Feedback Loop Sites** | EGFR-T669<br>EGFR-T693 | Extinction of downstream feedback loop signals | [PMC9817674](https://pmc.ncbi.nlm.nih.gov/articles/PMC9817674/) |
+
+---C
+```{r afatinib primary, message=FALSE}
+primary_targs <- c("EGFR-Y1068", "EGFR-Y1092", "EGFR-Y1110", "EGFR-Y1172", "EGFR-Y1197",
+  "ERBB2-Y1221", "ERBB2-Y1248")
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Afa',
+                                  features=primary_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Direct afatinib targs')
+ 
+ 
+ plot_features_across_timepoints(experiment,
+                                 agent = setdiff(experiment$agent,'DMSO'),
+                                  features=primary_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Direct afatinib targs')
+```
+
+
+```{r afatinib adaptor targets, message=FALSE}
+
+adaptor_targs <- c("GAB1-Y627", "GAB1-Y689", "SHC1-Y349", "SHC1-Y350", "ERRFI1-Y394")
+
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Afa',
+                                  features=adaptor_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Related afatinib targs')
+
+```
+
+```{r afa downstream, message=FALSE}
+downstream_targs <- c("STAT5A-Y694", "AKT1-T308", "AKT1-S473", "MAPK1-T185", "MAPK1-Y187", "MAPK3-T202", "MAPK3-Y204")
+
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Afa',
+                                  features=downstream_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Downstream afatinib targs')
+ 
+```
+
+```{r afa feedback, message=FALSE}
+
+
+feedback_targs <- c("EGFR-T669", "EGFR-T693")
+
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Afa',
+                                  features=feedback_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Feedback afatinib targs')
+```
+
+### TNO155 SHP2
+
+TNO155 binds the allosteric tunnel interface of the SHP2 phosphatase (PTPN11), locking it into an auto-inhibited, closed conformation. This prevents SHP2 from dephosphorylating its normal target feedback nodes, keeping upstream adapter links severed and suppressing global RTK-to-RAS/MAPK transmission. Detailed proteomic profiling maps are found in [PMID: 33268444](https://nih.gov) and [PMID: 35147814](https://nih.gov).
+
+
+| Protein Node | Gene Name-Phosphosite | Functional Significance | Source Evidence |
+| :--- | :--- | :--- | :--- |
+| **Primary Target Autophospho** | PTPN11-Y542<br>PTPN11-Y580 | Allosteric closure restricts access to these baseline regulatory feedback auto-tyrosine sites | [PMID: 33268444](https://nih.gov) / [PMC9495760](https://pmc.ncbi.nlm.nih.gov/articles/PMC9495760/) |
+| **Scaffolds & Adaptors** | GAB1-Y627<br>GAB1-Y659<br>FRS2-Y196<br>FRS2-Y436 | Severe depletion of critical tyrosine-anchors required to bind and load GRB2/SOS complexes to the plasma membrane | [PMID: 35147814](https://nih.gov) |
+| **Downstream Cascade** | RAF1-S338<br>MAPK1-T185<br>MAPK1-Y187<br>MAPK3-T202<br>MAPK3-Y204 | Collapse of baseline MAPK kinase pathway loading and absolute terminal ERK activation loop signaling | [PMID: 33268444](https://nih.gov) |
+
+```{r tno targets, eval = FALSE}
+direct_targs <- c('PTPN11-Y542','PTPN11-Y580')
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'TNO155',
+                                  features=direct_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Direct TNO155 targs')
+ 
+```
+
+
+```{r tno scaffold targets, eval = FALSE}
+adapter_targs <- c('GAB1-Y627','GAB1-Y659','FRS2-Y196','FRS2-Y43')
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'TNO155',
+                                  features=adapter_targs,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('adapter TNO155 targs')
+ 
+```
+
+```{r putting this here in case we want to harmonize, eval = FALSE}
+
+# Generate an exhaustive lookup dataframe mapping sites to their individual inhibitor signatures
+drug_signatures <- tibble::tribble(
+  ~site_id,       ~inhibitor,
+  # Mirdametinib Group
+  "MAPK3-T202",   "Mirdametinib",   "MAPK3-Y204",   "Mirdametinib",
+  "MAPK1-T185",   "Mirdametinib",   "MAPK1-Y187",   "Mirdametinib",
+  "RPS6KA1-T359", "Mirdametinib",   "RPS6KA1-S363", "Mirdametinib",
+  "RPS6KA1-T573", "Mirdametinib",   "RPS6KA3-T365", "Mirdametinib",
+  "RPS6KA3-S369", "Mirdametinib",   "RPS6KA5-T581", "Mirdametinib",
+  "RPS6KA5-S360", "Mirdametinib",   "FOSL1-S252",   "Mirdametinib",
+  "FOSL1-S265",   "Mirdametinib",   "FOS-S362",     "Mirdametinib",
+  "FOS-S374",     "Mirdametinib",   "STMN1-S25",    "Mirdametinib",
+  "GAB1-S552",    "Mirdametinib",   "MAP2K1-T292",  "Mirdametinib",
+  "MAP2K1-T386",  "Mirdametinib",   "SOS1-S1137",   "Mirdametinib",
+  "SOS1-S1167",   "Mirdametinib",   "SOS1-S1178",   "Mirdametinib",
+  "SOS1-S1193",   "Mirdametinib",   "EGFR-T669",    "Mirdametinib",
+  
+  # Palbociclib Group
+  "RB1-S780",     "Palbociclib",    "RB1-S795",     "Palbociclib",
+  "RB1-S807",     "Palbociclib",    "RB1-S811",     "Palbociclib",
+  "CDK2-T160",    "Palbociclib",    "CCNE1-S384",   "Palbociclib",
+  "E2F1-S364",    "Palbociclib",    "MCM2-S40",     "Palbociclib",
+  "MCM2-S108",    "Palbociclib",    "FOXM1-T600",   "Palbociclib",
+  "FOXM1-S715",   "Palbociclib",    "CDKN1A-T145",  "Palbociclib",
+  "CDKN1B-T157",  "Palbociclib",    "CDKN1B-T187",  "Palbociclib",
+  
+  # Afatinib Group
+  "EGFR-Y1068",   "Afatinib",       "EGFR-Y1092",   "Afatinib",
+  "EGFR-Y1110",   "Afatinib",       "EGFR-Y1172",   "Afatinib",
+  "EGFR-Y1197",   "Afatinib",       "ERBB2-Y1221",  "Afatinib",
+  "ERBB2-Y1248",  "Afatinib",       "GAB1-Y627",    "Afatinib",
+  "GAB1-Y689",    "Afatinib",       "SHC1-Y349",    "Afatinib",
+  "SHC1-Y350",    "Afatinib",       "ERRFI1-Y394",  "Afatinib",
+  "STAT5A-Y694",  "Afatinib",       "AKT1-T308",    "Afatinib",
+  "AKT1-S473",    "Afatinib",       "MAPK1-T185",   "Afatinib",
+  "MAPK1-Y187",   "Afatinib",       "MAPK3-T202",   "Afatinib",
+  "MAPK3-Y204",   "Afatinib",       "EGFR-T669",    "Afatinib",
+  "EGFR-T693",    "Afatinib",
+  #TNO155 Group
+  "PTPN11-Y542",  "TNO155",         "PTPN11-Y580",  "TNO155",
+  "GAB1-Y627",    "TNO155",         "GAB1-Y659",    "TNO155",
+  "FRS2-Y196",    "TNO155",         "FRS2-Y436",    "TNO155",
+  "RAF1-S338",    "TNO155",         "MAPK1-T185",   "TNO155",
+  "MAPK1-Y187",   "TNO155",         "MAPK3-T202",   "TNO155",
+  "MAPK3-Y204",   "TNO155",
+  #Capmatenib Group
+  "MET-Y1234",    "Capmatenib",     "MET-Y1235",    "Capmatenib",
+  "MET-Y1349",    "Capmatenib",     "MET-Y1356",    "Capmatenib",
+  "GAB1-Y307",    "Capmatenib",     "GAB1-Y627",    "Capmatenib",
+  "SHC1-Y317",    "Capmatenib",     "AKT1-T308",    "Capmatenib",
+  "AKT1-S473",    "Capmatenib",     "MAPK1-T185",   "Capmatenib",
+  "MAPK3-T202",   "Capmatenib",     "GSK3B-S9",     "Capmatenib")
+  
+```
+
+now what? 

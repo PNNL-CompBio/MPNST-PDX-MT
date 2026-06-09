@@ -95,7 +95,7 @@ clean the data. This consits of several steps:
 - `log_transform` & `impute_proteomics` take care of their namesake.
 
 ```{r}
-experiment <- prep_prot_data(proteomicsData, proteomicsMeta, type = 'phospho', missingness_cutoff = 0) %>%
+experiment <- prep_prot_data(proteomicsData, proteomicsMeta, type = 'phospho') %>%
   log_transform(., assay = "proteomics") %>%
   impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
 ```
@@ -154,7 +154,7 @@ phosphorylations that were detected in >= 80% of the samples are being
 considered for the PCA generation.
 
 ```{r}
-experiment <- prep_phospho_prot_data(proteomicsData, proteomicsMeta, 0.5) %>%
+experiment <- prep_prot_data(proteomicsData, proteomicsMeta, type = 'phospho', 0.5) %>%
   log_transform(., assay = "proteomics") %>%
   impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
 
@@ -205,10 +205,27 @@ processing. Those samples are:
 If those two sample pairs would swap their respecive lables the PCA would truly
 place all points together in space accoring to their timepoint.
 
+### Evaluation of known targets
+
+There are some genes that are down-regulated upon mek inhibition. what is the
+expression of these?
+
+```{r meki genes}
+down_genes <- c("DUSP4", "DUSP6", "SPRY2", "SPRY4", "ETV4", "ETV5", "CCND1", "CDK5R1", "DDX21", "NGFR", "BCL3", "STK17B")
+
+  plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=down_genes,
+                                  timepoints = c('24hr','48hr'),
+                                  ftype =  'Gene.Names',
+                                  fmapping = 'Gene.Names') +
+   ggtitle('Mirda targs')
+```
+
 ### Investigation into the sample discrepancy
 
 ```{r sample-discrepancy, eval=FALSE}
-experiment <- prep_data(proteomicsData, proteomicsMeta, 0)
+experiment <- prep_prot_data(proteomicsData, proteomicsMeta, type='phospho',0)
 summary(as_tibble(assay(experiment)))
 
 ```
@@ -219,6 +236,39 @@ subset(tmp, id %in% c('cNF_spheroid_P_DIA_01', 'cNF_spheroid_P_DIA_13', 'cNF_sph
 ```
 ```{r, eval=FALSE}
 subset(tmp, !id %in% c('cNF_spheroid_P_DIA_01', 'cNF_spheroid_P_DIA_13', 'cNF_spheroid_P_DIA_07', 'cNF_spheroid_P_DIA_12'))
+```
+
+### Plot of known targetes
+
+Mirdametinib has a few known targets, we can plot them here.
+
+```{r mirda known targs, message=FALSE}
+ direct_targs <- c('MAPK3-T202','MAPK3-Y204','MAPK1-Y187','MAPK1-T185')
+
+
+ plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=direct_targs,
+                                  timepoints = c('24hr','48hr'),
+                                  ftype = 'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Direct mirda targs')
+
+```
+This is promising, let's look at other targets
+
+```{r secondary targs, message=FALSE}
+
+  second_targs <- c('RPS6KA1-T359', 'RPS6KA1-S363','RPS6KA1-T573',
+                   'RPS6KA3-T365', "RPS6KA3-S369","RPS6KA5-T581", "RPS6KA5-S360")
+
+  plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=second_targs,
+                                  timepoints = c('24hr','48hr'),
+                                  ftype =  'Gene.With.Phospho.Site',
+                                  fmapping = 'Gene.With.Phospho.Site') +
+   ggtitle('Secondary mirda targs')
 ```
 
 ### Number of significant differentally expressed phospho sites 
