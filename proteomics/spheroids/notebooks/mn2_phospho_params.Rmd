@@ -453,6 +453,8 @@ forder <- unique(tps$feature)
 torder <- c('8hr','24hr','48hr')
 full_tab$timepoint <- factor(full_tab$timepoint, levels = torder)
 
+readr::write_csv(full_tab, 'mn2_phospho_enrichment_results.csv')
+
 maxz = max(abs(full_tab$zscore))
 ggplot(full_tab, aes(y = feature, x = agent, color = zscore, size = -log10(pval))) +
    geom_point() +
@@ -464,7 +466,8 @@ ggplot(full_tab, aes(y = feature, x = agent, color = zscore, size = -log10(pval)
   facet_grid(~timepoint) +
    geom_point(data = subset(full_tab, sig), col = "black", stroke = 1, shape = 21) +
     theme(axis.title=element_blank(), 
-        axis.text.x=element_text(angle=45, vjust=1, hjust=1))
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1)) + 
+  ggtitle('MN2 Phosphoproteomic enrichment')
 
 ggsave('allKinEnrichment.pdf')
 ```

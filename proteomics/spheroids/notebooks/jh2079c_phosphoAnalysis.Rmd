@@ -540,3 +540,86 @@ plot <- plot_leapr_bar(late_res,'Top pathways at 48h')
 ggsave("../output_figures/phospho_prot_pathway_enrichment_kinasesubstrates_48h_top.png", plot = plot, dpi = 600)
 plot
 ```
+
+
+## Rank enrichment
+
+let's calculate order enrichment
+
+```{r order}
+
+
+late_rank <- leapR(geneset = kinasesubstrates, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_order", assay_name = 'proteomics', id_column = "Gene.With.Phospho.Site",
+      primary_columns = "logFC") |>
+  suppressWarnings()
+
+plot_leapr_bar(late_rank,'Top pathways at 48h')
+
+early_rank <- leapR(geneset = kinasesubstrates, eset = dmso_mirda_24h, enrichment_method = "enrichment_in_order", assay_name = 'proteomics', id_column = "Gene.With.Phospho.Site",
+      primary_columns = "logFC") |>
+  suppressWarnings()
+
+plot_leapr_bar(early_rank,'Top pathways at 24h')
+
+```
+## Combine with MN2
+
+Make sure to run the MN2 notebook first!
+
+```{r mn2}
+
+###THESE TWO FILES WERE WRITTEN BY mn2_global_params.Rmd
+mn2_global <- readr::read_csv('mn2_phospho_enrichment_results.csv')
+
+edf <- early_rank |>
+  tibble::rownames_to_column('feature') |>
+  dplyr::select(feature, zscore, pval = 'BH_pvalue') |>
+  mutate(agent = 'Mirda', timepoint = '24hr', sig=FALSE)
+
+edf$sig[which(edf$pval < 0.05)] <- TRUE
+
+ldf <-  late_rank |>
+  tibble::rownames_to_column('feature') |>
+  dplyr::select(feature, zscore, pval = 'BH_pvalue') |>
+  mutate(agent = 'Mirda', timepoint = '48hr', sig=FALSE)
+
+ldf$sig[which(ldf$pval < 0.05)] <- TRUE
+
+jhu_full <- rbind(edf, ldf) |>
+  mutate(sample = 'JHU-2-079c')
+
+both_samps <- mn2_global |>
+  mutate(sample = 'MN2') |>
+  rbind(jhu_full) |>
+  subset(agent=='Mirda')
+
+
+tps <- both_samps|>
+  subset(sig) |>
+  group_by(feature) |>
+  summarize(meanz = mean(zscore, na.rm=T)) |>
+  arrange(rev(meanz))
+  
+forder <- unique(tps$feature)
+torder <- c('8hr','24hr','48hr')
+both_samps$timepoint <- factor(both_samps$timepoint, levels = torder)
+
+
+
+maxz = max(abs(both_samps$zscore))
+ggplot(both_samps, aes(y = feature, x = timepoint, color = zscore, size = -log10(pval))) +
+   geom_point() +
+   ggplot2::scale_y_discrete(limits = forder) +
+  # ggplot2::scale_x_discrete(limits = torder) +
+   scale_color_gradient2(low="#2266bb",high="#cc3311", mid="lightgrey",
+                         limits=c(-maxz, maxz)) +
+   theme_minimal(base_size=12)+
+   geom_point(data = subset(both_samps, sig), col = "black", stroke = 1, shape = 21) +
+    facet_grid(~sample)+
+   theme(axis.title=element_blank(), 
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1))+
+  ggtitle("Combined Phosphoproteomic pathways")
+
+ggsave('two_sample_mirda_phospho.png',width=8)
+
+```

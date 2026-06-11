@@ -259,7 +259,25 @@ data("ncipid")
 ppval <- 0.05
 
 hoc <- msigdbr::msigdbr(collection = "H")
-#gs <- leapR::read_gene_sets()
+
+df_to_gmt_long <- function(df, gene_col, pathway_col, output_file) {
+  # Split the genes into a list based on their pathway
+  gene_lists <- split(df[[gene_col]], df[[pathway_col]])
+  
+  # Open the file and write each pathway as a tab-separated line
+  con <- file(output_file, "w")
+  for (pathway in names(gene_lists)) {
+    genes <- unique(gene_lists[[pathway]])
+    line <- c(pathway, "null", genes)
+    writeLines(paste(line, collapse = "\t"), con)
+  }
+  close(con)
+}
+
+df_to_gmt_long(hoc, 'gene_symbol','gs_name','hallmarks.gmt')
+
+hgs <- leapR::read_gene_sets('hallmarks.gmt')
+hgs$matrix <- t(hgs$matrix) ##why are we always backward shere? 
 ##create function to call leapR
 get_leapr_order <- function(exp,
                           geneset=ncipid,
@@ -361,9 +379,9 @@ dp <- all_diff_ex |>
 #  subset(missing != 0.75) |>
   subset(imputation == 'SampMin') |>
   rowwise() |>
-  mutate(pathEnrichOrder = list(get_leapr_order(exp))) |>
+  mutate(pathEnrichOrder = list(get_leapr_order(exp, geneset=hgs))) |>
   rowwise() |>
-  mutate(pathEnrichPval = list(get_leapr_sig(exp)))
+  mutate(pathEnrichPval = list(get_leapr_sig(exp, geneset=hgs)))
 
 ##then get all the counts we need
 
@@ -444,18 +462,25 @@ full_tab <- do.call(rbind, lapply(unique(rp$agent), function(ag) {
   return(tab)
 }))
 
+full_tab <- full_tab|>
+  rowwise() |>
+  mutate(pathway = gsub("HALLMARK_","",feature)) |>
+  mutate(pathway = tolower(gsub('_',' ', pathway)))
+
 ##ploting params
 tps <- full_tab|>
-  group_by(feature) |>
+  group_by(pathway) |>
   summarize(meanz = mean(zscore)) |>
   arrange(rev(meanz))
   
-forder <- unique(tps$feature)
+forder <- unique(tps$pathway)
 torder <- c('8hr','24hr','48hr')
 full_tab$timepoint <- factor(full_tab$timepoint, levels = torder)
 
+
+
 maxz = max(abs(full_tab$zscore))
-ggplot(full_tab, aes(y = feature, x = agent, color = zscore, size = -log10(pval))) +
+ggplot(full_tab, aes(y = pathway, x = agent, color = zscore, size = -log10(pval))) +
    geom_point() +
    ggplot2::scale_y_discrete(limits = forder) +
   # ggplot2::scale_x_discrete(limits = torder) +
@@ -463,9 +488,13 @@ ggplot(full_tab, aes(y = feature, x = agent, color = zscore, size = -log10(pval)
                          limits=c(-maxz, maxz)) +
    theme_minimal(base_size=12)+
   facet_grid(~timepoint)+
-   geom_point(data = subset(full_tab, sig), col = "black", stroke = 1, shape = 21) 
+   geom_point(data = subset(full_tab, sig), col = "black", stroke = 1, shape = 21) +
+   theme(axis.title=element_blank(), 
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1))+
+  ggtitle("MN2 Global proteomic pathways")
 
-ggsave('allPathEnrichment.pdf',width=22,height=14)
+readr::write_csv(full_tab, 'mn2_global_enrichment_results.csv')
+ggsave('allPathEnrichment.pdf',width=12,height=8)
 
 
 ```
