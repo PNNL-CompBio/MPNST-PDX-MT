@@ -35,7 +35,8 @@ daucs <- readr::read_csv(synGet('syn69978141')$path) |>
   tidyr::separate(Combo, into=c('drug1','drug2'), sep='\\+', remove = FALSE)
 
 ##read in GSEA from treated samples
-sing_gsea <- readr::read_csv("../pathwayChanges/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
+sing_gsea <- readr::read_csv("../pathwayChanges/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")|>
+  mutate(Feature_set = tolower(gsub("_",' ',Feature_set)))
 
 ##get aucs fro gene xpression samples
 
@@ -55,7 +56,9 @@ combinations in other cell lines.
 ```{r pathways}
 
 drugs <- c('Mirdametinib','TNO155','Vorinostat','Capmatinib','Trabectedin','Doxorubicin')
-hall_preds <- readr::read_csv('../pathwayChanges/GSEA_Hallmark/GSEA_results_Hallmark.csv')
+hall_preds <- readr::read_csv('../pathwayChanges/GSEA_Hallmark/GSEA_results_Hallmark.csv')|>
+  mutate(Feature_set = tolower(gsub("_",' ',Feature_set))) |>
+  mutate(Feature_set = gsub("hallmark ","",Feature_set))
 
 sig_paths <- subset(hall_preds, DrugTreatment%in%drugs)|> 
   subset(NES > 0) |>
@@ -91,6 +94,7 @@ cmat <- rbind(r1,r2) |>
 cmat <- cmat[-which(duplicated(rownames(cmat))),]
 
 gmat <- get_gsea_scores(cmat)
+rownames(gmat) <- sapply(rownames(gmat), function(x) tolower(gsub("HALLMARK ","",gsub("_"," ",x))))
 
 ##get MOA for later
 ##is it worth it to incorporate drug class? 
@@ -163,7 +167,7 @@ plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
      geom_bar(position='dodge',stat='identity') + 
      #ggrepel::geom_text_repel(aes(label = Signif),nudge_y=-0.01)+
     #facet_grid(ttime~.) +
-    ggtitle(paste("Drug response correlation with",gsub('HALLMARK_','',pathname)))    +
+    ggtitle(paste("Drug response correlation with",pathname))    +
     theme_bw() +    
    # scale_fill_manual(values=moaCol)+
     coord_flip()+
@@ -197,7 +201,7 @@ with MEK sensitivity?
 vpaths <- sig_paths[sig_paths$DrugTreatment=='Vorinostat','Feature_set'] |> unique()
 
 res<-lapply(vpaths$Feature_set, function(x) {
-  plot_pathway_correlation(x,'MEK inhibitor',paste0('fig6a_',gsub("HALLMARK_",'',x),'_correlation_MEKi'))
+  plot_pathway_correlation(x,'MEK inhibitor',paste0('fig6a_',x,'_correlation_MEKi'))
 })
 #plot_pathway_correlation("HALLMARK_KRAS_SIGNALING_UP",'kras_only')
 ```
@@ -268,7 +272,7 @@ First we can plot the CCLE correlation of pathways up-regulated in MPNST.
 mekis <- upreg_paths[upreg_paths$drugClass=='MEK inhibitor',]
 coul <- colorRampPalette(bs3)(length(unique(mekis$pathname)))
 
-sig_paths$Pathway <- gsub('HALLMARK_','',sig_paths$Feature_set)
+sig_paths$Pathway <- sig_paths$Feature_set
 
 names(coul)<- unique(mekis$pathname)
 
@@ -342,10 +346,10 @@ plot_pathway_drug_class()
 
 #ggsave('kras_up_meki.pdf',width=6)
 
-plot_pathway_drug_class('HALLMARK_KRAS_SIGNALING_DN','EGFR inhibitor')
+plot_pathway_drug_class('kras signaling dn','EGFR inhibitor')
 #ggsave('kras_down_egfr.pdf',width=6)
 
-plot_pathway_correlation("HALLMARK_KRAS_SIGNALING_DN",'EGFR inhibitor','kras_only_egfr')
+plot_pathway_correlation("kras signaling dn",'EGFR inhibitor','kras_only_egfr')
 ```
 
 ### Fig 6c: MOA class scores by drug
@@ -362,10 +366,12 @@ combined <- eres |>
 ggplot(combined, aes(x=sort_by(Pathway, ingroup_mean), y =ingroup_mean, fill = drugClass)) +
   geom_bar(position='dodge',stat='identity') +
   coord_flip() +
-  facet_grid(~DrugTreatment) +scale_fill_manual(values =colorRampPalette(bs3)(length(unique(combined$drugClass))))+
+  facet_grid(~DrugTreatment) +
+  scale_fill_manual(values =colorRampPalette(bs3)(length(unique(combined$drugClass))))+
   xlab('Pathway') + ylab('Mean correlation with AUC across class') + 
-  theme_bw()
+  theme_bw() + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1))
 
 ggsave('fig_6c_enrichmentStats.pdf',width=12)
-```
+``` 
 

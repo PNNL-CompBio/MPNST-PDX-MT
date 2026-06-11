@@ -34,7 +34,8 @@ data. We see six combinations with a dAUC above 1:
 daucs <- readr::read_csv(synGet('syn69978141')$path) |>
   tidyr::separate(Combo, into = c('drug1','drug2'), sep='\\+', remove = FALSE)
 
-sing_gsea <- readr::read_csv("../pathwayChanges/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")
+sing_gsea <- readr::read_csv("../pathwayChanges/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")|>
+  mutate(Feature_set = tolower(gsub("_",' ',Feature_set)))
 
 ##get aucs fro gene xpression samples
 
@@ -62,6 +63,7 @@ nmat <- full_tmat[,intersect(colnames(full_tmat),
   drop_na()
 
 tmat <- get_gsea_scores(nmat)
+rownames(tmat) <- sapply(rownames(tmat), function(x) tolower(gsub('HALLMARK ','',gsub('_',' ',x))))
 
 print('computing pathway/aUC correlation')
 
@@ -74,7 +76,7 @@ cor_res <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
       rbind(compute_cor(sing_exp,tmat,drug,'0hr',48), 
            compute_cor(sing_exp,tmat,drug,'0hr',120) )
     })) #end drug iter
-
+  
 
 cor_res |>
   ggplot(aes(x = corval,col = drug)) + geom_density() +
@@ -126,12 +128,14 @@ Check for overlap between up-regulated pathways and those correlated with drug r
 ```{r combine perturbed pathways}
 
 #make sure we ran the RNA seq analysis first
-hall_preds <- readr::read_csv('../pathwayChanges/GSEA_Hallmark/GSEA_results_Hallmark.csv')
+hall_preds <- readr::read_csv('../pathwayChanges/GSEA_Hallmark/GSEA_results_Hallmark.csv') |>
+  mutate(Feature_set = tolower(gsub('_',' ',Feature_set))) |>
+  mutate(Feature_set = gsub("hallmark ", "",Feature_set))
 
 
 ##step 1: filter for up-regulated pathways
 upregs <- subset(hall_preds, sig == TRUE & NES > 0) |>
-        mutate(Pathway = stringr::str_replace_all(Feature_set,'HALLMARK_','')) |>
+        mutate(Pathway = stringr::str_replace_all(Feature_set,'hallmark ','')) |>
   mutate(DrugTreatment = tolower(DrugTreatment))
 
 ##step 2: filter for negatively correlated pathwasy
@@ -221,18 +225,18 @@ plot_combo_get_overlap <- function(combo, prefix = ''){
     ##plot genes up-regulated?
     apply(c1,1,function(y){
       rv <- intersect(which(hall_preds$Time==y[['Time']]),
-              which(hall_preds$Feature_set==paste0('HALLMARK_',y[['Pathway']])))
+              which(hall_preds$Feature_set==y[['Pathway']]))
     rv <- intersect(rv,which(tolower(hall_preds$DrugTreatment)==combo[1]))
     genes <- stringr::str_split(hall_preds$Leading_edge[rv], pattern=', ') |>
       unlist()
 
-    title=paste0(prefix,paste0(combo,collapse='_'),'_',y[['Pathway']])
+    title=paste0(prefix,paste(combo,collapse='_'),y[['Pathway']])
     plot_pathway_with_drugs(genes,combo[1],
-                            pathwayname=paste0('HALLMARK_',y[['Pathway']]),
+                            pathwayname=y[['Pathway']],
                             ft=title)
     ##plot pathway correlation
 
-    plot_pathway_correlation(paste0('HALLMARK_',y[['Pathway']]),ft=title)
+    plot_pathway_correlation(y[['Pathway']],ft=title)
 
     })
   }
@@ -241,18 +245,18 @@ plot_combo_get_overlap <- function(combo, prefix = ''){
     ##plot genes up-regulated?
   apply(c2,1,function(y){
       rv <- intersect(which(hall_preds$Time==y[['Time']]),
-              which(hall_preds$Feature_set==paste0('HALLMARK_',y[['Pathway']])))
+              which(hall_preds$Feature_set==y[['Pathway']]))
     rv <- intersect(rv,which(tolower(hall_preds$DrugTreatment)==combo[2]))
     genes <- stringr::str_split(hall_preds$Leading_edge[rv], pattern=', ') |>
       unlist()
     
-    title=paste0(prefix,paste0(rev(combo),collapse='_'),'_',y[['Pathway']])
+    title=paste0(prefix,paste0(prefix,paste(rev(combo),collapse='_'),y[['Pathway']]))
     plot_pathway_with_drugs(genes,combo[2],
-                            pathwayname=paste0('HALLMARK_',y[['Pathway']]),
+                            pathwayname=y[['Pathway']],
                             ft=title)
     ##plot pathway correlation
 
-    plot_pathway_correlation(paste0('HALLMARK_',y[['Pathway']]),
+    plot_pathway_correlation(y[['Pathway']],
                              ft=title)
 
     })

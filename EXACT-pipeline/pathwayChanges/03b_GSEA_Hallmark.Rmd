@@ -31,7 +31,7 @@ source('03a_runGSEA.R')
 
 ### plot number of enriched pathways
 
-```{r plot # of results, echo = FALSE}
+```{r plot # of results, echo = FALSE, warning=FALSE, message=FALSE}
 # prep data
 synapser::synLogin()
 
@@ -39,8 +39,10 @@ synapser::synLogin()
 base.path <- getwd()
 gsea.path <- file.path(base.path, "GSEA_Hallmark")
 setwd(gsea.path)
-gsea.df <- read.csv("GSEA_results_Hallmark.csv")
-gsea.df$Gene_set <- sub("HALLMARK_","",gsea.df$Feature_set)
+gsea.df <- read.csv("GSEA_results_Hallmark.csv")|>
+  mutate(Feature_set = tolower(gsub("_",' ',Feature_set)))
+
+gsea.df$Gene_set <- sub("hallmark ","",gsea.df$Feature_set)
 gsea.df$DrugTreatment <- factor(gsea.df$DrugTreatment, levels=names(drug.info))
 gsea.df$Time <- factor(gsea.df$Time, levels=c("8h","24h"))
 all.drugs <- levels(gsea.df$DrugTreatment)
@@ -101,7 +103,8 @@ gsea.path <- file.path(getwd(),"GSEA_Hallmark")
 setwd(gsea.path)
 topSets <- unique(gsea.df[gsea.df$sig,]$Gene_set)
 mean.results <- plyr::ddply(gsea.df, .(Gene_set), summarize,
-                            NES = mean(NES, na.rm=TRUE))
+                            NES = mean(NES, na.rm=TRUE)) 
+
 setOrder <- mean.results[order(mean.results$NES),]$Gene_set
 timepoints=c('8h','24h')
 dot.df <- gsea.df

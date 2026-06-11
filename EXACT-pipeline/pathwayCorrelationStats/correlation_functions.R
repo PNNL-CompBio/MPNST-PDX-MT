@@ -65,7 +65,7 @@ exp <- readr::read_tsv(synGet('syn72249845')$path) |>
 exp <- exp |>
   subset(initial_drug != 'irinotecan')
 
-md <- exp|>group_by(drug,treat_time) |> summarize(count =n())
+md <- exp|>group_by(drug,treat_time) |> dplyr::summarize(count=n())
 #get gene expression
 
 
@@ -86,7 +86,7 @@ all_rnaseq <- function(){
   genes <- readr::read_csv(synGet('syn72249894')$path)
 
   all_trans <- readr::read_csv(synGet('syn72249843')$path) |>
-    left_join(genes) |>
+    dplyr::left_join(genes) |>
     subset(!is.na(gene_symbol)) |>
     dplyr::select(transcriptomics,improve_sample_id, gene_symbol) |>
     unique()
@@ -115,8 +115,8 @@ get_harmonized_gex <- function(){
   trans <- all_trans |>
     #  filter(improve_sample_id %in% sing_exp$improve_sample_id)|>
     #distinct() |>
-    group_by(improve_sample_id, gene_symbol) |>
-    summarize(exp = mean(transcriptomics, na.rm = T))
+    dplyr::group_by(improve_sample_id, gene_symbol) |>
+    dplyr::summarize(exp = mean(transcriptomics, na.rm = T))
 
   tmat <- trans |>
     tidyr::pivot_wider(names_from=improve_sample_id,values_from=exp)|>
@@ -212,10 +212,15 @@ compute_sig <- function(exp, tmat, drug, etime, ttime){
 bubble_plot <- function(merged_cor, sig_thresh = 0.05){
 
   #setOrder <- mean.results[order(mean.results$NES),]$Gene_set
-  merged_cor$Pathway = gsub('HALLMARK_','',merged_cor$gene)
+  merged_cor$Pathway = gsub('hallmark ','',merged_cor$gene)
   drug.order <- intersect(names(classCol),merged_cor$drug)
   merged_cor$InvCor =  -1 * merged_cor$corval
   #filter out pathways that are significant in at least one samp;e
+
+ # merged_cor <- merged_cor |>
+#    rowwise() |>
+#    mutate(Pathway = tolower(gsub("_",' ',Pathway)))
+
   sig_paths <- merged_cor|>
       group_by(Pathway) |>
       summarize(sigval = min(sig) < sig_thresh) |>
