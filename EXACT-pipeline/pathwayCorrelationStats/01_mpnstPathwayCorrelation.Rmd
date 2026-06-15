@@ -176,7 +176,7 @@ plot_pathway_with_drugs <- function(genes,
   meta <- data.frame(drug = c(rep(expr_drug,length(tsamps)),rep('untreated',length(csamps))),
                      sample = c(samples$common_name[tsamps],samples$common_name[csamps]))
   rownames(meta) <- samples$improve_sample_id[c(tsamps,csamps)]
-  anncol <- list(drug=c(drugCol[expr_drug],untreated = 'white'))
+  anncol <- list(drug=c(classCol[expr_drug],untreated = 'white'))
   
   pheatmap::pheatmap(gvals, cellwidth = 10,cellheight = 10,annotation_col=meta, 
                     # clustering_distance_rows = 'correlation',
@@ -189,21 +189,29 @@ plot_pathway_with_drugs <- function(genes,
 
 plot_pathway_correlation <- function(pathname,ft = ''){
 
+  dc <- data.frame(drug=tolower(names(drug.class)),class = unlist(drug.class) )
+  cc <- data.frame(drug= tolower(names(classCol)), color = unlist(classCol))
+  classes <- merge(dc,cc)
+  colbyclass <- classes$color
+  names(colbyclass) <- classes$class
+  
   cr <- merged_res |> 
     subset(gene == pathname) |>
-    mutate(Signif = ifelse(sig < 0.01,'**',ifelse(sig<0.05,'*',"")))
+    mutate(Signif = ifelse(sig < 0.01,'**',ifelse(sig<0.05,'*',""))) |>
+    left_join(classes)
   
+ # print(head(cr))
   mv <- cr |> group_by(drug) |>
     summarize(mv = mean(corval)) |>
     arrange(mv)
   
   cr$drug = factor(cr$drug, levels=unique(mv$drug))
-  cr |> ggplot(aes(fill=drug,x=drug, y=corval,group=drug)) + 
+  cr |> ggplot(aes(fill=class,x=drug, y=corval,group=drug)) + 
      geom_bar(position='dodge',stat='identity') + 
      ggrepel::geom_text_repel(aes(label = Signif), nudge_y = -0.01) + facet_grid(ttime~.) +
     ggtitle(paste("Drug response correlation with",gsub('HALLMARK_','',pathname)))    +
     theme_bw() +    
-    scale_fill_manual(values = drugCol) +
+    scale_fill_manual(values = colbyclass) +
     coord_flip() +
     ylab('AUC correlation') + xlab('Drug')+
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
