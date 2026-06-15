@@ -41,6 +41,7 @@ library(magrittr)
 library(gridExtra)
 library(ggalluvial)
 library(sva)
+library(msigdbr)
 ```
 
 ```{r sourcing-cross-notebook-functions, results='hide'}
@@ -143,7 +144,7 @@ meta_data <- list(
 First we want to evaluate the missingness options to see how they alter the
 differential expression and pathways. 
 
-```{r diff-ex-parameter-sweep, eval=FALSE}
+```{r diff-ex-parameter-sweep, eval=TRUE}
 missingness_cutoff = 0
 samp_cutoff= 0
 imputation_method = "none"

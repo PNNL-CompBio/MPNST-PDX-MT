@@ -569,7 +569,7 @@ Make sure to run the MN2 notebook first!
 ```{r mn2}
 
 ###THESE TWO FILES WERE WRITTEN BY mn2_global_params.Rmd
-mn2_global <- readr::read_csv('mn2_phospho_enrichment_results.csv')
+mn2_phospho <- readr::read_csv('mn2_phospho_enrichment_results.csv')
 
 edf <- early_rank |>
   tibble::rownames_to_column('feature') |>
@@ -588,7 +588,7 @@ ldf$sig[which(ldf$pval < 0.05)] <- TRUE
 jhu_full <- rbind(edf, ldf) |>
   mutate(sample = 'JHU-2-079c')
 
-both_samps <- mn2_global |>
+both_samps <- mn2_phospho |>
   mutate(sample = 'MN2') |>
   rbind(jhu_full) |>
   subset(agent=='Mirda')
