@@ -1,14 +1,17 @@
 
+
+library(rstatix)
 log_transform <- function(experiment,
                           assay = "proteomics"){
 
-  proteomics_data <- SummarizedExperiment::assays(experiment)[[assay]] %>%
+  proteomics_data <- SummarizedExperiment::assay(experiment,assay) %>%
     mutate(across(everything(), as.numeric)) %>% # turn everything numeric
     log2(.) # log transform all cells
 
-  SummarizedExperiment::assays(
+  SummarizedExperiment::assay(
     experiment,
-    withDimnames = FALSE)[[assay]] <- proteomics_data
+    withDimnames = FALSE) <- proteomics_data
+  SummarizedExperiment::assayNames(experiment) <- assay
   return(experiment)
 }
 
@@ -72,9 +75,8 @@ impute_proteomics <- function(experiment,
 calc_diff_ex <- function(experiment,
                          group_1,
                          group_2,
-                         assay = "proteomics",
+                         assay_name = "proteomics",
                          align_by = "Protein.Group"){
-
 
   # making sure that the 'align_by' group is present in the SummarizedExperiment
   if(!align_by %in% colnames(rowData(experiment))){
@@ -105,7 +107,7 @@ calc_diff_ex <- function(experiment,
   # next we extract the assay of interest from the `SummarizedExperiment`
   # object and create the differential expression result table. Note that we
   # switch the order of groups here for `limma`
-  dat <- SummarizedExperiment::assays(experiment)[[assay]]
+  dat <- SummarizedExperiment::assays(experiment)[[assay_name]]
 
   result_table <- dat[, c(samples_2, samples_1)] %>%
     limma::lmFit(., design) %>%
@@ -118,29 +120,143 @@ calc_diff_ex <- function(experiment,
 
   result_table <- result_table %>%
     rownames_to_column(., var=align_by) %>%
-    as.tibble(.)
+    as_tibble(.)
 
   # This makes sure that the differential expression results for each feature
   # are properly aligned
 
   SummarizedExperiment::rowData(experiment) <- left_join(
-      as.tibble(SummarizedExperiment::rowData(experiment)),
+      as_tibble(SummarizedExperiment::rowData(experiment)),
       result_table,
       by = align_by)
 
   return(experiment)
 }
 
+filter_for_feature_missingness <- function(experiment,
+                                           missingness_cutoff = 0){
+
+  pdat <- assay(experiment)
+
+  # TODO: add check to make sure missgness_cutoff is [0, 1]
+  pdat %<>%
+    .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,]
+
+  if (ncol(pdat) == 0) {
+    print('All data removed')
+    return(NULL)
+  }
+  rdat <- rowData(experiment)[rownames(pdat),]
+
+  experiment <- SummarizedExperiment(
+    assays = list(proteomics = pdat),
+    rowData = rdat,
+    colData = colData(experiment)
+  )
+  return(experiment)
+}
+
+
+filter_for_sample_cutoff <- function(experiment,
+                                     samp_cutoff=0.1){
+
+  pdat <- assay(experiment)
+
+  #What if we add a sample cutoff?
+  pdat %<>%
+    .[,colSums(!is.na(.))/nrow(.) >= samp_cutoff]# %>%
+  #rownames_to_column(., var = "Protein.Group")
+
+  rdat <- colData(experiment)[colnames(pdat),]
+
+  experiment <- SummarizedExperiment(
+    assays = list(proteomics = pdat),
+    rowData = rowData(experiment),
+    colData = rdat
+  )
+
+  return(experiment)
+}
+
+
+##this is a function to prep experiment data, calls the prep_prot_data below
+##this is only applicable to the MN2 dataset
+prep_experiment_data <- function(
+    p_data,
+    data_type = 'global',
+    meta_data,
+    missingness_cutoff=0,
+    samp_cutoff = 0,
+    imputation_method=c("none", 'SampMin', 'means', 'median'),
+    batch_correct = FALSE
+    ){
+
+  imputation_method_sel <- match.arg(imputation_method)
+
+  if(!is.na(missingness_cutoff) & !(missingness_cutoff >=0 | missingness_cutoff <= 1)){
+    stop(
+      base::paste(
+        "missingness_cutoff needs to be '0 <= missingness_cutoff <=1'",
+        "or 'NULL'. Supplied value:", missingness_cutoff),
+      call. = FALSE
+    )
+  }
+
+  experiments <- list()
+  experiment <- prep_prot_data(proteomics_data = p_data,
+                                 proteomics_meta = meta_data,
+                                 missingness_cutoff = missingness_cutoff,
+                                 samp_cutoff = samp_cutoff,
+                                 type = data_type,
+                                 imputation_method=imputation_method_sel)
+
+    if(imputation_method_sel == "none"){
+      experiment %<>%
+        log_transform(., assay = "proteomics")
+    }
+
+    if(!(imputation_method_sel == 'none')){
+      experiment %<>%
+        impute_proteomics(., assay = "proteomics", imputation_method_sel) %>%
+        log_transform(., assay = "proteomics")
+
+    }
+
+    if(batch_correct && imputation_method_sel != 'none'){
+      #first we have to remove zero hour beacuse it is confounded by batch
+      #experiment <- experiment[,-which(colData(experiment)$timepoint=='0hr')]
+      prot_matrix <- assay(experiment)
+      batch_var = colData(experiment)$plate
+      cond_var = colData(experiment)$agent
+      mod_matrix <- model.matrix(~ as.factor(agent), data = colData(experiment))
+      corrected_prot <- sva::ComBat(
+             dat = prot_matrix,
+             batch = batch_var,
+             mod = mod_matrix,
+             par.prior = FALSE
+              )
+    assay(experiment,withDimnames = FALSE) <- corrected_prot
+
+
+   }
+
+
+  experiment
+}
+
+
 prep_prot_data <- function(proteomics_data, proteomics_meta,
                            type = c('global', 'phospho'),
-                           missingness_cutoff = 0.5,
-                           sample_col_prefix = "cNF"){
+                           missingness_cutoff = 0.0,
+                           samp_cutoff = 0,
+                           sample_col_prefix = "cNF",
+                           imputation_method = 'none'){
 
   # checking that either global or phospho is selected for type
   # match.arg() will throw an error otherwise and execution will stop
   sel_type <- match.arg(type)
 
-  # cleaning up the metadata by
+   # cleaning up the metadata by
   #
   proteomics_meta_clean <- proteomics_meta %>%
     separate_wider_regex(
@@ -148,7 +264,7 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
       col = "condition",
       c("group" = ".*", "_", "replicate" = ".*"),
       cols_remove = FALSE
-    ) %>%
+    )  %>%
     separate_wider_delim(
       .,
       col = "group",
@@ -159,15 +275,12 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
     ) |>
     tibble::column_to_rownames('sample') # adding rownames for SummarizedExperiment
 
-  if(sel_type == 'global'){
+  if (sel_type == 'global') {
     proteomics_data_clean <- proteomics_data %>%
       column_to_rownames(., var = "Protein.Group") %>%
-      select(., contains(sample_col_prefix))
+      select(., contains(sample_col_prefix)) |>
+      rownames_to_column("Protein.Group")
 
-    # TODO: add check to make sure missgness_cutoff is [0, 1]
-    proteomics_data_clean %<>%
-      .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
-      rownames_to_column(., var = "Protein.Group")
 
     proteomicsMapping <- proteomics_data[0:4] %>%
       separate_wider_delim(
@@ -175,7 +288,7 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
         col = "Genes",
         names = c("Genes", NA),
         delim = ";",
-        cols_remove=TRUE,
+        cols_remove = TRUE,
         too_few = "align_start",
         too_many = "drop"
       ) %>%
@@ -188,12 +301,17 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
       unite(., "Phospho.Site", Residue, Site, sep="", remove=TRUE) %>%
       unite(., "Protein.With.Phospho.Site", Protein, Phospho.Site, sep = "-") %>%
       column_to_rownames(., var = "Protein.With.Phospho.Site") %>%
-      within(., rm("Protein.Names", "Gene.Names", "Sequence"))
+      within(., rm("Protein.Names", "Gene.Names", "Sequence")) |>
+      rownames_to_column('Protein.With.Phospho.Site')
 
-    # TODO: add check to make sure missgness_cutoff is [0, 1]
-    proteomics_data_clean %<>%
-      .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
-      rownames_to_column(., var = "Protein.With.Phospho.Site")
+    # ##add in missingness here
+    # proteomics_data_clean %<>%
+    #   .[,colSums(!is.na(.))/nrow(.) >= samp_cutoff]#
+    #
+    # # TODO: add check to make sure missgness_cutoff is [0, 1]
+    # proteomics_data_clean %<>%
+    #   .[rowSums(!is.na(.))/ncol(.) >= missingness_cutoff,] %>%
+    #   rownames_to_column(., var = "Protein.With.Phospho.Site")
 
     proteomicsMapping <- proteomics_data[0:5] %>%
       separate_wider_delim(
@@ -216,7 +334,7 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
 
     #calculate median abundnace for each phosphosite and rank
     medAbund <- apply(proteomics_data_clean, 1, function(x) median(x,na.rm = T))
-    qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1))
+    qvals <- quantile(medAbund,probs = c(0.1,0.2,0.5,1),na.rm=TRUE)
     siteQuantile <- sapply(medAbund, function(x) names(qvals)[which(x <= qvals)[1]])
 
     proteomicsMapping$medAbundance = medAbund
@@ -229,16 +347,65 @@ prep_prot_data <- function(proteomics_data, proteomics_meta,
     colData = proteomics_meta_clean[colnames(proteomics_data_clean),]
   )
 
+  experiment <- filter_for_sample_cutoff(experiment, samp_cutoff)
+  experiment <- filter_for_feature_missingness(experiment, missingness_cutoff)
   return(experiment)
 
 }
 
+#-------------------
+# stats functions
+#-------------------
 
-plot_pca <- function(experiment, agent, type = c('global', 'phospho')){
+
+#' Generate principal components for SummarizedExperiment
+#'
+#' Helper function to generate principal components for an SummarizedExperiment
+#' object.
+#'
+#' @param summarized_experiment The {SummarizedExperiment} object for which the
+#'   principle components should be generated
+#' @returns
+#' Returns a named list containing the following components
+#'
+#' * prcomp_res The full output of `stats.prcomp()`
+#' * prcs A `data.frame` containing the combined principal component values per
+#'   sample including additional sample data extracted from
+#'   `colData(summarized_experiment)`
+#' * explained_variance A `data.frame` containing the portion of variance for
+#'   each PC
+#'
+generate_pca <- function(summarized_experiment) {
+
+  prc_res <- summarized_experiment |>
+    assay() |> # extracting the `assay` (e.g. proteomics) from the SE
+    t() |> # transposing `assay` object to fit with prcomp requirements
+    prcomp() %$% # prcomp requires samples = rows; features = columns
+    list(
+      prcomp_res = .,
+      prcs = cbind(x, colData(summarized_experiment)),
+      explained_variance = as.data.frame(summary(.)$importance)[2,]
+    )
+
+  prc_res
+
+}
+
+
+#-------------------
+# plotting functions
+#-------------------
+
+color_vals_grey_first <- c('#BBBBBB', '#EE7733', '#0077BB', '#33BBEE', '#EE3377', '#CC3311', '#009988')
+color_vals_black_first <- c('#000000', '#EE7733', '#0077BB', '#33BBEE', '#EE3377', '#CC3311', '#009988')
+color_vals_default <- c('#EE7733', '#0077BB', '#33BBEE', '#EE3377', '#CC3311', '#009988', '#BBBBBB')
+
+
+plot_pca <- function(experiment, agent, type = c('global', 'phospho'), missingness = 'None', imputation = "None"){
 
   prot_type <- match.arg(type)
 
-  plates <- unique(colData(experiment_global[, experiment_global$agent ==  agent])$plate)
+  plates <- unique(colData(experiment[, experiment$agent ==  agent])$plate)
   plates <- append(plates, 10)
   ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
   sel <- c(ctrl, agent)
@@ -251,6 +418,7 @@ plot_pca <- function(experiment, agent, type = c('global', 'phospho')){
     cbind(x, colData(experiment_subset))
 
   plot_title <- base::paste("Spheroid", prot_type, "proteomics for:", agent)
+  plot_subtitle <- base::paste("Missingness filter:", missingness ,"; Imputation:", imputation)
   color_vals <- c("#66c2a5", "#fc8d62", "#8da0cb")
   colors <- setNames(color_vals, c(agent, "DMSO", "Water"))
 
@@ -282,4 +450,459 @@ plot_pca <- function(experiment, agent, type = c('global', 'phospho')){
   return(plot)
 
 
+}
+
+
+plot_pca_by_plate <- function(experiment, plate, type = c('global', 'phospho'), missingness = 'None', imputation = "None"){
+
+  prot_type <- match.arg(type)
+
+  experiment_subset <- experiment[, experiment$plate == plate]
+
+  principal_components <- prcomp(t(assay(experiment_subset))) %$%
+    cbind(x, colData(experiment_subset))
+
+  plot_title <- base::paste("Spheroid", prot_type, "proteomics for Plate:", plate)
+  plot_subtitle <- base::paste("Missingness filter:", missingness ,"; Imputation:", imputation)
+  # color_vals <- c("#66c2a5", "#fc8d62", "#8da0cb")
+
+  agents <- unique(colData(experiment_subset)$agent)
+  ctrl <- ifelse(test = ("DMSO" %in% agents), yes = "DMSO", no = "Water")
+  agents_sel <- agents[agents != ctrl]
+  colors <- setNames(color_vals_black_first, append(c(ctrl), agents_sel))
+
+  plot <- (
+    ggplot(
+      principal_components,
+      aes(
+        x = PC1,
+        y = PC2,
+        # col = timepoint,
+        # shape = agent,
+        col = agent,
+        shape = timepoint,
+        label = condition
+      )
+    )
+    + geom_point(size = 2)
+    + geom_text_repel(max.overlaps = 10, size = 2)
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + scale_color_manual(values = colors)
+    # + scale_color_manual(values = c("DMSO" = "#e66101", "Mirda" = "#5e3c99", "NA" = "grey"))
+    + labs(
+      title = plot_title,
+      subtitle = plot_subtitle
+    )
+
+  )
+  return(plot)
+
+
+}
+
+
+is_outlier <- function(x) {
+  return(
+    x < quantile(x, 0.25) - 1.5 * IQR(x) |
+    x > quantile(x, 0.75) + 1.5 * IQR(x)
+  )
+}
+
+plot_per_plate_na_overview <- function(experiment, type = c('global', 'phospho')){
+
+  prot_type <- match.arg(type)
+
+  summarized_data <- as_tibble(assay(experiment)) %>%
+    summarise(across(everything(), ~ sum(is.na(.)))) %>%
+    pivot_longer(cols = everything(), names_to = "sample_id", values_to = "NAs")
+
+  metadata <- colData(experiment) %>%
+    as.data.frame(.) %>%
+    rownames_to_column(., var = "sample_id") %>% as_tibble(.)
+
+  data_plot <- inner_join(metadata, summarized_data, by='sample_id') %>%
+    group_by(plate) %>%
+    mutate(outlier = ifelse(is_outlier(NAs), condition, NA)) %>%
+    mutate(., agent = replace_when(agent,
+                                   agent %in% c("DMSO", "Water") ~ "DMSO/Water"))
+
+
+  plot_title <- base::paste("Outliers in spheroid", prot_type, "proteomics")
+  plot_subtitle <- base::paste("# of NAs per sample out of", dim(assay(experiment))[1], ifelse(prot_type == "global", "proteins", "phospho-sites"))
+
+  plot <- (
+    ggplot(data_plot, aes(
+      x = plate,
+      y = NAs,
+      group = plate,
+      xmin = 1,
+      xmax = 10
+    ))
+    + geom_boxplot()
+    + geom_label_repel(aes(label = outlier),
+                       na.rm = TRUE,
+                       max.overlaps = 10,
+                       size = 2,
+                       min.segment.length = 0)
+    + theme_minimal()
+    + scale_x_continuous(breaks = seq(1, 10, 1))
+    + labs(
+      title = plot_title,
+      subtitle = plot_subtitle
+    )
+  )
+
+  return(plot)
+}
+
+
+extract_diff_ex_features <- function(diff_ex, feature_type, log_fc = 1, pval = 0.05){
+
+  df_ret <- rowData(diff_ex) |> as_tibble()
+
+  if(!feature_type %in% names(df_ret)){
+    stop(paste0(
+      "feature_type '",
+      feature_type,
+      "' not present in rowData of diff_ex",
+      )
+    )
+  }
+
+  df_ret %<>% dplyr::select(
+      feature = feature_type,
+      'logFC',
+      'adj.P.Val'
+    ) %>%
+    mutate(expression_change = case_when(
+      (logFC >= log_fc & adj.P.Val < pval) ~ 'up',
+      (logFC <= -log_fc & adj.P.Val < pval) ~ 'down',
+      .default = 'not significant',
+      )
+    ) %>%
+    mutate(labels = case_when(
+      expression_change %in% c('up', 'down') ~ feature,
+      .default = NA
+      )
+    )
+
+  df_ret
+}
+
+exp_subset <- function(experiment,
+                       agent,
+                       timepoint){
+
+  ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+  group_1 = paste0(timepoint, "_", ctrl)
+  group_2 = paste0(timepoint, "_", agent)
+  ##the old data doesn't have a plate
+  if ('plate' %in% names(colData(experiment))) {
+    plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+    experiment_subset <- experiment[, experiment$plate == plate_sel]
+  } else{
+    experiment_subset <- experiment[, experiment$timepoint == timepoint]
+  }
+  #experiment_subset <- experiment[, experiment$timepoint == timepoint]
+  experiment_subset <- experiment_subset[, experiment_subset$agent %in% c(agent, ctrl)]
+
+  ##make sure that there are no additional features that we are adding back
+  all_nas <- which(apply(assay(experiment_subset),1, function(x) all(is.na(x))))
+  #print(paste('Found',length(all_nas),'rows that are all na'))
+  if (length(all_nas) > 0){
+    experiment_subset <- experiment_subset[-all_nas,]
+  }
+  return(experiment_subset)
+
+
+}
+
+plot_diff_ex <- function(experiment, agent, timepoint,
+                         log_fc = 1, pval = 0.05){
+
+   align_by_group <- ifelse(test = (prot_type == 'global'),
+                            yes = "Protein.Group",
+                            no = "Protein.With.Phospho.Site")
+
+
+
+   ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+   group_1 = paste0(timepoint, "_", ctrl)
+   group_2 = paste0(timepoint, "_", agent)
+
+  diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
+                          align_by=align_by_group)
+
+  if(prot_type == "global"){
+    dfPlot <- extract_diff_ex_features(diff_ex, "Genes", log_fc, pval)
+  } else if(prot_type == "phospho"){
+    dfPlot <- extract_diff_ex_features(diff_ex, "Gene.With.Phospho.Site", log_fc, pval)
+  } else {
+    stop(paste0("Invalid prot_type selected: ", prot_type))
+  }
+
+  # plot_title = paste('Spheroid', prot_type ,'proteomics:', agent, "vs.", ctrl, "at", timepoint)
+  plot_subtitle = base::paste0(
+    timepoint, "; ",
+    "#down: ", dim(dfPlot[dfPlot$expression_change == 'down',])[1], " / ",
+    "#up: ", dim(dfPlot[dfPlot$expression_change == 'up',])[1]
+  )
+
+  plot <- (
+    ggplot(
+      data = dfPlot,
+      aes(
+        x = logFC,
+        y = -log10(adj.P.Val),
+        col = expression_change,
+        label = labels
+      )
+    )
+    + geom_vline(xintercept = c(-log_fc, log_fc), col = "gray", linetype = 'dashed')
+    + geom_hline(yintercept = -log10(pval), col = "gray", linetype = 'dashed')
+    + geom_point(size = .75)
+    + geom_text_repel(max.overlaps = 5, size = 2)
+    + scale_color_manual(values = c('up' = '#74add1', 'down' = '#f46d43', 'not significant' = 'grey'))
+    + theme_minimal()
+    + theme(legend.position = "bottom")
+    + labs(
+      # title = plot_title,
+      subtitle = plot_subtitle,
+      col = 'expression',
+      y = expression("-log"[10]*"p-Value")
+    )
+  )
+
+  plot
+}
+
+plot_diff_ex_grid <- function(plots, plot_title=NULL){
+
+  plot_grid <- ggpubr::ggarrange(plotlist = plots, ncol = 3, common.legend = TRUE, legend = "bottom")
+  plot_annotated <- ggpubr::annotate_figure(plot_grid, top = ggpubr::text_grob(plot_title, size = 14))
+
+  plot_annotated
+}
+
+
+
+plot_features_across_timepoints <- function(experiment,
+                                        features,
+                                        agent,
+                                        timepoints = c('8hr','24hr','48hr'),
+                                        ftype = 'Gene.Names',
+                                        fmapping = 'Gene.With.Phospho.Site'){
+
+
+    fexp <- experiment[rowData(experiment)[,ftype]%in%features,]
+
+    if(nrow(fexp)==0){
+      print(paste(paste(features,collapse=','), 'not found in this data'))
+      return(NULL)
+    }
+
+    rd <- rowData(experiment) |>
+      as.data.frame() |>
+      tibble::rownames_to_column('feature') |>
+      dplyr::rename(feature_name = fmapping)|>
+      dplyr::select(feature,feature_name)
+
+    ##now we can get those features across timepoints and agents
+    full_dat <- do.call(rbind,lapply(timepoints, function(tp){
+      do.call(rbind, lapply(agent, function(ag){
+          ##annoying but we have to do this for every time point
+          te <- exp_subset(fexp,ag,tp)
+
+          if(nrow(te)==0){
+            return(data.frame())
+          }
+          te <- te |>
+                impute_proteomics()#|>
+                #log_transform()
+
+
+          df <- assay(te) |>
+            as.data.frame() |>
+            tibble::rownames_to_column('feature') |>
+            left_join(rd) |>
+            tidyr::pivot_longer(-c(feature,feature_name),names_to='sample',values_to='expression') |>
+            left_join(tibble::rownames_to_column(as.data.frame(colData(te)),'sample'))
+        }))
+    }))
+
+
+    ##now calculate p-values
+    #first filter for complete values
+
+     complete = full_dat|>
+        drop_na() |>
+          group_by(timepoint, feature_name) |>
+          summarize(ngroups=n_distinct(agent))
+
+     if (length(agent) == 1){
+       complete <- complete |>
+        subset(ngroups==2) |>ungroup()
+
+        pdat <- full_dat |>
+          inner_join(complete) |> ###only filters for those that are complete
+          group_by(timepoint, feature_name) |>
+          summarize(pval=t.test(expression~agent)$p.value) |>
+          mutate(pval = sprintf("p = %.3f", pval))
+     }else {
+       pdat <- full_dat |>
+         dplyr::select('agent', 'timepoint', 'feature_name')|>
+         distinct() |>
+         mutate(pval = "")
+     }
+
+    ninf <- which(is.finite(full_dat$expression))
+
+    full_dat <- full_dat[ninf,]
+
+    #now do the plot
+    full_dat|>
+      left_join(pdat) |>
+      rowwise() |>
+      mutate(newgroup = paste(feature_name,agent,timepoint,sep='_'))|>
+      ggplot(aes(x=feature_name, y = expression, color=agent,
+                        fill = agent, label=pval)) +
+      geom_boxplot()+
+    #    geom_jitter()+
+      geom_text(data=pdat, color='black',aes(label = pval,
+                               x = feature_name,
+                               y = max(full_dat$expression,na.rm=T) *.9), size=2)+
+        facet_grid(timepoint ~ .) +
+      scale_fill_manual(values = c("#74ADDc","#BFC3A4","#F8BC8D",
+                                   '#f46d43','#a35667','#a4ba5a',
+                                   '#eee110','#0088cf','#aa55bb',
+                                   '#a3aabb','#a4ee55','#88aabb')) +
+      scale_color_manual(values = c("#74ADDc","#BFC3A4","#F8BC8D",
+                                    '#f46d43','#a35667','#a4ba5a',
+                                    '#eee110','#0088Cf','#aa55bb',
+                                    '#a3aabb','#a4ee55','#88aabb')) +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+}
+
+
+##plot enrichment results of a single drug across time points
+format_enrich_result <- function(enrichlist,  #list of enrichment results
+                               timepoints, #list of timepoints
+                               agent,
+                               pval_thresh = 0.05){
+
+  ##get a data frame of all kinases
+  names(enrichlist) <- timepoints
+
+  all.kin <- do.call (rbind, lapply(timepoints, function(tp) {
+    lres <- enrichlist[[tp]]
+     data.frame(feature = lres$feature, zscore = lres$zscore,
+                      pval = lres$BH_pvalue, timepoint = tp)
+  }))
+
+  if (nrow(all.kin) == 0) {
+    print(paste("No enrichmed features for",agent))
+    return(NULL)
+  }
+
+
+  ##now only select those kinases that are significant in at least one time
+  tps <- all.kin |>
+    subset(pval < pval_thresh) |>
+    arrange(rev(zscore))
+
+
+  forder <- unique(tps$feature)
+  torder <- timepoints
+
+ all.kin <- all.kin |>
+   subset(feature %in% tps$feature) |>
+   mutate(sig = pval < pval_thresh) |>
+   mutate(agent = agent)
+
+ return(all.kin)
+}
+
+plot_enrich_result <- function(all.kin,
+                               expdatalist, #list of differential expression results
+                               enrichlist, #list of enrichment
+                               agent,
+                               fmapping = 'Gene.With.Phospho.Site'){
+
+
+
+  tps <- all.kin |>
+    arrange(rev(zscore))
+
+  forder <- unique(tps$feature)
+  #get max z for color
+  maxz = max(abs(all.kin$zscore))
+
+ p1<- ggplot(all.kin, aes(y=feature, x=timepoint, color=zscore, size = -log10(pval))) +
+   geom_point() +
+   ggplot2::scale_y_discrete(limits = forder) +
+   ggplot2::scale_x_discrete(limits=unique(all.kin$timepoint)) +
+   scale_color_gradient2(low="#2266bb",high="#cc3311", mid="lightgrey",
+                         limits=c(-maxz, maxz)) +
+   theme_minimal(base_size=12)+
+   geom_point(data = subset(all.kin, sig), col = "black", stroke = 1, shape = 21) +
+   ggtitle(paste(agent,'Enrichment'))
+
+ ##which kinases show up at all three timepoints?
+
+
+ tops <- tps |>
+   subset(sig)|>
+    group_by(feature)|>
+    summarize(tps = n()) |>
+   subset(tps == length(timepoints))
+
+ print(paste('found',nrow(tops),'that are enriched at all time points'))
+ names(expdatalist) <- unique(all.kin$timepoint)
+ names(enrichlist) <- unique(all.kin$timepoint)
+  ##now we plot the substrates in distribution compared to other features
+  sub.tab <- do.call(rbind, lapply(timepoints, function(tp) {
+    exp <- expdatalist[[tp]]
+
+    ##get all features
+    all.feats <- rowData(exp)[,fmapping]
+    ##now we have, for each kinase/pathway, the features that drive it
+    el <- enrichlist[[tp]] |>
+      subset(feature %in% tops$feature) |>
+      dplyr::select(feature, ingroupnames) |>
+      tidyr::separate_longer_delim(ingroupnames, delim = ', ') |>
+      subset(ingroupnames %in% all.feats) |>
+      mutate(type = 'in group')
+
+    ##now get off targets
+    nt <- do.call(rbind, lapply(tops$feature, function(path) {
+      targs <- el |>
+          subset(feature == path)
+      offtargs <- setdiff(all.feats, targs$ingroupnames)
+      data.frame(feature = path, ingroupnames = offtargs, type = 'out group')
+    }))
+
+    ##now we have full table with annotations
+    full_df <- rbind(el, nt) |>
+      mutate(timepoint = tp) |>
+      left_join(dplyr::select(as.data.frame(rowData(exp)),
+                              ingroupnames=fmapping,'logFC'))
+
+    return(full_df)
+  }))
+    ##now we can plot the substrates
+
+  if(nrow(sub.tab)>0){
+  p2<- ggplot(sub.tab, aes(x=logFC, fill = type, alpha = 0.5)) +
+    geom_density() +
+    facet_grid(feature~timepoint) +
+    scale_fill_manual(values = c("#2266bb","#cc3311")) +
+    theme_minimal(base_size=12) +
+    ggtitle(paste(agent,'Enrichment drivers'))
+  }else{
+    p2 <- NULL
+  }
+  return(c(p1, p2))
 }

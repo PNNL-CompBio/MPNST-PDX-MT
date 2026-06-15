@@ -1,0 +1,473 @@
+---
+title: "Phosphoproteomic Timepoint Comparison"
+author:
+- name: Yannick Mahlich
+  affiliation: Pacific Northwest National Laboratory
+- name: Sara Gosline
+  affiliation: Pacific Northwest National Laboratory
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    df_print: paged
+ # pdf_document:
+#    toc: false
+  html_notebook:
+    toc: true
+---
+
+## Library & Data import
+
+The notebook itself relies on a number of R libraries to import and analyze the
+proteomics data. Library imports are not shown here, but include packages like:
+
+- synapser
+- readxl
+- limma
+
+```{r imports, echo=FALSE, results='hide', warning = FALSE, message = FALSE}
+library(synapser)
+library(readxl)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
+library(ggrepel)
+library(magrittr)
+library(gridExtra)
+library(ggalluvial)
+library(sva)
+```
+
+```{r sourcing-cross-notebook-functions, results='hide'}
+source('../src/helper_funcs.R')
+```
+
+
+## Data collection and preparation
+We first will collect the global and phospho-proteomics abundance data as well
+as the metadata from synapse. The data files are located at:
+https://www.synapse.org/Synapse:syn70987742
+
+```{r import-data, results='hide'}
+# opening synapse connection
+tmp <- synapser::synLogin(silent = TRUE)
+
+# getting phospho-proteomics abundance data
+synapseFileID = "syn74589783"
+fileEntity <- synapser::synGet(synapseFileID)
+phospho_dat <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
+  )
+
+# metadata ingest
+synapseFileID <- "syn74755705"
+fileEntity <- synapser::synGet(synapseFileID)
+meta_data_raw <- readxl::read_xlsx(fileEntity$path, sheet = 2)
+
+# closing synpase conncetion
+tmp <- synapser::synLogout()
+```
+Next we do some cleanup of the column names in the global proetomics and
+phosphosite abundance data files to align the column names with the sample ids
+in the metadata file. This step is necessary such that we can successfully
+generate a `SummarizedExperiment` object further down the line.
+
+```{r sample-id-cleanup, eval=TRUE}
+# cleaning up the column names for the phospho-proteomics data
+names(phospho_dat) <- names(phospho_dat) %>% 
+  gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\PhosphoRawData\\\\", "", .) %>% 
+  gsub("_20Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
+  gsub("^[0-9]*_", "", .)
+
+
+```
+
+Next we clean up and prepare the metadata for `SummarizedExperiment` object
+generation. The main 2 steps here are:
+
+- cleaning up the column names
+- adding a new coulmns for replicates (to distinguish individual samples of the 
+  same type) and combining treatment agent, timepoint and replicate
+
+```{r meta-data-prep}
+new_col_names <- c(sample = 'Sample ID \r\n(abbrev)',
+                   global_sample_id = "Proteomics Sample ID",
+                   phospho_sample_id = "Phosphoproteomics Sample ID",
+                   agent = "Drug",
+                   timepoint = "Time",
+                   plate = "Plate"
+                   )
+
+meta_data_raw %<>%
+  rowwise() %>%
+  mutate(Drug = gsub(" ", "", Drug), Time = paste0(Time, "hr")) %>%
+  mutate(group = paste(Time, Drug, sep = "_")) %>%
+  group_by(group) %>%
+  mutate(replicate = paste0('r', 1:n())) %>%
+  mutate(condition = paste(Time, Drug, replicate, sep='_')) %>%
+  dplyr::rename(., all_of(new_col_names)) %>%
+  ungroup()
+
+meta_data_global <- meta_data_raw %>%
+  select(., global_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = global_sample_id)
+
+meta_data_phospho <- meta_data_raw %>%
+  select(., phospho_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = phospho_sample_id)
+
+meta_data <- list(
+  "global" = meta_data_global,
+  "phospho" = meta_data_phospho
+)
+```
+
+
+## Differential expression analysis parameter sweep
+
+First we want to evaluate the missingness options to see how they alter the
+differential expression and pathways. 
+
+```{r diff-ex-parameter-sweep, message=FALSE, warning=FALSE, error = FALSE}
+missingness_cutoff = 0
+samp_cutoff = 0
+imputation_method = "none"
+
+agents <- unique(meta_data_raw$agent)
+controls <- c("Water", "DMSO")
+agents <- agents[!agents %in% controls & !agents == 'Ola']
+timepoints = c("8hr", "24hr", "48hr")
+prot_type = 'phospho'
+
+
+logfc = .5
+pval = 0.05
+
+experiment <- prep_experiment_data(
+  phospho_dat,
+  data_type = 'phospho',
+   meta_data_phospho,
+  missingness_cutoff,
+  samp_cutoff,
+  imputation_method
+  )
+
+##one table for diffex diffex stats, one for enrichment
+all_diff_ex <- tibble()
+
+for (mc in c(0,0.1, 0.25,0.5)) { ##what fraction of the samples have a feature?
+  for (sc in c(0, 0.1, 0.25, 0.5)) { ##what fraction of the features have a sample measuremtent? 
+    for (im in c('SampMin','means')) {
+      for (agent in agents) {
+        for (timepoint in timepoints){
+          ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+          group_1 = paste0(timepoint, "_", ctrl)
+          group_2 = paste0(timepoint, "_", agent)
+          plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+          experiment_subset <- exp_subset(experiment, agent, timepoint) |>#)experiment[, experiment$plate == plate_sel]|>
+              filter_for_sample_cutoff(sc) |>
+              filter_for_feature_missingness(mc) |>
+              impute_proteomics(imputation_method = im) 
+  
+          align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
+                       no = "Protein.With.Phospho.Site")
+          diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
+                        align_by=align_by_group) 
+          ##getting stats
+          sig_diff <- as.tibble(rowData(diff_ex))|>
+            dplyr::select(Feature = 'Gene.With.Phospho.Site','logFC','adj.P.Val') |>
+            subset(abs(logFC) > logfc) |>
+            subset(adj.P.Val<pval) 
+          n_up = subset(sig_diff, logFC>0) |>nrow()
+          n_down = subset(sig_diff, logFC<0) |>nrow()
+          
+          stat_list <- tibble(exp=list(diff_ex), #yes i'm embedding an object in a table for leapR i hate it
+                            agent = agent, 
+                            timepoint = timepoint, 
+                            missing = mc, 
+                            sample = sc, 
+                            imputation = im,
+                            up_features = n_up,
+                            down_features = n_down)
+         all_diff_ex <- rbind(all_diff_ex, stat_list)
+        }
+      }
+    }
+  }
+}
+
+```
+
+Now that we have one master table of all diffex calls across parameters, we can
+plot the number of features we get for each time point and sample
+
+
+### Plot across parameters
+
+First we get the diffex stats and plot
+```{r diffex stats}
+
+
+all_diff_ex |> 
+  subset(imputation=='means') |>
+  mutate(df = -1 * down_features) |>
+  tidyr::pivot_longer(c(up_features, df), names_to='dir', values_to='features') |>
+  ggplot(aes(x=timepoint, y=features, fill=agent, shape = imputation)) + 
+  geom_bar(stat='identity') +
+  facet_grid(missing~sample) + 
+    ggtitle("Means imputation")
+  
+  all_diff_ex |> 
+  subset(imputation=='SampMin') |>
+  mutate(df = -1 * down_features) |>
+  tidyr::pivot_longer(c(up_features, df), names_to='dir', values_to='features') |>
+  ggplot(aes(x=timepoint, y=features, fill=agent, shape = imputation)) + 
+  geom_bar(stat='identity') +
+  facet_grid(missing~sample) + 
+    ggtitle("sample minimum imputation")
+
+```
+From this we can make three conclusions:
+
+1. The Sample Minimum is the best imputation
+2. Filtering out features with only 25% pressent values (0.75) is too many for phospho, 
+we need to keep more missing values
+3. The 48 hour timepoint is likely the most informative. 
+
+Let's dive into the 48 hr timepoint while removing the three drugs that have a 
+huge response.
+
+```{r params}
+
+all_diff_ex |> 
+  mutate(df = -1 * down_features) |>
+  subset(imputation == 'SampMin')|>
+  subset(!agent%in%c('CAP','DOXO','IAG')) |>
+  tidyr::pivot_longer(c(up_features, df), names_to='dir', values_to='features') |>
+  subset(timepoint == '48hr') |>
+  ggplot(aes(x=missing, y=features, fill=agent, shape = imputation)) + 
+  geom_bar(stat='identity', position = 'dodge') +
+  facet_grid(~sample)
+
+
+```
+from this it looks like we should not filter for sample missingness at all...
+
+### Pathway enrichment across parameters
+Now we can see how many pathways are enriched across parameters.
+
+I first create three helper functions to evaluate differences in substrate 
+distribution, up-regulation, and down-regulation. 
+
+```{r load-geneset, results='hide'}
+data("kinasesubstrates")
+
+ppval <- 0.1
+
+##create function to call leapR
+get_leapr_order <- function(exp,
+                          geneset=kinasesubstrates,
+                          id_column="Gene.With.Phospho.Site"){
+  res <- data.frame()
+  try(
+    res <- leapR(
+      geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_order",
+    #  method = 'ztest',
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "logFC") |>
+      tibble::rownames_to_column('feature')
+      )
+  return(res)
+}
+
+get_leapr_sig <- function(exp,
+                          geneset = kinasesubstrates,
+                          id_column ='Genes'){
+    res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "adj.P.Val",
+        threshold = 0.05,
+      greaterthan = FALSE) |>
+      tibble::rownames_to_column('feature')
+  )
+  return(res)
+}
+
+get_leapr_sets_down <- function(exp,
+                          geneset=kinasesubstrates,
+                          id_column="Gene.With.Phospho.Site"){
+  res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "logFC",
+        threshold = -.5,
+      greaterthan = FALSE) |>
+      tibble::rownames_to_column('feature')
+  )
+  return(res)
+}
+
+get_leapr_sets_up <- function(exp,
+                          geneset=kinasesubstrates,
+                          id_column="Gene.With.Phospho.Site"){
+  res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "logFC",
+        threshold = .5,
+      greaterthan = TRUE)  |>
+      tibble::rownames_to_column('feature')
+      )
+  return(res)
+}
+
+get_sig_feats <- function(res, ppval = 0.1){
+    subset(res,BH_pvalue < ppval) |>
+    nrow()
+}
+
+```
+
+Now we cycle through the parameters again and calculate the differentially
+enriched kinases. 
+
+## Phospho kinase enrichment
+
+Here we look at how many kinases are enriched using three approaches:
+1. Enrichment in order/ks test
+2. how many kinases have increased activity
+3. how many kinases have decreased activity
+
+This takes a while. 
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE, error=FALSE}
+
+prot_type <- "phospho"
+id_column <- "Gene.With.Phospho.Site"
+geneset <- kinasesubstrates
+
+##let's run all the enrichment
+dp <- all_diff_ex |>
+  subset(missing != 0.75) |>
+  subset(imputation == 'SampMin') |>
+  rowwise() |>
+  mutate(kinEnrichOrder = list(get_leapr_order(exp))) |>
+  rowwise() |>
+  mutate(kinEnrichUp = list(get_leapr_sets_up(exp))) |>
+  rowwise() |>
+  mutate(kinEnrichDown = list(get_leapr_sets_down(exp)))
+
+##then get all the counts we need
+
+dp <- dp |>
+  rowwise() |>
+  mutate(numpathsOrder = get_sig_feats(kinEnrichOrder)) |>
+  rowwise() |>
+  mutate(numPathsSetUp = get_sig_feats(kinEnrichUp)) |>
+  rowwise() |>
+  mutate(numPathsSetDown = get_sig_feats(kinEnrichDown))
+
+```
+
+
+Now we have calculated the number of kinases and can plot across various parameters
+
+```{r plot path enrichment}
+
+dp |>
+  ggplot(aes(x = timepoint, y = numpathsOrder, fill = agent)) +
+  geom_bar(stat = 'identity',position = 'dodge') +
+  facet_grid(sample ~ missing) +
+  ggtitle('Enriched kinases in order')
+
+
+dp |>
+  ggplot(aes(x = timepoint, y = numPathsSetUp, fill = agent)) +
+  geom_bar(stat = 'identity',position = 'dodge') +
+  facet_grid(sample ~ missing) +
+  ggtitle('Enriched kinases in up-regulated')
+
+dp |>
+  ggplot(aes(x = timepoint, y = numPathsSetDown, fill = agent)) +
+  geom_bar(stat = 'identity',position = 'dodge') +
+  facet_grid(sample ~ missing) +
+  ggtitle('Enriched kinases in down-regulated')
+```
+## Chosen parameters: 50 % missing features, 50% missing samples
+
+Now that we have those parameters dialed in we can evaluate the time points
+
+```{r plot sig kinases, echo=FALSE, message=FALSE}
+  
+  rp <- subset(dp, missing == 0.25) |>
+   subset(imputation == 'SampMin') |>
+   subset(sample == 0.25)
+  
+full_tab <- do.call(rbind, lapply(unique(rp$agent), function(ag) {
+  ap <- subset(rp, agent == ag)
+  
+  tab <- format_enrich_result(
+    ap$kinEnrichOrder,  #list of enrichment results
+    ap$timepoint, #list of timepoints
+    ag,
+    pval_thresh = 0.05)
+  p <- plot_enrich_result(
+   tab,
+     ap$exp, #list of differential expression results
+   ap$kinEnrichOrder,
+    agent = ag,
+    fmapping = 'Gene.With.Phospho.Site')
+  print(p)
+  return(tab)
+}))
+
+##ploting params
+tps <- full_tab |>
+  group_by(feature) |>
+  summarize(meanz = mean(zscore)) |>
+  arrange(rev(meanz))
+  
+forder <- unique(tps$feature)
+torder <- c('8hr','24hr','48hr')
+full_tab$timepoint <- factor(full_tab$timepoint, levels = torder)
+
+readr::write_csv(full_tab, 'mn2_phospho_enrichment_results.csv')
+
+maxz = max(abs(full_tab$zscore))
+ggplot(full_tab, aes(y = feature, x = agent, color = zscore, size = -log10(pval))) +
+   geom_point() +
+   ggplot2::scale_y_discrete(limits = forder) +
+  # ggplot2::scale_x_discrete(limits = torder) +
+   scale_color_gradient2(low="#2266bb",high="#cc3311", mid="lightgrey",
+                         limits=c(-maxz, maxz)) +
+   theme_minimal(base_size=12) +
+  facet_grid(~timepoint) +
+   geom_point(data = subset(full_tab, sig), col = "black", stroke = 1, shape = 21) +
+    theme(axis.title=element_blank(), 
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1)) + 
+  ggtitle('MN2 Phosphoproteomic enrichment')
+
+ggsave('allKinEnrichment.pdf')
+```

@@ -91,8 +91,8 @@ clean the data. This consits of several steps:
 
 ```{r prep-data}
 experiment <- prep_prot_data(proteomicsData, proteomicsMeta, type = 'global', missingness_cutoff = 0) %>%
-  log_transform(., assay = "proteomics") %>%
-  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+  log_transform(.) %>%
+  impute_proteomics(., imputation_method = "SampMin")
 ```
 
 ## Differential Expression analysis
@@ -147,9 +147,9 @@ both agent as well as timepoint.
 ### PCA after removal of features with >50% missingness
 
 ```{r}
-experiment <- prep_global_prot_data(proteomicsData, proteomicsMeta, 0.5) %>%
-  log_transform(., assay = "proteomics") %>%
-  impute_proteomics(., assay = "proteomics", imputation_method = "SampMin")
+experiment <- prep_prot_data(proteomicsData, proteomicsMeta, type='global', 0.5) %>%
+  log_transform(.) %>%
+  impute_proteomics(., imputation_method = "SampMin")
 
 principal_components <- prcomp(t(assay(experiment))) %$%
   cbind(x, colData(experiment))
@@ -445,3 +445,78 @@ plot_leapr_bar(early_rank,'Top pathways at 24h')
 
 At some point we should dive into why this is the case - not a lot of agreement between
 order-based and set-based enrichment. 
+
+Lastly let's compare with the MN2 data, so make sure the MN2 analysis ran first!
+
+```{r mn2 comparison}
+
+###THESE TWO FILES WERE WRITTEN BY mn2_global_params.Rmd
+mn2_global <- readr::read_csv('mn2_global_enrichment_results.csv')
+hgs <- leapR::read_gene_sets('hallmarks.gmt')
+hgs$matrix <- t(hgs$matrix) ##why are we always backward shere? 
+
+late_rank <- leapR(geneset = hgs, eset = dmso_mirda_48h, enrichment_method = "enrichment_in_order", assay_name = 'proteomics', id_column = "Genes",
+      primary_columns = "logFC") |>
+  suppressWarnings()
+
+plot_leapr_bar(late_rank,'Top pathways at 48h')
+
+early_rank <- leapR(geneset = hgs, eset = dmso_mirda_24h, enrichment_method = "enrichment_in_order", assay_name = 'proteomics', id_column = "Genes",
+      primary_columns = "logFC") |>
+  suppressWarnings()
+
+plot_leapr_bar(early_rank,'Top pathways at 24h')
+
+edf <- early_rank |>
+  tibble::rownames_to_column('feature') |>
+  dplyr::select(feature, zscore, pval = 'BH_pvalue') |>
+  mutate(agent = 'Mirda', timepoint = '24hr', sig=FALSE)
+
+edf$sig[which(edf$pval < 0.05)] <- TRUE
+
+ldf <-  late_rank |>
+  tibble::rownames_to_column('feature') |>
+  dplyr::select(feature, zscore, pval = 'BH_pvalue') |>
+  mutate(agent = 'Mirda', timepoint = '48hr', sig=FALSE)
+
+ldf$sig[which(ldf$pval < 0.05)] <- TRUE
+
+jhu_full <- rbind(edf, ldf) |>
+    rowwise() |>
+  mutate(pathway = gsub("HALLMARK_","",feature)) |>
+  mutate(pathway = tolower(gsub('_',' ', pathway))) |>
+  mutate(sample = 'JHU-2-079c')
+
+both_samps <- mn2_global |>
+  mutate(sample = 'MN2') |>
+  rbind(jhu_full) |>
+  subset(agent=='Mirda')
+
+
+tps <- both_samps|>
+  group_by(pathway) |>
+  summarize(meanz = mean(zscore)) |>
+  arrange(rev(meanz))
+  
+forder <- unique(tps$pathway)
+torder <- c('8hr','24hr','48hr')
+both_samps$timepoint <- factor(both_samps$timepoint, levels = torder)
+
+
+
+maxz = max(abs(both_samps$zscore))
+ggplot(both_samps, aes(y = pathway, x = timepoint, color = zscore, size = -log10(pval))) +
+   geom_point() +
+   ggplot2::scale_y_discrete(limits = forder) +
+  # ggplot2::scale_x_discrete(limits = torder) +
+   scale_color_gradient2(low="#2266bb",high="#cc3311", mid="lightgrey",
+                         limits=c(-maxz, maxz)) +
+   theme_minimal(base_size=12)+
+   geom_point(data = subset(both_samps, sig), col = "black", stroke = 1, shape = 21) +
+    facet_grid(~sample)+
+   theme(axis.title=element_blank(), 
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1))+
+  ggtitle("Combined Global proteomic pathways")
+
+ggsave('two_sample_mirda.png',width=8)
+```

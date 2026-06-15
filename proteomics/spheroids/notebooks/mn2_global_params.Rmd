@@ -1,0 +1,501 @@
+---
+title: "Global Timepoint Comparison"
+author:
+- name: Yannick Mahlich
+  affiliation: Pacific Northwest National Laboratory
+- name: Sara Gosline
+  affiliation: Pacific Northwest National Laboratory
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    df_print: paged
+ # pdf_document:
+#    toc: false
+  html_notebook:
+    toc: true
+---
+
+## Library & Data import
+
+The notebook itself relies on a number of R libraries to import and analyze the
+proteomics data. Library imports are not shown here, but include packages like:
+
+- synapser
+- readxl
+- limma
+
+```{r imports, echo=FALSE, results='hide', warning = FALSE, message = FALSE}
+library(synapser)
+library(readxl)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
+library(ggrepel)
+library(magrittr)
+library(gridExtra)
+library(ggalluvial)
+library(sva)
+library(msigdbr)
+```
+
+```{r sourcing-cross-notebook-functions, results='hide'}
+source('../src/helper_funcs.R')
+```
+
+
+## Data collection and preparation
+We first will collect the global and phospho-proteomics abundance data as well
+as the metadata from synapse. The data files are located at:
+https://www.synapse.org/Synapse:syn70987742
+
+```{r import-data, results='hide'}
+# opening synapse connection
+tmp <- synapser::synLogin(silent = TRUE)
+
+# getting the global proteomics abundance data
+synapseFileID = "syn74552028"
+fileEntity <- synapser::synGet(synapseFileID)
+global_dat <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
+  )
+
+
+
+# metadata ingest
+synapseFileID <- "syn74755705"
+fileEntity <- synapser::synGet(synapseFileID)
+meta_data_raw <- readxl::read_xlsx(fileEntity$path, sheet = 2)
+
+# closing synpase conncetion
+tmp <- synapser::synLogout()
+```
+Next we do some cleanup of the column names in the global proetomics and
+phosphosite abundance data files to align the column names with the sample ids
+in the metadata file. This step is necessary such that we can successfully
+generate a `SummarizedExperiment` object further down the line.
+
+```{r sample-id-cleanup, eval=TRUE}
+
+# cleaning up the column names for the global proteomics data
+names(global_dat) <- names(global_dat) %>% 
+  gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\rawdata\\\\", "", .) %>% 
+  gsub("_16Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
+  gsub("^[0-9]*_", "", .)
+
+
+
+
+```
+
+Next we clean up and prepare the metadata for `SummarizedExperiment` object
+generation. The main 2 steps here are:
+
+- cleaning up the column names
+- adding a new coulmns for replicates (to distinguish individual samples of the 
+  same type) and combining treatment agent, timepoint and replicate
+
+```{r meta-data-prep}
+new_col_names <- c(sample = 'Sample ID \r\n(abbrev)',
+                   global_sample_id = "Proteomics Sample ID",
+                   phospho_sample_id = "Phosphoproteomics Sample ID",
+                   agent = "Drug",
+                   timepoint = "Time",
+                   plate = "Plate"
+                   )
+
+meta_data_raw %<>%
+  rowwise() %>%
+  mutate(Drug = gsub(" ", "", Drug), Time = paste0(Time, "hr")) %>%
+  mutate(group = paste(Time, Drug, sep = "_")) %>%
+  group_by(group) %>%
+  mutate(replicate = paste0('r', 1:n())) %>%
+  mutate(condition = paste(Time, Drug, replicate, sep='_')) %>%
+  dplyr::rename(., all_of(new_col_names)) %>%
+  ungroup()
+
+meta_data_global <- meta_data_raw %>%
+  select(., global_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = global_sample_id)
+
+meta_data_phospho <- meta_data_raw %>%
+  select(., phospho_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = phospho_sample_id)
+
+meta_data <- list(
+  "global" = meta_data_global,
+  "phospho" = meta_data_phospho
+)
+```
+
+
+
+
+
+## Differential expression analysis parameter sweep
+
+
+First we want to evaluate the missingness options to see how they alter the
+differential expression and pathways. 
+
+```{r diff-ex-parameter-sweep, eval=TRUE}
+missingness_cutoff = 0
+samp_cutoff= 0
+imputation_method = "none"
+
+agents <- unique(meta_data_raw$agent)
+controls <- c("Water", "DMSO")
+agents <- agents[!agents %in% controls & !agents == 'Ola']
+timepoints = c("8hr", "24hr", "48hr")
+
+prot_type = 'global'
+
+logfc = 0.5
+pval = 0.05
+
+experiment <- prep_experiment_data(
+  global_dat,
+  data_type = 'global',
+   meta_data_global,
+  missingness_cutoff,
+  samp_cutoff,
+  imputation_method
+  )
+
+##one table for diffex diffex stats, one for enrichment
+all_diff_ex <- tibble()
+
+for (mc in c(0,0.1,0.25,0.5)){ ##fraction of features that are present
+  for(sc in c(0.1, 0.25, 0.5)){ #fraction of samples that have a measuremetn
+    for( im in c('SampMin','means')){
+      for(agent in agents){
+        for(timepoint in timepoints){
+          ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
+          group_1 = paste0(timepoint, "_", ctrl)
+          group_2 = paste0(timepoint, "_", agent)
+          plate_sel <- unique(experiment[, experiment$group == group_2]$plate)
+          experiment_subset <- exp_subset(experiment, agent, timepoint) |>#)experiment[, experiment$plate == plate_sel]|>
+          filter_for_sample_cutoff(sc) |>
+          filter_for_feature_missingness(mc) |>
+          impute_proteomics(imputation_method = im)
+  
+          align_by_group <- ifelse(test = (prot_type == 'global'), yes = "Protein.Group",
+                       no = "Protein.With.Phospho.Site")
+          diff_ex <- calc_diff_ex(experiment_subset, group_1, group_2,
+                        align_by=align_by_group) 
+          ##getting stats
+          sig_diff <- as.tibble(rowData(diff_ex))|>
+           # dplyr::select(Feature = 'Gene','logFC','adj.P.Val') |>
+            subset(abs(logFC) > logfc) |>
+            subset(adj.P.Val < pval) 
+          n_up = subset(sig_diff, logFC > 0) |>nrow()
+          n_down = subset(sig_diff, logFC < 0) |>nrow()
+          
+          stat_list <- tibble(exp = list(diff_ex), #yes i'm embedding an object in a table for leapR i hate it
+                            agent = agent, 
+                            timepoint = timepoint, 
+                            missing = mc, 
+                            sample = sc, 
+                            imputation = im,
+                            up_features = n_up,
+                            down_features = n_down)
+         all_diff_ex <- rbind(all_diff_ex, stat_list)
+        }
+      }
+    }
+  }
+}
+
+```
+
+
+Now we can go ahead and plot the results
+
+
+### Plot across parameters
+
+First we get the diffex stats and plot
+```{r diffex stats}
+
+
+all_diff_ex |> 
+  subset(imputation=='means') |>
+  mutate(df = -1 * down_features) |>
+  tidyr::pivot_longer(c(up_features, df), names_to='dir', values_to='features') |>
+  ggplot(aes(x=timepoint, y=features, fill=agent, shape = imputation)) + 
+  geom_bar(stat='identity') +
+  facet_grid(missing~sample) + 
+    ggtitle("Means imputation")
+  
+  all_diff_ex |> 
+  subset(imputation=='SampMin') |>
+  mutate(df = -1 * down_features) |>
+  tidyr::pivot_longer(c(up_features, df), names_to='dir', values_to='features') |>
+  ggplot(aes(x=timepoint, y=features, fill=agent, shape = imputation)) + 
+  geom_bar(stat='identity') +
+  facet_grid(missing~sample) + 
+    ggtitle("sample minimum imputation")
+
+```
+
+Now we can refine our search based on what we see.
+
+
+
+### Pathway enrichment across parameters
+Now we can see how many pathways are enriched across parameters.
+
+I first create three helper functions to evaluate differences in substrate 
+distribution, up-regulation, and down-regulation. 
+
+```{r load-geneset, results='hide'}
+data("ncipid")
+
+ppval <- 0.05
+
+hoc <- msigdbr::msigdbr(collection = "H")
+
+df_to_gmt_long <- function(df, gene_col, pathway_col, output_file) {
+  # Split the genes into a list based on their pathway
+  gene_lists <- split(df[[gene_col]], df[[pathway_col]])
+  
+  # Open the file and write each pathway as a tab-separated line
+  con <- file(output_file, "w")
+  for (pathway in names(gene_lists)) {
+    genes <- unique(gene_lists[[pathway]])
+    line <- c(pathway, "null", genes)
+    writeLines(paste(line, collapse = "\t"), con)
+  }
+  close(con)
+}
+
+df_to_gmt_long(hoc, 'gene_symbol','gs_name','hallmarks.gmt')
+
+hgs <- leapR::read_gene_sets('hallmarks.gmt')
+hgs$matrix <- t(hgs$matrix) ##why are we always backward shere? 
+##create function to call leapR
+get_leapr_order <- function(exp,
+                          geneset=ncipid,
+                          id_column="Genes"){
+  res <- data.frame()
+  try(
+    res <- leapR(
+      geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_order",
+      assay_name = 'proteomics',
+      id_column = id_column,
+     # method = 'ztest',
+      primary_column = "logFC") |>
+      tibble::rownames_to_column('feature')
+      )
+  return(res)
+}
+
+
+get_leapr_sig <- function(exp,
+                          geneset = ncipid,
+                          id_column ='Genes'){
+    res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "adj.P.Val",
+        threshold = 0.05,
+      greaterthan = FALSE) |>
+      tibble::rownames_to_column('feature')
+  )
+  return(res)
+}
+get_leapr_sets_down <- function(exp,
+                          geneset=ncipid,
+                          id_column="Genes"){
+  res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "logFC",
+        threshold = -1,
+      greaterthan = FALSE) |>
+      tibble::rownames_to_column('feature')
+  )
+  return(res)
+}
+
+get_leapr_sets_up <- function(exp,
+                          geneset=ncipid,
+                          id_column="Genes"){
+  res <- data.frame()
+  try(res <- leapR(
+        geneset = geneset,
+      eset = unlist(exp),
+      enrichment_method = "enrichment_in_sets",
+      assay_name = 'proteomics',
+      id_column = id_column,
+      primary_column = "logFC",
+        threshold = 1,
+      greaterthan = TRUE)  |>
+      tibble::rownames_to_column('feature')
+      )
+  return(res)
+}
+
+get_sig_feats <- function(res, ppval = 0.1){
+    subset(res,BH_pvalue < ppval) |>
+    nrow()
+}
+
+```
+
+Now we cycle through the parameters again and calculate the differentially
+enriched kinases. 
+
+## Global pathway enrichment
+
+Here we look at how many kinases are enriched using three approaches:
+1. Enrichment in order/ks test
+2. how many pathways have increased activity
+3. how many pathways have decreased activity
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE, error=FALSE}
+
+prot_type <- "global"
+id_column <- "Genes"
+
+
+##let's run all the enrichment
+dp <- all_diff_ex |>
+#  subset(missing != 0.75) |>
+  subset(imputation == 'SampMin') |>
+  rowwise() |>
+  mutate(pathEnrichOrder = list(get_leapr_order(exp, geneset=hgs))) |>
+  rowwise() |>
+  mutate(pathEnrichPval = list(get_leapr_sig(exp, geneset=hgs)))
+
+##then get all the counts we need
+
+dp <- dp |>
+  rowwise() |>
+  mutate(numpathsOrder = get_sig_feats(pathEnrichOrder)) |>
+  rowwise() |>
+  mutate(pathEnrichPval = get_sig_feats(pathEnrichPval))
+
+
+```
+
+
+Now we have calculated the number of kinases and can plot across various parameters
+
+```{r plot path enrichment}
+
+dp |>
+  ggplot(aes(x=timepoint, y = numpathsOrder, fill = agent))+
+  geom_bar(stat='identity',position = 'dodge')+
+  facet_grid(sample~missing) +
+  ggtitle('Enriched pathways in order')
+
+
+dp |>
+  ggplot(aes(x=timepoint, y = pathEnrichPval, fill = agent))+
+  geom_bar(stat='identity',position = 'dodge')+
+  facet_grid(sample~missing) +
+  ggtitle('Enriched pathways significant')
+
+```
+
+## Known global targets
+
+For some genes there is a clear response
+
+
+```{r knwon mirda targs}
+
+down_genes <- c("DUSP4", "DUSP6", "SPRY2", "SPRY4", "ETV4", "ETV5", "CCND1", "CDK5R1", "DDX21", "NGFR", "BCL3", "STK17B")
+
+  plot_features_across_timepoints(experiment,
+                                 agent = 'Mirda',
+                                  features=down_genes,
+                                  timepoints = c('8hr','24hr','48hr'),
+                                  ftype =  'Genes',
+                                  fmapping = 'Genes') +
+   ggtitle('Mirda targs')
+  
+```
+Next we can plot hte pathways at each time point. It seems that no filtering is needed for these datsets.
+
+
+```{r plot enriched pathways, warning=FALSE}
+
+ rp <- subset(dp, missing == 0.5) |>
+   subset(imputation == 'SampMin') |>
+   subset(sample == 0.5)
+  
+full_tab <- do.call(rbind, lapply(unique(rp$agent), function(ag) {
+  ap <- subset(rp, agent == ag)
+  
+  tab <- format_enrich_result(
+    ap$pathEnrichOrder,  #list of enrichment results
+    ap$timepoint, #list of timepoints
+    ag,
+    pval_thresh = 0.1)
+  
+  if(nrow(tab) > 0) {
+  p <- plot_enrich_result(
+   tab,
+     ap$exp, #list of differential expression results
+   ap$pathEnrichOrder,
+    agent = ag,
+    fmapping = 'Genes')
+  print(p)
+  }
+  return(tab)
+}))
+
+full_tab <- full_tab|>
+  rowwise() |>
+  mutate(pathway = gsub("HALLMARK_","",feature)) |>
+  mutate(pathway = tolower(gsub('_',' ', pathway)))
+
+##ploting params
+tps <- full_tab|>
+  group_by(pathway) |>
+  summarize(meanz = mean(zscore)) |>
+  arrange(rev(meanz))
+  
+forder <- unique(tps$pathway)
+torder <- c('8hr','24hr','48hr')
+full_tab$timepoint <- factor(full_tab$timepoint, levels = torder)
+
+
+
+maxz = max(abs(full_tab$zscore))
+ggplot(full_tab, aes(y = pathway, x = agent, color = zscore, size = -log10(pval))) +
+   geom_point() +
+   ggplot2::scale_y_discrete(limits = forder) +
+  # ggplot2::scale_x_discrete(limits = torder) +
+   scale_color_gradient2(low="#2266bb",high="#cc3311", mid="lightgrey",
+                         limits=c(-maxz, maxz)) +
+   theme_minimal(base_size=12)+
+  facet_grid(~timepoint)+
+   geom_point(data = subset(full_tab, sig), col = "black", stroke = 1, shape = 21) +
+   theme(axis.title=element_blank(), 
+        axis.text.x=element_text(angle=45, vjust=1, hjust=1))+
+  ggtitle("MN2 Global proteomic pathways")
+
+readr::write_csv(full_tab, 'mn2_global_enrichment_results.csv')
+ggsave('allPathEnrichment.pdf',width=12,height=8)
+
+
+```
