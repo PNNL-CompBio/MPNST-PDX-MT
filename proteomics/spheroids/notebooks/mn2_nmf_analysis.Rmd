@@ -33,6 +33,7 @@ library(SummarizedExperiment)
 library(ggrepel)
 library(magrittr)
 library(NMF)
+library(purrr)
 ```
 
 
@@ -285,6 +286,7 @@ annotation <- colData(exp)[['agent']]
 # plotting the consensus heatmap
 consensusmap(res, annCol=annotation)
 ```
+Next we can extract the meta genes and coefficients.
 
 ```{r}
 # Extracting W (meta_genes) & H (coefficients)
@@ -293,18 +295,24 @@ coefficients_matrix <- coef(res)
 ```
 
 
-```{r}
-scores <- featureScore(res)
-summary(scores)
-```
+Finally we can extract the features that are part of each metagene
 
 ```{r}
+# extract the features for the NMF result
 features <- extractFeatures(res)
-features
+
+# the result from `extractFeatures` returns a list of meta genes where each
+# metagene in itself is a list of indices corresponding to the rows in W.
+# We can retrieve the actual feature names by mapping back to the rownames of W.
+features_mapped <- features %>% map(~ map_vec(.x, ~rownames(meta_genes)[.x]))
+
+# Return the now mapped / named feature lists (1 per meta_gene)
+features_mapped
 ```
 
 
-```{r}
+
+```{r eval=FALSE}
 # this does effectively the same thing as above but does a rank sweep
 estimate_rank <- nmf(exp_assay, 2:6, nrun=10)
 plot(estimate_rank)
