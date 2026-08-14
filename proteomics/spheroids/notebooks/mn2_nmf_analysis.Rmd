@@ -269,11 +269,27 @@ exp <- experiments_phospho[, experiments_phospho$plate == 1]
 # TODO: we probably want to exclude the rows that are entirely 0s (after plate subsetting)
 exp_assay <- assay(exp)
 
+# Here we are doing a rank sweep to find the optimal rank
+# the second argument can be defined as a range (in this case 2-6) and will run
+# NMF for each rank
+# 
+# nrun defines how often the NMF is rerun and a consensus is built to generate
+# stable results. For demonstration this is currently set to 10 but really
+# should be 50-100 (maybe even higher?)
+nrun <- 10
+estimate_rank <- nmf(exp_assay, 2:6, nrun=nrun)
+plot(estimate_rank)
+
+```
+Using the rank survey (above) we can see that rank 4 should yield be "best" results.
+Hence we will set the rank to 4 and rerun NMF to extract the metagenes.
+```{r}
 # running the actual NMF
 # nrun runs NMF n times and chooses the "best"
-res <- nmf(exp_assay, rank=5, nrun=5)
-```
 
+rank <- 4
+res <- nmf(exp_assay, rank=rank, nrun=nrun)
+```
 
 ```{r}
 # consensus(res) extracts the consensus matrix from the NMF results / model object
@@ -312,18 +328,15 @@ features_mapped
 
 Now we can do the same thing dynamically for other plates with the functions
 defined in `src/helper_funcs.R`.
+In theory the rank analysis should be rerun for each plate individually, but for
+demonstration purposes we will just leave it at 4.
 
 ```{r}
 
-res <- nmf_per_plate(experiments_phospho, plate=2, rank=5)
+res <- nmf_per_plate(experiments_phospho, plate=2, rank, nrun)
 features <- get_features(res)
 features[1]
 ```
 
-```{r eval=FALSE}
-# this does effectively the same thing as above but does a rank sweep
-estimate_rank <- nmf(exp_assay, 2:6, nrun=10)
-plot(estimate_rank)
-consensusmap(estimate_rank)
-```
+
 
