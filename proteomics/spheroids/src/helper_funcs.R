@@ -1,6 +1,8 @@
 
-
 library(rstatix)
+library(NMF)
+
+
 log_transform <- function(experiment,
                           assay = "proteomics"){
 
@@ -905,4 +907,22 @@ plot_enrich_result <- function(all.kin,
     p2 <- NULL
   }
   return(c(p1, p2))
+}
+
+
+nmf_per_plate <- function(experiment, plate, rank, nrun = 5){
+
+  # retrieve plate
+  exp <- tmp_exp[, tmp_exp$plate == plate]
+  exp_assay <- assay(exp)
+
+  res <- nmf(exp_assay, rank=rank, nrun=nrun)
+  res
+}
+
+get_features <- function(res){
+  meta_genes <- basis(res)
+  features <- extractFeatures(res)
+  features_mapped <- features %>% map(~ map_vec(.x, ~rownames(meta_genes)[.x]))
+  features_mapped
 }

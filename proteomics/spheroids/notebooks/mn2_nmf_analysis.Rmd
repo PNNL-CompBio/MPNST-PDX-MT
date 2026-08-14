@@ -260,10 +260,10 @@ the `Assay` object inside of the `SummarizedExperiment` as input.
 
 ```{r}
 # getting only the phospho proteomics data
-tmp_exp <- experiments$phospho
+experiments_phospho <- experiments$phospho
 
 # for testing purposese retrieving only one plate
-exp <- tmp_exp[, tmp_exp$plate == 1]
+exp <- experiments_phospho[, experiments_phospho$plate == 1]
 
 # retrieve the phosphosite expression matrix
 # TODO: we probably want to exclude the rows that are entirely 0s (after plate subsetting)
@@ -310,7 +310,15 @@ features_mapped <- features %>% map(~ map_vec(.x, ~rownames(meta_genes)[.x]))
 features_mapped
 ```
 
+Now we can do the same thing dynamically for other plates with the functions
+defined in `src/helper_funcs.R`.
 
+```{r}
+
+res <- nmf_per_plate(experiments_phospho, plate=2, rank=5)
+features <- get_features(res)
+features[1]
+```
 
 ```{r eval=FALSE}
 # this does effectively the same thing as above but does a rank sweep
