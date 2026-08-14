@@ -1,0 +1,313 @@
+---
+title: "MN2 global proteomics exploration with Non-negative Matrix Factorization"
+author:
+- name: Yannick Mahlich
+  affiliation: Pacific Northwest National Laboratory
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    df_print: paged
+ # pdf_document:
+#    toc: false
+  html_notebook:
+    toc: true
+---
+
+```{r sourcing-cross-notebook-functions, results='hide'}
+source('../src/helper_funcs.R')
+```
+
+```{r imports, echo=FALSE, results='hide'}
+library(synapser)
+library(readxl)
+library(readr)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
+library(ggrepel)
+library(magrittr)
+library(NMF)
+```
+
+
+## Data collection and preparation
+We first will collect the global and phospho-proteomics abundance data as well
+as the metadata from synapse. The data files are located at:
+https://www.synapse.org/Synapse:syn70987742
+
+```{r import-data, results='hide'}
+# opening synapse connection
+tmp <- synapser::synLogin(silent = TRUE)
+
+# getting the global proteomics abundance data
+synapseFileID = "syn74552028"
+fileEntity <- synapser::synGet(synapseFileID)
+global_dat <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
+  )
+
+# getting phospho-proteomics abundance data
+synapseFileID = "syn74589783"
+fileEntity <- synapser::synGet(synapseFileID)
+phospho_dat <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
+  )
+
+# metadata ingest
+synapseFileID <- "syn74755705"
+fileEntity <- synapser::synGet(synapseFileID)
+meta_data_raw <- readxl::read_xlsx(fileEntity$path, sheet = 2)
+
+# closing synpase conncetion
+tmp <- synapser::synLogout()
+```
+Next we do some cleanup of the column names in the global proetomics and
+phosphosite abundance data files to align the column names with the sample ids
+in the metadata file. This step is necessary such that we can successfully
+generate a `SummarizedExperiment` object further down the line.
+
+```{r sample-id-cleanup, eval=TRUE}
+
+# cleaning up the column names for the global proteomics data
+names(global_dat) <- names(global_dat) %>% 
+  gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\rawdata\\\\", "", .) %>% 
+  gsub("_16Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
+  gsub("^[0-9]*_", "", .)
+
+# cleaning up the column names for the phospho-proteomics data
+names(phospho_dat) <- names(phospho_dat) %>% 
+  gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\PhosphoRawData\\\\", "", .) %>% 
+  gsub("_20Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>% 
+  gsub("^[0-9]*_", "", .)
+
+
+prot_data <- list(
+  "global" = global_dat,
+  "phospho" = phospho_dat
+)
+
+```
+
+Next we clean up and prepare the metadata for `SummarizedExperiment` object
+generation. The main 2 steps here are:
+
+- cleaning up the column names
+- adding a new coulmns for replicates (to distinguish individual samples of the 
+  same type) and combining treatment agent, timepoint and replicate
+
+```{r meta-data-prep}
+new_col_names <- c(sample = 'Sample ID \r\n(abbrev)',
+                   global_sample_id = "Proteomics Sample ID",
+                   phospho_sample_id = "Phosphoproteomics Sample ID",
+                   agent = "Drug",
+                   timepoint = "Time",
+                   plate = "Plate"
+                   )
+
+meta_data_raw %<>%
+  rowwise() %>%
+  mutate(Drug = gsub(" ", "", Drug), Time = paste0(Time, "hr")) %>%
+  mutate(group = paste(Time, Drug, sep = "_")) %>%
+  group_by(group) %>%
+  mutate(replicate = paste0('r', 1:n())) %>%
+  mutate(condition = paste(Time, Drug, replicate, sep='_')) %>%
+  dplyr::rename(., all_of(new_col_names)) %>%
+  ungroup()
+
+meta_data_global <- meta_data_raw %>%
+  select(., global_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = global_sample_id)
+
+meta_data_phospho <- meta_data_raw %>%
+  select(., phospho_sample_id, condition, plate) %>%
+  dplyr::rename(., sample = phospho_sample_id)
+
+meta_data <- list(
+  "global" = meta_data_global,
+  "phospho" = meta_data_phospho
+)
+```
+
+As final perpartion we define a few bespoke helper functions that are only
+applicable to this dataset:
+
+```{r bespoke-helper-functions}
+
+prep_experiment_data <- function(
+    prot_data,
+    meta_data,
+    missingness_cutoff=0,
+    samp_cutoff = list(global = 0, phospho = 0),
+    imputation_method=c("none", 'SampMin', 'means', 'median'), 
+    batch_correct = FALSE
+    ){
+  
+  imputation_method_sel <- match.arg(imputation_method)
+  
+  if(!is.na(missingness_cutoff) & !(missingness_cutoff >=0 | missingness_cutoff <= 1)){
+    stop(
+      base::paste(
+        "missingness_cutoff needs to be '0 <= missingness_cutoff <=1'",
+        "or 'NULL'. Supplied value:", missingness_cutoff),
+      call. = FALSE
+    )
+  }
+  
+  experiments <- list()
+  for(data_type in c('global', 'phospho')){
+      
+    experiment <- prep_prot_data(proteomics_data = prot_data[[data_type]],
+                                 proteomics_meta = meta_data[[data_type]],
+                                 missingness_cutoff = missingness_cutoff,
+                                 samp_cutoff = samp_cutoff[[data_type]],
+                                 type = data_type, 
+                                 imputation_method=imputation_method_sel)
+    
+    if(imputation_method_sel == "none"){
+      experiment %<>%
+        log_transform(., assay = "proteomics")
+    }
+    
+    if(!(imputation_method_sel == 'none')){
+      experiment %<>% 
+        impute_proteomics(., assay = "proteomics", imputation_method_sel) %>%
+        log_transform(., assay = "proteomics")
+      
+    }
+    
+    if(batch_correct && imputation_method_sel != 'none'){
+      #first we have to remove zero hour beacuse it is confounded by batch
+      #experiment <- experiment[,-which(colData(experiment)$timepoint=='0hr')]
+      prot_matrix <- assay(experiment)
+      batch_var = colData(experiment)$plate
+      cond_var = colData(experiment)$agent
+      mod_matrix <- model.matrix(~ as.factor(agent), data = colData(experiment))
+      corrected_prot <- sva::ComBat(
+             dat = prot_matrix,
+             batch = batch_var,
+             mod = mod_matrix,
+             par.prior = FALSE
+              )
+    assay(experiment,withDimnames = FALSE) <- corrected_prot  
+
+      
+    }
+    experiments[[data_type]] <- experiment
+  }
+  
+  experiments
+}
+
+
+```
+
+
+## Data quality control
+
+As a first step we are doing some quality control & assessment for the global
+and phospho-proteomics data.
+To that end we are generating PCA plots for each of the plates that have been
+prepared and run through the Mass-spectrometry pipeline.
+Each plate contains 60 wells, each containing spheroids treated with a chemical
+agent where four wells each were pooled into one sample.
+
+In general each plate contains:
+
+- 4 chemical agents (3 samples each)
+- 1 control (DMSO - 3 samples each)
+- at one timepoint.
+
+We generate `SummarizedExperiment` objects for the global & phospho-proteomics
+data with *NO* missingness cut-off for feature removal and *Sample Minimum*
+*imputation*. The imputation step is necessary such that principal components
+can be extracted.
+
+```{r prep-data-for-PCA, eval=TRUE}
+
+missingness_cutoff = 0
+imputation_method = "SampMin"
+
+samp_cutoff = list(global = 0, phospho = 0)
+
+experiments <- prep_experiment_data(
+  prot_data,
+  meta_data,
+  missingness_cutoff,
+  samp_cutoff,
+  imputation_method,
+  # batch_correct = TRUE
+)
+
+
+```
+
+## Non-negative Matrix Factorization
+
+The `NMF` module contains functions to run NMF with a `matrix`, `data.frame` or 
+`ExpressionSet` as input. We are taking the `matrix` that is contained within 
+the `Assay` object inside of the `SummarizedExperiment` as input.
+
+
+
+```{r}
+# getting only the phospho proteomics data
+tmp_exp <- experiments$phospho
+
+# for testing purposese retrieving only one plate
+exp <- tmp_exp[, tmp_exp$plate == 1]
+
+# retrieve the phosphosite expression matrix
+# TODO: we probably want to exclude the rows that are entirely 0s (after plate subsetting)
+exp_assay <- assay(exp)
+
+# running the actual NMF
+# nrun runs NMF n times and chooses the "best"
+res <- nmf(exp_assay, rank=5, nrun=5)
+```
+
+
+```{r}
+# consensus(res) extracts the consensus matrix from the NMF results / model object
+# it effectively lists the "distance" between the coefficients (samples) based on the metagenes
+consensus_matrix <- consensus(res)
+
+# getting additional annotations (agent descriptors) for and additional labeling of the heatmap
+annotation <- colData(exp)[['agent']]
+
+# plotting the consensus heatmap
+consensusmap(res, annCol=annotation)
+```
+
+```{r}
+# Extracting W (meta_genes) & H (coefficients)
+meta_genes <- basis(res)
+coefficients_matrix <- coef(res)
+```
+
+
+```{r}
+scores <- featureScore(res)
+summary(scores)
+```
+
+```{r}
+features <- extractFeatures(res)
+features
+```
+
+
+```{r}
+# this does effectively the same thing as above but does a rank sweep
+estimate_rank <- nmf(exp_assay, 2:6, nrun=10)
+plot(estimate_rank)
+consensusmap(estimate_rank)
+```
+
