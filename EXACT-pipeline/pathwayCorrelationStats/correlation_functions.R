@@ -3,13 +3,14 @@
 mem.maxVSize(vsize = 32762*2)
 ################################### data
 
-library(synapser)
 library(GSVA)
 library(msigdbr)
 library(patchwork)
 library(data.table)
 library(dplyr)
 library(tidyr)
+##commented out for re-analysis
+library(synapser)
 synLogin()
 
 ##get sample data

@@ -14,39 +14,17 @@ library(tidyverse)
 library(ggplot2)
 library(synapser)
 synLogin()
-source("../pathwayChanges/plottingParameters.R")
-source("correlation_functions.R")
+source("pathwayChanges/plottingParameters.R")
+source("pathwayCorrelationStats/correlation_functions.R")
 
 ##get the transcript data, this is slow
 if (!exists('full_tmat'))
   full_tmat <- get_harmonized_gex()
+
 ```
 
 Here we want to look at the top-ranking drug combinations to see if we 
 can use the expression data to understand potential mechanisms.
-
-# Top-ranking drug combos
-
-We can look at the delta AUC scores for the samples for which we have gene expression
-data. We see six combinations with a dAUC above 1:
-
-```{r read daucs}
-daucs <- readr::read_csv(synGet('syn69978141')$path) |>
-  tidyr::separate(Combo, into = c('drug1','drug2'), sep='\\+', remove = FALSE)
-
-sing_gsea <- readr::read_csv("../pathwayChanges/GSEA_Hallmark_individual/GSEA_results_Hallmark.csv")|>
-  mutate(Feature_set = tolower(gsub("_",' ',Feature_set)))
-
-##get aucs fro gene xpression samples
-
-tab <- daucs |> subset(PDX %in% sing_gsea$MPNST) |>
-  group_by(drug1,drug2) |>
-  summarize(`mean dAUC` = mean(dAUC,na.rm = T)) |>
-  arrange(desc(`mean dAUC`)) |>
-  subset(`mean dAUC` > 1)
-tab
-readr::write_csv(tab,file='table2.csv')
-```
 
 ## Compute Pathway correlations with single agent AUCs
 
@@ -72,20 +50,26 @@ print('computing pathway/aUC correlation')
 
 sing_exp <- sing_exp |> mutate(expr_time = '0hr')
 
+
 cor_res <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
       rbind(compute_cor(sing_exp,tmat,drug,'0hr',48), 
            compute_cor(sing_exp,tmat,drug,'0hr',120) )
     })) #end drug iter
   
 
-cor_res |>
-  ggplot(aes(x = corval,col = drug)) + geom_density() +
-  scale_color_manual(values = drugCol) + 
-  theme_bw() + facet_grid(~ttime)
-
+cor_sig <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
+      rbind(compute_sig(sing_exp,tmat,drug,'0hr',48),
+            #compute_sig(sing_exp,tmat,drug,'24hr','48'),
+            compute_sig(sing_exp,tmat,drug,'0hr',120))
+            #compute_sig(sing_exp,tmat,drug,'24hr','120'))
+    })) #end drug iter
 ```
 
-```{r eval=FALSE full_transcript cor}
+### Compute correlation of genes with single AUCs
+
+THis is what we propose in grant
+
+```{r full_transcript cor, eval=FALSE}
 
 
 sing_exp <- sing_exp |> mutate(expr_time = '0hr')
@@ -106,39 +90,19 @@ cor_sig <- do.call(rbind,lapply(unique(sing_exp$drug), function(drug){
 merged_res <- cor_res |> left_join(cor_sig) |>
   subset(!drug %in% c('sn-38')) ##removing because we had too few samples
 
-cor_res |>
-  ggplot(aes(x = corval,col = drug)) + geom_density() +
-  scale_color_manual(values = drugCol) + 
-  theme_bw() + facet_grid(~ttime)
+##let's call a signature anything with sig <0.001 and corval < -.5
+dsigs <- subset(merged_res, sig<0.001) |> subset(corval<(-0.5))
 
+dsigs |> group_by(drug) |> summarize(ngenes=n_distinct(gene))
 ```
 
-Now let's see if we can get protein correlation
-```{r protein cor, eval=FALSE}
+## Look for genes in diffex genes (no time to finish)
 
+```{r get diffex}
 
-global.df <- read.table(synapser::synGet("syn65986566")$path, sep = "\t")
-phospho.df <- read.table(synapser::synGet("syn65986573")$path, sep = "\t")
-phospho.pep.df <- read.table(synapser::synGet("syn65986575")$path, sep = "\t")
+diffex_genes <- read.csv(synapser::synGet('syn64397743')$path) |>
+  select(-Version)
 
-# add column for feature names and later make it the first column
-global.df$Gene <- rownames(global.df)
-phospho.df$SUB_SITE <- rownames(phospho.df)
-phospho.pep.df$SUB_SITE <- rownames(phospho.pep.df)
-
- pres <- phospho.df 
- 
-pres <- pres|>
-     tidyr::separate(SUB_SITE, into=c('gene', 'site'), sep='-') |> 
-   tidyr::separate_longer_delim(site, delim=stringr::regex('s|t|y')) |> 
-   subset(site != "") |>
-   tidyr::unite(gene, site, col='SUB_SITE',sep = '-')
- 
- pres2 <- vapply(unique(pres$SUB_SITE), function(x)
-   colMeans(res[res$SUB_SITE==x,1:ncol(res)-1]), 
-   numeric(ncol(res)-1)) |>
-   t()
- 
 ```
 
 
@@ -170,21 +134,15 @@ subset(merged_res, sig < 0.05) |>
 
 
 
-```{r ssgsea bubble}
 
-bubble_plot(merged_res)
-ggsave('fig3a_t0_ssgseaCorrelation.pdf', height = 6,width = 12)
-
-```
-
-## Read in perturbed pathways and check for overlap
+## Read in perturbed pathways see what mirda does
 
 Check for overlap between up-regulated pathways and those correlated with drug response.
 
 ```{r combine perturbed pathways}
 
 #make sure we ran the RNA seq analysis first
-hall_preds <- readr::read_csv('../pathwayChanges/GSEA_Hallmark/GSEA_results_Hallmark.csv') |>
+hall_preds <- readr::read_csv('pathwayChanges/GSEA_Hallmark/GSEA_results_Hallmark.csv') |>
   mutate(Feature_set = tolower(gsub('_',' ',Feature_set))) |>
   mutate(Feature_set = gsub("hallmark ", "",Feature_set))
 
@@ -262,16 +220,18 @@ plot_pathway_correlation <- function(pathname,ft = ''){
     arrange(mv)
   
   cr$drug = factor(cr$drug, levels=unique(mv$drug))
-  cr |> ggplot(aes(fill=class,x=drug, y=corval,group=drug)) + 
-     geom_bar(position='dodge',stat='identity') + 
-     ggrepel::geom_text_repel(aes(label = Signif), nudge_y = -0.01) + facet_grid(ttime~.) +
+  cr |> ggplot(aes(fill = as.factor(ttime), x = drug, y = corval))+#,group=drug)) + 
+     geom_bar(position = 'dodge',stat = 'identity') + 
+     ggrepel::geom_text_repel(aes(label = Signif), nudge_y = -0.001)+ #+ facet_grid(ttime~.) +
     ggtitle(paste("Drug response correlation with",gsub('HALLMARK_','',pathname)))    +
     theme_bw() +    
-    scale_fill_manual(values = colbyclass) +
+    scale_fill_manual(values = c('slateblue4','darkred')) +
+#    scale_fill_manual(values = colbyclass) +
     coord_flip() +
     ylab('AUC correlation') + xlab('Drug')+
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
-  ggsave(paste0(ft,'drugCor.pdf'),width = 6)
+  
+  ggsave(paste0(ft,'drugCor.pdf'),width = 6,height=7)
 }
 
 ##this function takes a combination, finds pathways that
@@ -310,7 +270,7 @@ plot_combo_get_overlap <- function(combo, prefix = ''){
   apply(c2,1,function(y){
       rv <- intersect(which(hall_preds$Time==y[['Time']]),
               which(hall_preds$Feature_set==y[['Pathway']]))
-    rv <- intersect(rv,which(tolower(hall_preds$DrugTreatment)==combo[2]))
+    rv <- intersect(rv,which(tolower(hall_preds$DrugTreatment) == combo[2]))
     genes <- stringr::str_split(hall_preds$Leading_edge[rv], pattern=', ') |>
       unlist()
     
@@ -355,6 +315,10 @@ combo <- c("Mirdametinib",'TNO155')
 res <- plot_combo_get_overlap(combo, prefix = 'fig5_')
 
 
+subset(hall_preds,DrugTreatment=='Mirdametinib') |> subset(sig)|>
+  ggplot(aes(x=Feature_set, y = NES, fill=Time))+ geom_bar(position='dodge',stat='identity') + coord_flip() + ggtitle('Pathways altered in mirdametininb treatment') +
+  scale_fill_manual(values=c('slateblue4','darkred'))
+
 #plot_pathway_correlation(pathname='HALLMARK_KRAS_SIGNALING_UP',ft='kras_only_up')
 
 ##plot genes in pathway in treated samples?
@@ -368,77 +332,128 @@ res <- plot_combo_get_overlap(combo, prefix = 'fig5_')
 ```{r mirda vorin}
 
 combo <- c("Mirdametinib",'Vorinostat')
-res <- plot_combo_get_overlap(combo, prefix = 'fig5_')
+res <- plot_combo_get_overlap(combo, prefix = '')
 
+sig_paths <- subset(hall_preds, sig)
 
-```
-## Vorin + Capmatinib
+subset(sig_paths,DrugTreatment %in% c("Vorinostat",'Mirdametinib')) |>
+  subset(NES > 0) |>
+  ggplot(aes(x = Feature_set, y = NES, fill = Time)) +
+  geom_bar(position = 'dodge',stat = 'identity') + coord_flip() + ggtitle('Pathways altered in treatment') +
+  facet_grid(~DrugTreatment) +
+  scale_fill_manual(values = c('slateblue4','darkred')) +
+    theme_bw() 
 
+ggsave('mir_vorin_altered_path.pdf',width=7, height=6)
 
-```{r vorin cap, eval = FALSE}
+merged_res|>subset(drug %in%c('tno155','mirdametinib')) |> subset(corval<0)|> subset(sig<0.05) |> ggplot(aes(x=gene, y = corval,fill=as.factor(ttime))) + geom_bar(position='dodge',stat='identity') + facet_grid(~drug) + coord_flip() + theme_bw() +   scale_fill_manual(values=c('slateblue4','darkred'))
 
-combo <- c("Capmatinib",'Vorinostat')
-
-res<-plot_combo_get_overlap(combo,prefix='no_fig')
-
-```
-Nothing overlaps here! Maybe we can reverse the sign and see if there is overlap
-in pathways?
-
-
-## TNO155 and doxorubicin
-
-```{r tno dox, eval = FALSE}
-combo <- c("TNO155",'Doxorubicin')
-
-res<-plot_combo_get_overlap(combo)
-
-
+ggsave('mir_tno_cor.pdf',width=7,height=3)
 ```
 
-## Mirda Trab
 
-```{r more combo, eval = FALSE}
+## EGFR enrichment 
 
-combo <- c("Mirdametinib",'Trabectedin')
-res <- plot_combo_get_overlap(combo)
+Now we can try to plot the EGFR enrichmetn in the CCLE data
+
+```{R get ccle data, MOA, and enrichment}
+
+##read in data
+#TODO: put these files on synapse
+r1 <- readRDS(synGet('syn74935645')$path)
+r2 <- readRDS(synGet('syn74935650')$path)
+
+cmat <- rbind(r1,r2) |>
+  as.data.frame() |>
+  tibble::remove_rownames() |>
+  tibble::column_to_rownames('CCLE_ID') |>
+  t()
+
+cmat <- cmat[-which(duplicated(rownames(cmat))),]
+
+gmat <- get_gsea_scores(cmat)
+rownames(gmat) <- sapply(rownames(gmat), function(x) tolower(gsub("HALLMARK ","",gsub("_"," ",x))))
+
+##get MOA for later
+##is it worth it to incorporate drug class? 
+gmt.drug <- leapR::read_gene_sets(synGet('syn74955107')$path)
+
+gmt.drug$matrix <- t(gmt.drug$matrix)
+
+moa.df <- do.call(rbind,
+                  lapply(c(1:nrow(gmt.drug$matrix)), function(i){
+  dl <- setdiff(gmt.drug$matrix[i,],c('',NULL,NA))
+  data.frame(moa = rep(gmt.drug$names[i]),drug=dl)
+}))
+
+##correlation
+prism <- read.csv(file = synGet('syn74955119')$path, check.names=FALSE) ##these are the names that map to moa
+
+p_exp <- prism[,2:ncol(prism)] |>
+  tidyr::pivot_longer(-CCLE_ID,names_to='drug',values_to='auc')|>
+  dplyr::rename(improve_sample_id = 'CCLE_ID')|>
+  mutate(treat_time = 120, expr_time = '0hr')
+
+cor_res <- do.call(rbind,lapply(unique(p_exp$drug), function(drug){
+      compute_cor(p_exp,gmat,drug,'0hr',120)
+                        })) #e  
+
+cor_res$drug <- sapply(cor_res$drug,function(x) gsub('-','.',x))
+
+##and calculate significance
+print('computing gene/auc significance')
+cor_sig <- do.call(rbind,lapply(unique(p_exp$drug), function(drug){
+      compute_sig(p_exp,gmat,drug,'0hr',120)
+    })) #end drug iter
+
+cor_sig$drug <- sapply(cor_sig$drug,function(x) gsub('-','.',x))
 
 
-combo <- c("Mirdametinib",'Palbociclib')
-res <- plot_combo_get_overlap(combo)
+merged_res <- cor_res |> left_join(cor_sig) |>
+  left_join(moa.df)
 
-``` 
-## Mechanisms of overlap
-What pathways are the most commonly involved in drug effective combinations? 
+##enrichment
+library(leapR)
 
-Lets see what pathways show up the most frequently
-
-```{r, eval =FALSE}
-
-
-combo_preds <- readr::read_csv('SuppTable5_combinationScores.csv')
+cormat <- cor_res[,c('gene','drug','corval')] |> 
+  pivot_wider(names_from='gene', values_from='corval') |>
+  tibble::column_to_rownames('drug') |>
+  as.matrix()
 
 
-nmat <- full_tmat[,intersect(colnames(full_tmat),
-                             sing_exp$improve_sample_id)] |>
-  as.data.frame()|>
-  drop_na()
-
-tmat <- get_gsea_scores(nmat)
-
-pcounts <- combo_preds |> 
-  group_by(Pathway) |>
-  summarize(drugsUpregulating = n_distinct(DrugTreatment),correlatedDrugs = n_distinct(secondDrug)) |>
-  mutate(total = drugsUpregulating + correlatedDrugs) |>
-  tidyr::pivot_longer(c(drugsUpregulating,correlatedDrugs), names_to='source', values_to='drugs') |>
-  arrange(desc(total))
-
-ggplot(pcounts, aes(x=reorder(Pathway,total), y = drugs, fill = source)) + 
-  geom_bar(position = 'dodge',stat = 'identity') +
-  xlab('Pathway') +
-  theme(axis.text.x=element_text(angle = 45, vjust=1, hjust=1))
-
-ggsave('commonPathways.pdf')
+##now we can run a KS test on each pathway to see
+##what drug mechanisms are more negatively correlated with each
+##class
+eres <- do.call(rbind,lapply(colnames(cormat),function(p){
+    leapR(gmt.drug,'enrichment_in_order',
+       eset=SummarizedExperiment::SummarizedExperiment(assays=list(cors=cormat)), 
+       assay_name='cors',
+       primary_columns=p) |>
+    tibble::rownames_to_column('drugClass')|>
+    mutate(pathway=p)}))
 
 ```
 
+### Now plot results for mirdametininb only
+
+```{R plot mirda}
+
+combined <- eres |>
+  dplyr::mutate(Pathway = gsub("HALLMARK_",'',pathway)) |>
+  right_join(dplyr::rename(sig_paths,pathway='Feature_set')) |>
+  subset(BH_pvalue < (0.01)) |>
+  subset(ingroup_mean < (-1))
+
+subset(combined,DrugTreatment=='Mirdametinib')|>
+  ggplot(aes(x=sort_by(Pathway, ingroup_mean), y =ingroup_mean, fill = drugClass)) +
+  geom_bar(position='dodge',stat='identity') +
+  coord_flip() +
+  #facet_grid(~DrugTreatment) +
+ # scale_fill_manual(values =colorRampPalette(bs3)(length(unique(combined$drugClass))))+
+  xlab('Pathway') + ylab('Mean correlation with AUC across class') +
+  scale_fill_viridis_d()+
+  theme_bw() + 
+    theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1))
+
+ggsave('mir_cor_class.pdf',width=6, height=9)
+```

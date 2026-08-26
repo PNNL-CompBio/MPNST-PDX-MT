@@ -147,7 +147,7 @@ a time.
 
 ```{r visualize}
 
-plot_pathway_correlation <- function(pathname,drugclass= NA,ft=''){
+plot_pathway_correlation <- function(pathname,drugclass= NA, ft = ''){
 
   cr <- merged_res |> 
     subset(gene == pathname) |>
@@ -304,8 +304,8 @@ md$Pathway = gsub('HALLMARK_','',md$gene)
 #coul <- colorRampPalette(bs3)(length(unique(md$gene)))
 
 ggplot(md,aes(x=reorder(drug, corval), y = corval, fill = Pathway)) +
-  geom_bar(position='dodge',stat='identity')+
-  coord_flip()+
+  geom_bar(position='dodge',stat='identity') +
+  coord_flip() +
   scale_fill_manual(values=coul) +
   xlab('Drug')+ylab('Correlation')
 
