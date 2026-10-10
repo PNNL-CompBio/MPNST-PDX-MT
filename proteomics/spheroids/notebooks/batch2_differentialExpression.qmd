@@ -275,6 +275,7 @@ for (prot_type in c('global')) {
 
 Finally, we save the plot to a file in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plot will not be generated when the notebook is run.)
 ```{r}
+#| label: save-missingness-per-plate-plot
 ggsave(
   filename = paste0(output_dir, "batch2_missingness_outliers_per_plate.png"),
   plot = plots['global'],
@@ -338,15 +339,16 @@ for (prot_type in c('global')) {
       pull(timepoint) %>%
       unique()
     title <- paste0("Global proteomics for ", spheroid, " at ", timepoint)
-    plot <- plot_pca_by_plate(
+
+    plot <- plot_pca(
       experiment,
-      plate,
-      prot_type,
-      missingness = missingness_cutoff,
-      imputation = imputation_method,
-      colors = colors,
-      title = title,
-      label = 'label'
+      subset_by = 'plate',
+      subset_values = plate,
+      color_by = 'agent',
+      shape_by = 'agent',
+      label_by = 'label',
+      color_vals = colors,
+      title = title
     )
     plots[[prot_type]][[plate]] <- plot
     print(plot)
@@ -380,6 +382,8 @@ for (prot_type in c('global')) {
 The final investigation we will do is to generate PCA plots for each agent and protein type (global and phospho - note phospho data is currently not being investigated). We will use the `plot_pca` function to generate the PCA plots.
 
 ```{r}
+#| label: plot-pca-by-agent
+#| 
 for (prot_type in c('global')) {
   for (agent in c('Mirda', 'TNO155', 'Palbo', 'Vorino')) {
     for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
@@ -387,10 +391,18 @@ for (prot_type in c('global')) {
       exp <- experiment[, experiment$spheroid == spheroid]
       plot <- plot_pca(
         exp,
-        agent,
-        prot_type,
-        missingness = missingness_cutoff,
-        imputation = imputation_method
+        subset_by = 'agent',
+        subset_values = c(agent, "DMSO"),
+        color_by = 'agent',
+        color_vals = colors,
+        shape_by = 'timepoint',
+        label_by = 'replicate',
+        title = paste0(
+          "Global proteomics for ",
+          spheroid,
+          " treated with ",
+          agent
+        )
       )
       plots[[prot_type]][[agent]][[spheroid]] <- plot
       print(plot)
