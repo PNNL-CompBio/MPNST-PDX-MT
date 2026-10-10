@@ -271,7 +271,14 @@ p_missingness$outlier_less_sensitive <- get_zscore_outliers(
   sided = 'right'
 )
 
-length(p_missingness$protein[p_missingness$outlier])
+cat(paste0(
+  "Outliers (Z > 3): ",
+  length(p_missingness$protein[p_missingness$outlier]),
+  "\n",
+  "Outliers (Z > 2): ",
+  length(p_missingness$protein[p_missingness$outlier_less_sensitive])
+))
+
 z_score_based_missingness_cutoffs <- c(
   'Z > 3' = min(p_missingness$missingness[
     p_missingness$outlier
@@ -281,13 +288,15 @@ z_score_based_missingness_cutoffs <- c(
   ])
 )
 
-
-dim(p_missingness[
-  p_missingness$missingness > quantile(p_missingness$missingness)[4],
-])
+cat(paste0(
+  "Outliers (missingness > 75th percentile): ",
+  dim(p_missingness[
+    p_missingness$missingness > quantile(p_missingness$missingness)[4],
+  ])[1]
+))
 ```
 
-As we can see the number of outlier proteins based on the z-score of missingness is relatively small (_`r length(p_outliers$protein)`_), and the minimum missingness value among the outliers is _`r z_score_based_missingness_cutoff`_. Compared to the number of proteins with missingness greater than the 75th percentile of the missingness distribution (_`r dim(p_missingness[p_missingness$missingness > quantile(p_missingness$missingness)[4],])[1]`_), the number of outlier proteins is much smaller.
+As we can see the number of outlier proteins based on the z-score of missingness is relatively small (_`r length(p_missingness$protein[p_missingness$outlier_less_sensitive])`_), and the minimum missingness value among the outliers is _`r z_score_based_missingness_cutoffs['Z > 2']`_. Compared to the number of proteins with missingness greater than the 75th percentile of the missingness distribution (_`r dim(p_missingness[p_missingness$missingness > quantile(p_missingness$missingness)[4],])[1]`_), the number of outlier proteins is much smaller.
 
 For now we will use the z-score based cutoff for filtering out proteins with high missingness in downstream analysis.
 
@@ -399,7 +408,7 @@ data <- inner_join(metadata, summarized_data, by = 'sample_id') %>%
   ungroup() %>%
   select(
     .,
-    -one_of(c("replicate", "condition", "group", "plate"))
+    -one_of(c("condition", "group", "plate"))
   )
 
 data[data$outlier == TRUE, ]
@@ -414,7 +423,7 @@ Now that we have determined the missingness cutoff for filtering out proteins wi
 ```{r}
 #| label: prep-data-for-pca
 
-missingness_cutoff <- z_score_based_missingness_cutoff
+missingness_cutoff <- z_score_based_missingness_cutoffs['Z > 2']
 imputation_method <- "SampMin"
 
 samp_cutoff <- list(global = 0, phospho = 0)
