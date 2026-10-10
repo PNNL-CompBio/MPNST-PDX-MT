@@ -158,14 +158,74 @@ meta_data <- list(
 )
 ```
 
+## Dataset overview
+As a first step, we will perform a PCA analysis on the global proteomics data to get an overview of the dataset. PCA is a dimensionality reduction technique that allows us to visualize the variation in the data and identify any potential outliers or batch effects. To that end we will first prepare the data for PCA analysis using the `prep_experiment_data` function. This function takes in the proteomics data, meta data, and various parameters for filtering and imputation, and returns a list of `SummarizedExperiment` objects that can be used for downstream analysis.
+
+Importantly we set the `missingness_cutoff` to 0 and the `imputation_method` to 'SampMin'. This means that we will not filter out any proteins based on missingness, and we will impute missing values using the sample minimum method. The imputation is needed for PCA analysis, as PCA cannot be performed on data with missing values. We also set the `samp_cutoff` to 0 for both global and phospho data, meaning that we will not filter out any samples based on missingness.
+
+```{r}
+#| label: prep-data-for-pca-overview
+samp_cutoff <- list(global = 0, phospho = 0)
+missingness_cutoff <- 0
+imputation_method <- 'SampMin'
+
+experiments <- prep_experiment_data(
+  prot_data,
+  meta_data,
+  missingness_cutoff,
+  samp_cutoff,
+  imputation_method,
+  group_contains_spheroid = TRUE
+)
+```
+
+Then we can generate a PCA plot for the global proteomics data using the `plot_pca` function. This function takes in a `SummarizedExperiment` object and various parameters for coloring, shaping, and labeling the samples, and returns a ggplot object that can be visualized or saved to a file. We will color the samples by agent, and shape them by timepoint. We will also add ellipses to the plot to indicate the grouping of samples by spheroid.
+
+```{r}
+#| label: plot-pca-overview
+#| warning: false
+
+plot <- plot_pca(
+  experiments[['global']],
+  color_by = 'agent',
+  shape_by = 'timepoint',
+  title = "Global proteomics PCA"
+)
+plot <- plot +
+  stat_ellipse(aes(group = spheroid, linetype = spheroid)) +
+  theme(legend.position = "right")
+
+plot
+```
+
+As we can see from the PCA plot, as expected there is a clear separation of the samples based on the spheroid that they were derived from. There is also some separation based on the agent and timepoint, but this is less pronounced. Just to get a slighthly better overview we will generate individual PCA plots per spheroid.
+
+```{r}
+#| label: plot-pca-overview-per-spheroid
+
+for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
+  plot <- plot_pca(
+    experiments[['global']],
+    subset_by = 'spheroid',
+    subset_values = spheroid,
+    color_by = 'agent',
+    shape_by = 'timepoint',
+    label_by = 'condition',
+    title = paste0("Global proteomics PCA for ", spheroid)
+  )
+  print(plot)
+}
+```
+
+Investigating the individual PCA plots it is very clear that the driving factor for the separation of the samples per spheroid is the timepoint. This is especially true for the MN4 and specifically the WU225 spheroids. Given the fact that the timepoint also correlates to the plate that the samples were processed on, it is likely that this separation is due to a batch effect. We need to keep this in mind for later downstream analysis, if we want to invesigate differential expression across timepoints.
+
+The other observation we can make from the PCA plots is that there are some outlier samples that are separated from the main cluster of samples. These outliers may need to be removed from the analysis, as they could be driving the separation of the samples and potentially biasing the results. We will investigate these outliers further in the next section.
 
 ## Missingness and outlier investigation
 
 The first thing we want to do is to investigate the missingness in our data. Missingness can be a problem in proteomics data, as it can lead to biased results if not handled properly. We will look at the distribution of missing values across samples and proteins, and identify any outliers that may need to be removed from the analysis.
 
-To that end we use the `prep_experiment_data` function to prepare the data for analysis. This function takes in the proteomics data, meta data, and various parameters for filtering and imputation, and returns a list of `SummarizedExperiment` objects that can be used for downstream analysis.
-
-Since we specifically want to investigate missingness, we set the `missingness_cutoff` to 0 and the `imputation_method` to 'none'. This means that we will not filter out any proteins based on missingness, and we will not perform any imputation on the data. We also set the `samp_cutoff` to 0 for both global and phospho data, meaning that we will not filter out any samples based on missingness.
+Since we specifically want to investigate missingness, we set the `missingness_cutoff` to 0 and the `imputation_method` to 'none'. This means that we will not filter out any proteins based on missingness, and we will not perform any imputation on the data.
 ```{r}
 #| label: prep-data-for-missingness-investigation
 
