@@ -185,7 +185,7 @@ experiments <- prep_experiment_data(
 
 ### Missingness distribution
 
-With the data prepared, we can now look at the distribution of missing values across proteins. First, we calculate the missingness for each protein as the proportion of samples in which the protein is missing. We then calculate the z-score of the missingness values to identify outliers. Proteins with a z-score greater than 3 which represent 3 standard deviations above the mean are considered outliers and may need to be removed from the analysis. We don't consider proteins with a z-score less than -3 as outliers, as these proteins have very low missingness and are not of concern.
+With the data prepared, we can now look at the distribution of missing values across proteins. First, we calculate the missingness for each protein as the proportion of samples in which the protein is missing. We then calculate the z-score of the missingness values to identify outliers. 
 
 Finally, we return the number of outlier proteins and the minimum missingness value among the outliers. This information can be used to set a threshold for filtering out proteins with high missingness in downstream analysis. As comparison, we also return the number of proteins with missingness greater than the 75th percentile of the missingness distribution. This gives us an idea of how many proteins have relatively high missingness, even if they are not considered outliers based on the z-score.
 
@@ -199,13 +199,28 @@ p_missingness <- enframe(
   value = 'missingness'
 )
 
-p_missingness$zscore <- scale(p_missingness$missingness)[, 1]
-p_outliers <- p_missingness[
-  p_missingness$zscore > 3,
-]
+p_missingness$outlier <- get_zscore_outliers(
+  p_missingness$missingness,
+  sensitivity = 3,
+  sided = 'right'
+)
 
-length(p_outliers$protein)
-z_score_based_missingness_cutoff <- min(p_outliers$missingness)
+p_missingness$outlier_less_sensitive <- get_zscore_outliers(
+  p_missingness$missingness,
+  sensitivity = 2,
+  sided = 'right'
+)
+
+length(p_missingness$protein[p_missingness$outlier])
+z_score_based_missingness_cutoffs <- c(
+  'Z > 3' = min(p_missingness$missingness[
+    p_missingness$outlier
+  ]),
+  'Z > 2' = min(p_missingness$missingness[
+    p_missingness$outlier_less_sensitive
+  ])
+)
+
 
 dim(p_missingness[
   p_missingness$missingness > quantile(p_missingness$missingness)[4],
@@ -216,7 +231,7 @@ As we can see the number of outlier proteins based on the z-score of missingness
 
 For now we will use the z-score based cutoff for filtering out proteins with high missingness in downstream analysis.
 
-We then can visualize the distribution of missingness across proteins using a histogram and density plot. We also add a vertical dashed line to indicate the cutoff for outlier proteins based on the z-score of missingness.
+We then can visualize the distribution of missingness across proteins using a histogram and density plot. We also add vertical dashed lines to indicate the cutoff for outlier proteins based on the z-score of missingness.
 
 ```{r}
 #| label: plot-missingness-distribution
@@ -232,11 +247,29 @@ plot <- p_missingness %$%
     ) +
     geom_density(color = 'black') +
     geom_vline(
-      xintercept = z_score_based_missingness_cutoff,
+      xintercept = z_score_based_missingness_cutoffs,
       linetype = 'dashed',
-      color = 'orange'
+      color = c('Z > 3' = 'red', 'Z > 2' = 'orange')
     ) +
-    theme_minimal())
+    theme_minimal() +
+    labs(
+      title = "Distribution of missingness across proteins",
+      x = "Missingness (proportion of samples with missing values)",
+      y = "Density"
+    ) +
+    annotate(
+      "text",
+      x = z_score_based_missingness_cutoffs,
+      y = -2,
+      label = paste0(
+        c("Z > 3", "Z > 2"),
+        ": ",
+        round(z_score_based_missingness_cutoffs, 2)
+      ),
+      color = c('Z > 3' = 'red', 'Z > 2' = 'orange'),
+      hjust = -0.1
+    ))
+
 plot
 ```
 
