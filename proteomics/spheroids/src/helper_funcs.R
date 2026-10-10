@@ -85,6 +85,19 @@ impute_proteomics <- function(
   return(experiment)
 }
 
+get_zscore_outliers <- function(x, sensitivity = 3, sided = "two") {
+  z_scores <- (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)
+  if (sided == "two") {
+    return(abs(z_scores) > sensitivity)
+  } else if (sided == "right") {
+    return(z_scores > sensitivity)
+  } else if (sided == "left") {
+    return(z_scores < -sensitivity)
+  } else {
+    stop("Invalid value for 'sided'. Choose from 'two', 'right', 'left'.")
+  }
+}
+
 calc_diff_ex <- function(
   experiment,
   group_1,
