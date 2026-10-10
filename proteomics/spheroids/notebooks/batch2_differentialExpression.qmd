@@ -364,11 +364,10 @@ for (prot_type in c('global')) {
 }
 ```
 
-
-
 Finally, we save the plot to a file in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plot will not be generated when the notebook is run.)
 ```{r}
 #| label: save-missingness-per-plate-plot
+#| eval: false
 ggsave(
   filename = paste0(output_dir, "batch2_missingness_outliers_per_plate.png"),
   plot = plots['global'],
@@ -376,6 +375,37 @@ ggsave(
   width = 6
 )
 ```
+
+As we can see from the plot some plates show a few samples with unusually high missingness. The outlier detection here is directly done by the box-plot function and for consistency we want to use the previously used z-score based outlier detection method. 
+
+Below we will calculate the number of missing values per sample and identify any outliers based on the z-score of the number of missing values. Importantly we are still only interested on those samples with high missingness, hence we set `sided = "right"`. We will then return a table showing the sample ID, plate, and number of missing values for any outlier samples.
+
+```{r}
+
+summarized_data <- as_tibble(assay(experiment)) %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(cols = everything(), names_to = "sample_id", values_to = "NAs")
+
+metadata <- colData(experiment) %>%
+  as.data.frame(.) %>%
+  rownames_to_column(., var = "sample_id") %>%
+  as_tibble(.)
+
+data <- inner_join(metadata, summarized_data, by = 'sample_id') %>%
+  group_by(plate) %>%
+  mutate(
+    outlier = get_zscore_outliers(NAs, sensitivity = 2, sided = "right")
+  ) %>%
+  ungroup() %>%
+  select(
+    .,
+    -one_of(c("replicate", "condition", "group", "plate"))
+  )
+
+data[data$outlier == TRUE, ]
+```
+
+We now can use the gathered information about the missingness distribution and the outlier samples to set a threshold for filtering out proteins with high missingness in downstream analysis. We will use the z-score based cutoff for filtering out proteins with high missingness, and we will remove any outlier samples identified based on the z-score of the number of missing values.
 
 ## PCA plots
 
