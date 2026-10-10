@@ -40,7 +40,124 @@ color_vals_default <- c(
 )
 
 
+#' Generate a PCA plot for a proteomics experiment
+#'
+#' Creates a principal component analysis plot from a `SummarizedExperiment`
+#' object, optionally subsetting the data before plotting and mapping aesthetics
+#' such as color, shape, and labels from column metadata.
+#'
+#' @param experiment A `SummarizedExperiment` object containing assay values and
+#'   sample metadata in `colData()`.
+#' @param subset_by An optional column name in `colData(experiment)` used to
+#'   subset samples before PCA.
+#' @param subset_values A vector of values to keep when `subset_by` is supplied.
+#' @param ... Additional optional plotting arguments, including `color_by`,
+#'   `shape_by`, `label_by`, `color_vals`, `title`, `subtitle`, and `legend_position`.
+#' @returns A `ggplot` object showing the first two principal components.
 plot_pca <- function(
+  experiment,
+  subset_by = NULL,
+  subset_values = NULL,
+  ...
+) {
+  # Get the additional arguments passed to the function and store them in a list.
+  extra_args <- list(...)
+
+  # Check if the user has defined whether to subset the experiment object (and if so to which value).
+  # If so, subset the experiment object accordingly.
+  # Otherwise, use the entire experiment object.
+  if (!is.null(subset_by) & !is.null(subset_values)) {
+    exp <- experiment[, colData(experiment)[[subset_by]] %in% subset_values]
+  } else {
+    exp <- experiment
+  }
+
+  # Run the PCA analysis on the transposed assay data (prcomp expects samples as rows) of the experiment object.
+  # Then combine the results with the column data of the experiment object (i.e. the metadata).
+  principal_components <- prcomp(t(assay(exp))) %$%
+    cbind(x, colData(exp))
+
+  # Setup the aesthetics for the PCA plot based on the user-defined parameters.
+  aes_args <- list(x = rlang::sym("PC1"), y = rlang::sym("PC2"))
+  if (!is.null(extra_args$color_by)) {
+    aes_args$colour <- rlang::sym(extra_args$color_by)
+  }
+  if (!is.null(extra_args$shape_by)) {
+    aes_args$shape <- rlang::sym(extra_args$shape_by)
+  }
+  if (!is.null(extra_args$label_by)) {
+    aes_args$label <- rlang::sym(extra_args$label_by)
+  }
+
+  # Setting up the color values for the PCA plot based on the user-defined parameters.
+  # If the user has defined a variable to color by check if the user has defined custom color values.
+  # If not, create a named vector of color values based on the unique values of the variable to color by.
+  # If the user has not defined a variable to color by, set the color values to NULL resulting in no color mapping in the PCA plot.
+  if (!is.null(extra_args$color_by)) {
+    if (!is.null(extra_args$color_vals)) {
+      colors <- extra_args$color_vals
+    } else {
+      colors <- color_vals_default[
+        1:length(unique(principal_components[[extra_args$color_by]]))
+      ]
+      setNames(
+        colors,
+        unique(principal_components[[extra_args$color_by]])
+      )
+    }
+  } else {
+    colors <- NULL
+  }
+
+  # Create the PCA plot using ggplot2 with the defined aesthetics.
+  plot <- (ggplot(
+    principal_components,
+    do.call(aes, aes_args)
+  ) +
+    geom_point(size = 2) +
+    theme_minimal() +
+    theme(legend.position = "bottom"))
+
+  # Add additional layers to the PCA plot based on the user-defined parameters.
+  if (!is.null(extra_args$label_by)) {
+    plot <- plot +
+      geom_text_repel(max.overlaps = 10, size = 2, show.legend = FALSE)
+  }
+
+  # Add custom shape and color scales to the PCA plot based on the user-defined parameters.
+  if (!is.null(extra_args$shape_by)) {
+    plot <- plot +
+      scale_shape_manual(
+        values = 1:length(unique(principal_components[[extra_args$shape_by]]))
+      )
+  }
+  if (!is.null(extra_args$color_by)) {
+    plot <- plot + scale_color_manual(values = colors)
+  }
+
+  # Add title and subtitle to the PCA plot based on the user-defined parameters.
+  # If the user has not defined a title or subtitle, use default values.
+  if (!is.null(extra_args$title)) {
+    plot_title <- extra_args$title
+  } else {
+    plot_title <- "Spheroid proteomics PCA"
+  }
+  if (!is.null(extra_args$subtitle)) {
+    plot_subtitle <- extra_args$subtitle
+  } else {
+    plot_subtitle <- NULL
+  }
+  plot <- plot +
+    labs(
+      title = plot_title,
+      subtitle = plot_subtitle
+    )
+
+  return(plot)
+}
+
+
+plot_pca_by_agent <- function(
   experiment,
   agent,
   type = c('global', 'phospho'),
