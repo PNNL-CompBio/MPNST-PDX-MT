@@ -201,7 +201,7 @@ plot_pca_by_agent <- function(
     )
   ) +
     geom_point(size = 2) +
-    geom_text_repel(max.overlaps = 10, size = 2) +
+    # geom_text_repel(max.overlaps = 10, size = 2) +
     theme_minimal() +
     theme(legend.position = "bottom") +
     scale_color_manual(values = colors) +
@@ -280,7 +280,7 @@ plot_pca_by_plate <- function(
     )
   ) +
     geom_point(size = 2.5) +
-    geom_text_repel(max.overlaps = 10, size = 3, show.legend = F) +
+    # geom_text_repel(max.overlaps = 10, size = 3, show.legend = F) +
     theme_minimal() +
     theme(legend.position = "bottom") +
     scale_color_manual(values = colors) +
@@ -363,8 +363,11 @@ plot_diff_ex <- function(
   agent,
   timepoint,
   log_fc = 1,
-  pval = 0.05
+  pval = 0.05,
+  prot_type = c('global', 'phospho'),
+  spheroid = NULL
 ) {
+  prot_type <- match.arg(prot_type)
   align_by_group <- ifelse(
     test = (prot_type == 'global'),
     yes = "Protein.Group",
@@ -372,11 +375,16 @@ plot_diff_ex <- function(
   )
 
   ctrl <- ifelse(test = (agent == 'Trab'), yes = "Water", no = "DMSO")
-  group_1 <- paste0(timepoint, "_", ctrl)
-  group_2 <- paste0(timepoint, "_", agent)
+  if (!is.null(spheroid)) {
+    group_1 <- paste0(spheroid, "_", timepoint, "_", ctrl)
+    group_2 <- paste0(spheroid, "_", timepoint, "_", agent)
+  } else {
+    group_1 <- paste0(timepoint, "_", ctrl)
+    group_2 <- paste0(timepoint, "_", agent)
+  }
 
   diff_ex <- calc_diff_ex(
-    experiment_subset,
+    experiment,
     group_1,
     group_2,
     align_by = align_by_group
@@ -422,7 +430,7 @@ plot_diff_ex <- function(
     ) +
     geom_hline(yintercept = -log10(pval), col = "gray", linetype = 'dashed') +
     geom_point(size = .75) +
-    geom_text_repel(max.overlaps = 5, size = 2) +
+    # geom_text_repel(max.overlaps = 5, size = 2) +
     scale_color_manual(
       values = c(
         'up' = '#74add1',
