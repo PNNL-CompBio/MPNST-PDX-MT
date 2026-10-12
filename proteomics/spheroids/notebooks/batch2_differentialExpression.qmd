@@ -1,0 +1,698 @@
+---
+title: "Spheroid Proteomics Differential Expression Analysis"
+author:
+- name: Yannick Mahlich
+  affiliation: Pacific Northwest National Laboratory
+- name: Sara Gosline
+  affiliation: Pacific Northwest National Laboratory
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Table of Contents"
+    toc-location: right
+    number-sections: true
+params:
+  saveplots: false
+---
+
+## Library & Data import
+
+Depending on the directory this notebook is run / knitted from, the path to the source code and output directory may need to be adjusted. The default paths assume that this notebook is run from the `notebooks` directory.
+
+```{r}
+#| label: path-setup
+
+src_dir <- "../src/"
+output_dir_root <- "../output_figures/"
+output_dir <- paste0(output_dir_root, "batch2_differential_expression/")
+
+if (!dir.exists(output_dir_root)) {
+  stop(paste0("Root of output directory does not exist: ", output_dir_root))
+}
+
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir)
+}
+```
+
+Now we are sourcing the helper functions and plotting functions from the `src` directory. These functions are used throughout the notebook to perform various data processing and visualization tasks.
+
+```{r}
+#| label: sourcing-cross-notebook-functions
+#| output: false
+
+source(paste0(src_dir, 'helper_funcs.R'))
+source(paste0(src_dir, 'data_prep_funcs.R'))
+source(paste0(src_dir, 'stats_funcs.R'))
+source(paste0(src_dir, 'plotting_funcs.R'))
+```
+
+```{r}
+#| label: r-library-imports
+#| warning: false
+#| output: false
+
+library(readxl)
+library(tibble)
+library(dplyr)
+library(limma)
+library(tidyr)
+library(stringr)
+library(matrixStats)
+library(ggplot2)
+library(leapR)
+library(SummarizedExperiment)
+library(ggrepel)
+library(magrittr)
+```
+
+Next we import the `synapseclient` Python package using the `reticulate` R package. This allows us to interact with Synapse, a collaborative platform for data sharing and analysis.
+```{r}
+#| label: python-imports
+#| warning: false
+#| output: false
+
+library(reticulate)
+py_require("synapseclient")
+sc <- import("synapseclient")
+```
+
+Then we can use the functionality from the `synapseclient` package to retrieve the data files from Synapse. The data files include the global proteomics abundance data and the associated meta data.
+```{r}
+#| label: synapse-file-retrieval
+#| warning: false
+#| error: false
+
+# using the synapseclient python package to retrieve the data files from Synapse
+syn <- sc$Synapse()
+syn$login(silent = TRUE)
+
+# getting the global proteomics abundance data
+synapseFileID <- "syn77329971"
+fileEntity <- syn$get(synapseFileID)
+global_dat <- readr::read_tsv(
+  fileEntity$path,
+  na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
+)
+
+# getting the meta data
+synapseFileID <- "syn77615964"
+fileEntity <- syn$get(synapseFileID)
+meta_dat <- read_xlsx(fileEntity$path, sheet = "Combined")
+
+syn$logout()
+```
+
+The following code chunks provide a summary of the imported data, including the first few rows of the global proteomics data and the meta data. This allows us to verify that the data has been imported correctly and to get an initial understanding of its structure.
+```{r}
+#| label: data-summary
+head(global_dat)
+
+head(meta_dat)
+```
+
+As we could see from the summary, the global proteomics data has a number of columns with file paths and other information that we don't need for our analysis. We will clean up the column names to make them more informative and easier to work with. 
+```{r}
+#| label: proteomics-data-cleanup
+#| 
+
+# cleaning up the column names for the global proteomics data
+names(global_dat) %<>%
+  gsub("D:\\\\Data_D\\\\LeDay\\\\Spheroid_7863\\\\rawdata\\\\", "", .) %>%
+  gsub("^[0-9]*_MPNST_spheroid_3Patient_", "", .) %>%
+  gsub("_Maggie_50SPD_[0-9]+Aug[0-9]+_ES906-3408_[0-9]*.raw", "", .)
+
+
+# storing the proteomics data in a list for easier access later on
+prot_data <- list(
+  "global" = global_dat
+  # "phospho" = phospho_dat
+)
+```
+
+Then we do the same thing for the meta data, cleaning up the column names and creating new columns for downstream analysis. We also create a new column that combines the spheroid, timepoint, and agent information into a single string, which will be useful for grouping samples in our analysis.
+```{r}
+#| label: meta-data-cleanup
+
+# getting the new column names for the meta data
+new_col_names <- c(
+  global_sample_id = "Proteomics Sample ID",
+  # phospho_sample_id = "Phosphoproteomics Sample ID",
+  agent = "Drug",
+  timepoint = "Time",
+  plate = "Plate",
+  spheroid = "Speroid"
+)
+
+# cleaning up sample ids in meta data
+meta_dat$`Proteomics Sample ID` %<>% str_sub(., 23)
+
+# renaming columns in meta data and creating new columns for downstream analysis
+meta_dat %<>%
+  dplyr::rename(., all_of(new_col_names)) %>%
+  rowwise() %>%
+  mutate(plate_by_spheroid = paste(spheroid, plate, sep = "_")) %>%
+  mutate(agent = gsub(" ", "", agent), timepoint = paste0(timepoint, "hr")) %>%
+  mutate(group = paste(spheroid, timepoint, agent, sep = "_")) %>%
+  group_by(group) %>%
+  mutate(replicate = paste0('r', 1:n())) %>%
+  mutate(
+    condition = paste(spheroid, timepoint, agent, replicate, sep = '_')
+  ) %>%
+  ungroup()
+
+meta_data_global <- meta_dat %>%
+  select(., global_sample_id, condition, plate_by_spheroid) %>%
+  dplyr::rename(., sample = global_sample_id) %>%
+  dplyr::rename(., plate = plate_by_spheroid)
+
+# storing the meta data in a list for easier access later on
+meta_data <- list(
+  "global" = meta_data_global
+  # "phospho" = meta_data_phospho
+)
+```
+
+## Dataset overview
+As a first step, we will perform a PCA analysis on the global proteomics data to get an overview of the dataset. PCA is a dimensionality reduction technique that allows us to visualize the variation in the data and identify any potential outliers or batch effects. To that end we will first prepare the data for PCA analysis using the `prep_experiment_data` function. This function takes in the proteomics data, meta data, and various parameters for filtering and imputation, and returns a list of `SummarizedExperiment` objects that can be used for downstream analysis.
+
+Importantly we set the `missingness_cutoff` to 0 and the `imputation_method` to 'SampMin'. This means that we will not filter out any proteins based on missingness, and we will impute missing values using the sample minimum method. The imputation is needed for PCA analysis, as PCA cannot be performed on data with missing values. We also set the `samp_cutoff` to 0 for both global and phospho data, meaning that we will not filter out any samples based on missingness.
+
+```{r}
+#| label: prep-data-for-pca-overview
+
+experiment <- prepare_proteomics_data(
+  prot_data[['global']],
+  meta_data[['global']],
+  type = 'global',
+  imputation_method = 'SampMin',
+  sample_col_prefix = "G_",
+  group_contains_spheroid = TRUE
+)
+```
+
+Then we can generate a PCA plot for the global proteomics data using the `plot_pca` function. This function takes in a `SummarizedExperiment` object and various parameters for coloring, shaping, and labeling the samples, and returns a ggplot object that can be visualized or saved to a file. We will color the samples by agent, and shape them by timepoint. We will also add ellipses to the plot to indicate the grouping of samples by spheroid.
+
+```{r}
+#| label: plot-pca-overview
+#| warning: false
+
+colors <- list(
+  "DMSO" = color_vals_black_first[1],
+  "Mirda" = color_vals_black_first[2],
+  "Palbo" = color_vals_black_first[3],
+  "TNO155" = color_vals_black_first[5],
+  "Vorino" = color_vals_black_first[7]
+)
+
+plot <- plot_pca(
+  experiment,
+  color_by = 'agent',
+  shape_by = 'timepoint',
+  title = "Global proteomics PCA",
+  color_vals = colors
+)
+plot <- plot +
+  stat_ellipse(aes(group = spheroid, linetype = spheroid), color = "darkgrey") +
+  theme(legend.position = "right")
+
+plot
+```
+
+Optionally we can save the PCA plot to a file in the output directory.
+
+```{r}
+#| label: save-pca-overview
+#| eval: !expr params$saveplots
+
+ggsave(
+  filename = paste0(output_dir, "batch2_overview_pca.png"),
+  plot = plot,
+  height = 4,
+  width = 6
+)
+```
+
+As we can see from the PCA plot, as expected there is a clear separation of the samples based on the spheroid that they were derived from. There is also some separation based on the agent and timepoint, but this is less pronounced. Just to get a slighthly better overview we will generate individual PCA plots per spheroid.
+
+```{r}
+#| label: plot-pca-overview-per-spheroid
+
+plots <- list()
+for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
+  plot <- plot_pca(
+    experiment,
+    subset_by = 'spheroid',
+    subset_values = spheroid,
+    color_by = 'agent',
+    shape_by = 'timepoint',
+    color_vals = colors,
+    # label_by = 'condition',
+    title = paste0("Global proteomics PCA for ", spheroid)
+  )
+  plot <- plot +
+    stat_ellipse(
+      aes(group = timepoint, linetype = timepoint),
+      color = "darkgrey"
+    ) +
+    theme(legend.position = "right")
+
+  plots[[spheroid]] <- plot
+  print(plot)
+}
+```
+
+Optionally we can save the individual PCA plots for each spheroid to files in the output directory.
+```{r}
+#| label: save-pca-overview-per-spheroid-plots
+#| eval: !expr params$saveplots
+
+for (spheroid in names(plots)) {
+  ggsave(
+    filename = paste0(output_dir, "batch2_overview_pca_", spheroid, ".png"),
+    plot = plots[[spheroid]],
+    height = 4,
+    width = 5
+  )
+}
+```
+
+Investigating the individual PCA plots it is very clear that the driving factor for the separation of the samples per spheroid is the timepoint. This is especially true for the MN4 and specifically the WU225 spheroids. Given the fact that the timepoint also correlates to the plate that the samples were processed on, it is likely that this separation is due to a batch effect. We need to keep this in mind for later downstream analysis, if we want to invesigate differential expression across timepoints.
+
+The other observation we can make from the PCA plots is that there are some outlier samples that are separated from the main cluster of samples. These outliers may need to be removed from the analysis, as they could be driving the separation of the samples and potentially biasing the results. We will investigate these outliers further in the next section.
+
+## Missingness and outlier investigation
+
+The first thing we want to do is to investigate the missingness in our data. Missingness can be a problem in proteomics data, as it can lead to biased results if not handled properly. We will look at the distribution of missing values across samples and proteins, and identify any outliers that may need to be removed from the analysis.
+
+Since we specifically want to investigate missingness, we set the `missingness_cutoff` to 0 and the `imputation_method` to 'none'. This means that we will not filter out any proteins based on missingness, and we will not perform any imputation on the data.
+```{r}
+#| label: prep-data-for-missingness-investigation
+
+experiment <- prepare_proteomics_data(
+  prot_data[['global']],
+  meta_data[['global']],
+  type = 'global',
+  sample_col_prefix = "G_",
+  group_contains_spheroid = TRUE
+)
+```
+
+### Missingness distribution
+
+With the data prepared, we can now look at the distribution of missing values across proteins. First, we calculate the missingness for each protein as the proportion of samples in which the protein is missing. We then calculate the z-score of the missingness values to identify outliers. 
+
+Finally, we return the number of outlier proteins and the minimum missingness value among the outliers. This information can be used to set a threshold for filtering out proteins with high missingness in downstream analysis. As comparison, we also return the number of proteins with missingness greater than the 75th percentile of the missingness distribution. This gives us an idea of how many proteins have relatively high missingness, even if they are not considered outliers based on the z-score.
+
+```{r}
+#| label: calculate-missingness-outliers
+
+pdat <- assay(experiment)
+p_missingness <- enframe(
+  rowSums(is.na(pdat)) / ncol(pdat),
+  name = 'protein',
+  value = 'missingness'
+)
+
+p_missingness$outlier <- get_zscore_outliers(
+  p_missingness$missingness,
+  sensitivity = 3,
+  sided = 'right'
+)
+
+p_missingness$outlier_less_sensitive <- get_zscore_outliers(
+  p_missingness$missingness,
+  sensitivity = 2,
+  sided = 'right'
+)
+
+cat(paste0(
+  "Outliers (Z > 3): ",
+  length(p_missingness$protein[p_missingness$outlier]),
+  "\n",
+  "Outliers (Z > 2): ",
+  length(p_missingness$protein[p_missingness$outlier_less_sensitive])
+))
+
+z_score_based_missingness_cutoffs <- c(
+  'Z > 3' = min(p_missingness$missingness[
+    p_missingness$outlier
+  ]),
+  'Z > 2' = min(p_missingness$missingness[
+    p_missingness$outlier_less_sensitive
+  ])
+)
+
+cat(paste0(
+  "Outliers (missingness > 75th percentile): ",
+  dim(p_missingness[
+    p_missingness$missingness > quantile(p_missingness$missingness)[4],
+  ])[1]
+))
+```
+
+As we can see the number of outlier proteins based on the z-score of missingness is relatively small (_`r length(p_missingness$protein[p_missingness$outlier_less_sensitive])`_), and the minimum missingness value among the outliers is _`r z_score_based_missingness_cutoffs['Z > 2']`_. Compared to the number of proteins with missingness greater than the 75th percentile of the missingness distribution (_`r dim(p_missingness[p_missingness$missingness > quantile(p_missingness$missingness)[4],])[1]`_), the number of outlier proteins is much smaller.
+
+For now we will use the z-score based cutoff for filtering out proteins with high missingness in downstream analysis.
+
+We then can visualize the distribution of missingness across proteins using a histogram and density plot. We also add vertical dashed lines to indicate the cutoff for outlier proteins based on the z-score of missingness.
+
+```{r}
+#| label: plot-missingness-distribution
+#| fig-cap: "Distribution of missingness across proteins. The vertical dashed line indicates the cutoff for outlier proteins based on the z-score of missingness."
+#| 
+
+plot <- p_missingness %$%
+  (ggplot(., aes(x = missingness)) +
+    geom_histogram(
+      aes(y = after_stat(density)),
+      bins = 100,
+      fill = 'lightgrey'
+    ) +
+    geom_density(color = 'black') +
+    geom_vline(
+      xintercept = z_score_based_missingness_cutoffs,
+      linetype = 'dashed',
+      color = c('Z > 3' = 'red', 'Z > 2' = 'orange')
+    ) +
+    theme_minimal() +
+    labs(
+      title = "Distribution of missingness across proteins",
+      x = "Missingness (proportion of samples with missing values)",
+      y = "Density"
+    ) +
+    annotate(
+      "text",
+      x = z_score_based_missingness_cutoffs,
+      y = -2,
+      label = paste0(
+        c("Z > 3", "Z > 2"),
+        ": ",
+        round(z_score_based_missingness_cutoffs, 2)
+      ),
+      color = c('Z > 3' = 'red', 'Z > 2' = 'orange'),
+      hjust = -0.1
+    ))
+
+plot
+```
+
+Finally, we save the plot to a file in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plot will not be generated when the notebook is run.)
+
+```{r}
+#| label: save-missingness-distribution-plot
+#| eval: !expr params$saveplots
+
+ggsave(
+  filename = paste0(output_dir, "batch2_missingness_distribution.png"),
+  plot = plot,
+  height = 3,
+  width = 5
+)
+```
+
+### Missingness per plate (Spheroid)
+
+Next we want to look at the missingness per plate (spheroid) to see if there are any plates with unusually high missingness. We will use the `plot_per_plate_na_overview` function to generate a bar plot showing the number of missing values per plate for each protein type (global and phospho). The function takes in a `SummarizedExperiment` object and the protein type as input, and returns a ggplot object.
+
+```{r}
+#| label: plot-missingness-per-plate
+
+# add a comparison between the NAs without missingness removal and with missingness removal
+
+plot <- plot_per_plate_na_overview(experiment, 'global')
+print(plot)
+```
+
+Finally, we save the plot to a file in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plot will not be generated when the notebook is run.)
+```{r}
+#| label: save-missingness-per-plate-plot
+#| eval: !expr params$saveplots
+ggsave(
+  filename = paste0(output_dir, "batch2_missingness_outliers_per_plate.png"),
+  plot = plot,
+  height = 4,
+  width = 6
+)
+```
+
+As we can see from the plot some plates show a few samples with unusually high missingness. The outlier detection here is directly done by the box-plot function and for consistency we want to use the previously used z-score based outlier detection method. 
+
+Below we will calculate the number of missing values per sample and identify any outliers based on the z-score of the number of missing values. Importantly we are still only interested on those samples with high missingness, hence we set `sided = "right"`. We will then return a table showing the sample ID, plate, and number of missing values for any outlier samples.
+
+```{r}
+
+summarized_data <- as_tibble(assay(experiment)) %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(cols = everything(), names_to = "sample_id", values_to = "NAs")
+
+metadata <- colData(experiment) %>%
+  as.data.frame(.) %>%
+  rownames_to_column(., var = "sample_id") %>%
+  as_tibble(.)
+
+data <- inner_join(metadata, summarized_data, by = 'sample_id') %>%
+  group_by(plate) %>%
+  mutate(
+    outlier = get_zscore_outliers(NAs, sensitivity = 2, sided = "right")
+  ) %>%
+  ungroup() %>%
+  select(
+    .,
+    -one_of(c("condition", "group", "plate"))
+  )
+
+data[data$outlier == TRUE, ]
+```
+
+We now can use the gathered information about the missingness distribution and the outlier samples to set a threshold for filtering out proteins with high missingness in downstream analysis. We will use the z-score based cutoff for filtering out proteins with high missingness, and we will remove any outlier samples identified based on the z-score of the number of missing values.
+
+## PCA plots
+
+Now that we have determined the missingness cutoff for filtering out proteins with high missingness, we can prepare the data for PCA analysis. We will use the `prep_experiment_data` function again, this time with the `missingness_cutoff` set to the z-score based cutoff we determined earlier, and the `imputation_method` set to "SampMin". This means that we will filter out proteins with missingness greater than the cutoff, and we will impute missing values using the sample minimum method.
+
+```{r}
+#| label: prep-data-for-pca
+
+f_missingness_cutoff <- z_score_based_missingness_cutoffs['Z > 2']
+s_to_exclude <- data[data$outlier == TRUE, ] %>% pull(sample_id)
+
+experiment <- prepare_proteomics_data(
+  prot_data[['global']],
+  meta_data[['global']],
+  type = 'global',
+  sample_col_prefix = "G_",
+  group_contains_spheroid = TRUE,
+  feature_missingness_cutoff = f_missingness_cutoff,
+  samples_to_exclude = s_to_exclude,
+  imputation_method = "SampMin"
+)
+```
+
+### PCA plots per plate (Spheroid)
+
+Next we generate PCA plots for each plate (spheroid) and protein type (global and phospho - note phospho data is currently not being investigated). We will use the `plot_pca_by_plate` function to generate the PCA plots.
+
+```{r}
+#| label: plot-pca-by-plate
+
+plots <- list()
+colors <- list(
+  "DMSO" = color_vals_black_first[1],
+  "Mirda" = color_vals_black_first[2],
+  "Palbo" = color_vals_black_first[3],
+  "TNO155" = color_vals_black_first[5],
+  "Vorino" = color_vals_black_first[7]
+)
+
+colData(experiment)$label <- paste(
+  colData(experiment)$agent,
+  colData(experiment)$replicate,
+  sep = '_'
+)
+plates <- as_tibble(colData(experiment)) %>% pull(plate) %>% unique()
+for (plate in plates) {
+  spheroid <- as_tibble(colData(experiment[, experiment$plate == plate])) %>%
+    pull(spheroid) %>%
+    unique()
+  timepoint <- as_tibble(colData(experiment[, experiment$plate == plate])) %>%
+    pull(timepoint) %>%
+    unique()
+  title <- paste0("Global proteomics for ", spheroid, " at ", timepoint)
+
+  plot <- plot_pca(
+    experiment,
+    subset_by = 'plate',
+    subset_values = plate,
+    color_by = 'agent',
+    shape_by = 'agent',
+    # label_by = 'label',
+    color_vals = colors,
+    title = title
+  )
+  plots[[plate]] <- plot
+  print(plot)
+}
+```
+
+Then we save the PCA plots for each plate (spheroid) and protein type (global and phospho - note phosphodata is currently not being investigated) to files in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plots will not be generated when the notebook is run.)
+```{r}
+#| label: save-pca-by-plate-plots
+#| eval: !expr params$saveplots
+
+for (prot_type in c('global')) {
+  plates <- as_tibble(colData(experiment)) %>% pull(plate) %>% unique()
+  for (plate in plates) {
+    fname <- paste0(
+      output_dir,
+      "batch2_pca_",
+      prot_type,
+      "_by_plate_",
+      plate,
+      ".png"
+    )
+    ggsave(fname, plot = plots[[plate]], height = 5, width = 5)
+  }
+}
+```
+
+### PCA plots per agent
+
+The final investigation we will do is to generate PCA plots for each agent and protein type (global and phospho - note phospho data is currently not being investigated). We will use the `plot_pca` function to generate the PCA plots.
+
+```{r}
+#| label: plot-pca-by-agent
+#| 
+
+for (agent in c('Mirda', 'TNO155', 'Palbo', 'Vorino')) {
+  for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
+    exp <- experiment[, experiment$spheroid == spheroid]
+    plot <- plot_pca(
+      exp,
+      subset_by = 'agent',
+      subset_values = c(agent, "DMSO"),
+      color_by = 'agent',
+      color_vals = colors,
+      shape_by = 'timepoint',
+      # label_by = 'replicate',
+      title = paste0(
+        "Global proteomics for ",
+        spheroid,
+        " treated with ",
+        agent
+      )
+    )
+    plots[[agent]][[spheroid]] <- plot
+    print(plot)
+  }
+}
+```
+
+
+```{r}
+#| label: save-pca-by-agent-plots
+#| eval: !expr params$saveplots
+
+for (prot_type in c('global')) {
+  agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
+  spheroids <- c('MN4', 'WU225', 'JHU2002')
+  for (agent in agents) {
+    for (spheroid in spheroids) {
+      fname <- paste0(
+        output_dir,
+        "batch2_pca_",
+        prot_type,
+        "_by_agent_",
+        agent,
+        "_",
+        spheroid,
+        ".png"
+      )
+      ggsave(
+        fname,
+        plot = plots[[agent]][[spheroid]],
+        height = 5,
+        width = 5
+      )
+    }
+  }
+}
+```
+
+## Differential expression analysis
+Now that we have a good overview of the dataset, we can move on to the differential expression analysis. We will use the `plot_diff_ex` function to generate volcano plots for each agent and timepoint, comparing the treated samples to the control samples. 
+
+```{r}
+agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
+spheroids <- c('MN4', 'WU225', 'JHU2002')
+timepoints <- c("8hr", "24hr", "48hr")
+log_fc <- .5
+pval <- 0.1
+
+plots <- list()
+plots_agents <- list()
+
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    for (timepoint in timepoints) {
+      experiment_subset <- experiment[,
+        experiment$agent %in%
+          c(agent, "DMSO") &
+          experiment$timepoint == timepoint
+      ]
+
+      plots[[spheroid]][[agent]][[timepoint]] <- plot_diff_ex(
+        experiment_subset,
+        agent,
+        timepoint,
+        log_fc = log_fc,
+        pval = pval,
+        prot_type = 'global',
+        spheroid = spheroid
+      )
+      plot_title <- paste(
+        spheroid,
+        'global proteomics:',
+        agent,
+        "vs. Control"
+      )
+    }
+    plots_agents[[spheroid]][[agent]] <- plot_diff_ex_grid(
+      plots[[spheroid]][[agent]],
+      plot_title
+    )
+    print(plots_agents[[spheroid]][[agent]])
+  }
+}
+```
+
+
+And as always we will save the plots to files in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plots will not be generated when the notebook is run.)
+```{r}
+#| label: save-diff-ex-plots
+#| eval: !expr params$saveplots
+
+agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
+spheroids <- c('MN4', 'WU225', 'JHU2002')
+for (agent in agents) {
+  for (spheroid in spheroids) {
+    fname <- paste0(
+      output_dir,
+      "batch2_diff-ex_",
+      "global-proteomics_",
+      agent,
+      "_",
+      spheroid,
+      ".png"
+    )
+    ggsave(
+      fname,
+      plot = plots_agents[[spheroid]][[agent]],
+      height = 5,
+      width = 7
+    )
+  }
+}
+```
