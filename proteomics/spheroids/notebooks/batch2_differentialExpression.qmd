@@ -25,7 +25,16 @@ Depending on the directory this notebook is run / knitted from, the path to the 
 #| label: path-setup
 
 src_dir <- "../src/"
-output_dir <- "../output_figures/"
+output_dir_root <- "../output_figures/"
+output_dir <- paste0(output_dir_root, "batch2_differential_expression/")
+
+if (!dir.exists(output_dir_root)) {
+  stop(paste0("Root of output directory does not exist: ", output_dir_root))
+}
+
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir)
+}
 ```
 
 Now we are sourcing the helper functions and plotting functions from the `src` directory. These functions are used throughout the notebook to perform various data processing and visualization tasks.
