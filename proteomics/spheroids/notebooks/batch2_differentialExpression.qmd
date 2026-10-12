@@ -13,6 +13,8 @@ format:
     toc-title: "Table of Contents"
     toc-location: right
     number-sections: true
+params:
+  saveplots: false
 ---
 
 ## Library & Data import
@@ -392,13 +394,13 @@ Finally, we save the plot to a file in the output directory. (Note that the `eva
 
 ```{r}
 #| label: save-missingness-distribution-plot
-#| eval: false
+#| eval: !expr params$saveplots
 
 ggsave(
   filename = paste0(output_dir, "batch2_missingness_distribution.png"),
   plot = plot,
   height = 3,
-  width = 4
+  width = 5
 )
 ```
 
@@ -418,7 +420,7 @@ print(plot)
 Finally, we save the plot to a file in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plot will not be generated when the notebook is run.)
 ```{r}
 #| label: save-missingness-per-plate-plot
-#| eval: false
+#| eval: !expr params$saveplots
 ggsave(
   filename = paste0(output_dir, "batch2_missingness_outliers_per_plate.png"),
   plot = plot,
@@ -517,7 +519,7 @@ for (plate in plates) {
     subset_values = plate,
     color_by = 'agent',
     shape_by = 'agent',
-    label_by = 'label',
+    # label_by = 'label',
     color_vals = colors,
     title = title
   )
@@ -529,7 +531,7 @@ for (plate in plates) {
 Then we save the PCA plots for each plate (spheroid) and protein type (global and phospho - note phosphodata is currently not being investigated) to files in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plots will not be generated when the notebook is run.)
 ```{r}
 #| label: save-pca-by-plate-plots
-#| eval: false
+#| eval: !expr params$saveplots
 
 for (prot_type in c('global')) {
   plates <- as_tibble(colData(experiment)) %>% pull(plate) %>% unique()
@@ -565,7 +567,7 @@ for (agent in c('Mirda', 'TNO155', 'Palbo', 'Vorino')) {
       color_by = 'agent',
       color_vals = colors,
       shape_by = 'timepoint',
-      label_by = 'replicate',
+      # label_by = 'replicate',
       title = paste0(
         "Global proteomics for ",
         spheroid,
@@ -582,7 +584,7 @@ for (agent in c('Mirda', 'TNO155', 'Palbo', 'Vorino')) {
 
 ```{r}
 #| label: save-pca-by-agent-plots
-#| eval: false
+#| eval: !expr params$saveplots
 
 for (prot_type in c('global')) {
   agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
@@ -610,7 +612,78 @@ for (prot_type in c('global')) {
 }
 ```
 
+## Differential expression analysis
+Now that we have a good overview of the dataset, we can move on to the differential expression analysis. We will use the `plot_diff_ex` function to generate volcano plots for each agent and timepoint, comparing the treated samples to the control samples. 
 
 ```{r}
+agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
+spheroids <- c('MN4', 'WU225', 'JHU2002')
+timepoints <- c("8hr", "24hr", "48hr")
+log_fc <- .5
+pval <- 0.1
 
+plots <- list()
+plots_agents <- list()
+
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    for (timepoint in timepoints) {
+      experiment_subset <- experiment[,
+        experiment$agent %in%
+          c(agent, "DMSO") &
+          experiment$timepoint == timepoint
+      ]
+
+      plots[[spheroid]][[agent]][[timepoint]] <- plot_diff_ex(
+        experiment_subset,
+        agent,
+        timepoint,
+        log_fc = log_fc,
+        pval = pval,
+        prot_type = 'global',
+        spheroid = spheroid
+      )
+      plot_title <- paste(
+        spheroid,
+        'global proteomics:',
+        agent,
+        "vs. Control"
+      )
+    }
+    plots_agents[[spheroid]][[agent]] <- plot_diff_ex_grid(
+      plots[[spheroid]][[agent]],
+      plot_title
+    )
+    print(plots_agents[[spheroid]][[agent]])
+  }
+}
+```
+
+
+And as always we will save the plots to files in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plots will not be generated when the notebook is run.)
+```{r}
+#| label: save-diff-ex-plots
+#| eval: !expr params$saveplots
+
+agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
+spheroids <- c('MN4', 'WU225', 'JHU2002')
+for (agent in agents) {
+  for (spheroid in spheroids) {
+    fname <- paste0(
+      output_dir,
+      "batch2_diff-ex_",
+      "global-proteomics_",
+      agent,
+      "_",
+      spheroid,
+      ".png"
+    )
+    ggsave(
+      fname,
+      plot = plots_agents[[spheroid]][[agent]],
+      height = 5,
+      width = 7
+    )
+  }
+}
 ```
