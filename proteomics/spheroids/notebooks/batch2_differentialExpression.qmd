@@ -6,9 +6,13 @@ author:
 - name: Sara Gosline
   affiliation: Pacific Northwest National Laboratory
 date: "`r Sys.Date()`"
-output:
-  html_notebook:
+format:
+  html:
     toc: true
+    toc-depth: 3
+    toc-title: "Table of Contents"
+    toc-location: right
+    number-sections: true
 ---
 
 ## Library & Data import
@@ -29,6 +33,8 @@ Now we are sourcing the helper functions and plotting functions from the `src` d
 #| output: false
 
 source(paste0(src_dir, 'helper_funcs.R'))
+source(paste0(src_dir, 'data_prep_funcs.R'))
+source(paste0(src_dir, 'stats_funcs.R'))
 source(paste0(src_dir, 'plotting_funcs.R'))
 ```
 
@@ -165,16 +171,13 @@ Importantly we set the `missingness_cutoff` to 0 and the `imputation_method` to 
 
 ```{r}
 #| label: prep-data-for-pca-overview
-samp_cutoff <- list(global = 0, phospho = 0)
-missingness_cutoff <- 0
-imputation_method <- 'SampMin'
 
-experiments <- prep_experiment_data(
-  prot_data,
-  meta_data,
-  missingness_cutoff,
-  samp_cutoff,
-  imputation_method,
+experiment <- prepare_proteomics_data(
+  prot_data[['global']],
+  meta_data[['global']],
+  type = 'global',
+  imputation_method = 'SampMin',
+  sample_col_prefix = "G_",
   group_contains_spheroid = TRUE
 )
 ```
@@ -186,7 +189,7 @@ Then we can generate a PCA plot for the global proteomics data using the `plot_p
 #| warning: false
 
 plot <- plot_pca(
-  experiments[['global']],
+  experiment,
   color_by = 'agent',
   shape_by = 'timepoint',
   title = "Global proteomics PCA"
@@ -205,7 +208,7 @@ As we can see from the PCA plot, as expected there is a clear separation of the 
 
 for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
   plot <- plot_pca(
-    experiments[['global']],
+    experiment,
     subset_by = 'spheroid',
     subset_values = spheroid,
     color_by = 'agent',
@@ -229,16 +232,11 @@ Since we specifically want to investigate missingness, we set the `missingness_c
 ```{r}
 #| label: prep-data-for-missingness-investigation
 
-samp_cutoff <- list(global = 0, phospho = 0)
-missingness_cutoff <- 0
-imputation_method <- 'none'
-
-experiments <- prep_experiment_data(
-  prot_data,
-  meta_data,
-  missingness_cutoff,
-  samp_cutoff,
-  imputation_method,
+experiment <- prepare_proteomics_data(
+  prot_data[['global']],
+  meta_data[['global']],
+  type = 'global',
+  sample_col_prefix = "G_",
   group_contains_spheroid = TRUE
 )
 ```
@@ -252,7 +250,7 @@ Finally, we return the number of outlier proteins and the minimum missingness va
 ```{r}
 #| label: calculate-missingness-outliers
 
-pdat <- assay(experiments[['global']])
+pdat <- assay(experiment)
 p_missingness <- enframe(
   rowSums(is.na(pdat)) / ncol(pdat),
   name = 'protein',
@@ -365,12 +363,8 @@ Next we want to look at the missingness per plate (spheroid) to see if there are
 
 # add a comparison between the NAs without missingness removal and with missingness removal
 
-plots <- list()
-for (prot_type in c('global')) {
-  experiment <- experiments[[prot_type]]
-  plots[[prot_type]] <- plot_per_plate_na_overview(experiment, prot_type)
-  print(plots[[prot_type]])
-}
+plot <- plot_per_plate_na_overview(experiment, 'global')
+print(plot)
 ```
 
 Finally, we save the plot to a file in the output directory. (Note that the `eval` option is set to `false` for this code chunk, so the plot will not be generated when the notebook is run.)
@@ -379,7 +373,7 @@ Finally, we save the plot to a file in the output directory. (Note that the `eva
 #| eval: false
 ggsave(
   filename = paste0(output_dir, "batch2_missingness_outliers_per_plate.png"),
-  plot = plots['global'],
+  plot = plot,
   height = 4,
   width = 6
 )
@@ -423,19 +417,18 @@ Now that we have determined the missingness cutoff for filtering out proteins wi
 ```{r}
 #| label: prep-data-for-pca
 
-missingness_cutoff <- z_score_based_missingness_cutoffs['Z > 2']
-imputation_method <- "SampMin"
+f_missingness_cutoff <- z_score_based_missingness_cutoffs['Z > 2']
+s_to_exclude <- data[data$outlier == TRUE, ] %>% pull(sample_id)
 
-samp_cutoff <- list(global = 0, phospho = 0)
-
-experiments <- prep_experiment_data(
-  prot_data,
-  meta_data,
-  missingness_cutoff,
-  samp_cutoff,
-  imputation_method,
-  group_contains_spheroid = TRUE
-  # batch_correct = TRUE
+experiment <- prepare_proteomics_data(
+  prot_data[['global']],
+  meta_data[['global']],
+  type = 'global',
+  sample_col_prefix = "G_",
+  group_contains_spheroid = TRUE,
+  feature_missingness_cutoff = f_missingness_cutoff,
+  samples_to_exclude = s_to_exclude,
+  imputation_method = "SampMin"
 )
 ```
 
@@ -455,36 +448,33 @@ colors <- list(
   "Vorino" = color_vals_black_first[7]
 )
 
-for (prot_type in c('global')) {
-  experiment <- experiments[[prot_type]]
-  colData(experiment)$label <- paste(
-    colData(experiment)$agent,
-    colData(experiment)$replicate,
-    sep = '_'
-  )
-  plates <- as_tibble(colData(experiment)) %>% pull(plate) %>% unique()
-  for (plate in plates) {
-    spheroid <- as_tibble(colData(experiment[, experiment$plate == plate])) %>%
-      pull(spheroid) %>%
-      unique()
-    timepoint <- as_tibble(colData(experiment[, experiment$plate == plate])) %>%
-      pull(timepoint) %>%
-      unique()
-    title <- paste0("Global proteomics for ", spheroid, " at ", timepoint)
+colData(experiment)$label <- paste(
+  colData(experiment)$agent,
+  colData(experiment)$replicate,
+  sep = '_'
+)
+plates <- as_tibble(colData(experiment)) %>% pull(plate) %>% unique()
+for (plate in plates) {
+  spheroid <- as_tibble(colData(experiment[, experiment$plate == plate])) %>%
+    pull(spheroid) %>%
+    unique()
+  timepoint <- as_tibble(colData(experiment[, experiment$plate == plate])) %>%
+    pull(timepoint) %>%
+    unique()
+  title <- paste0("Global proteomics for ", spheroid, " at ", timepoint)
 
-    plot <- plot_pca(
-      experiment,
-      subset_by = 'plate',
-      subset_values = plate,
-      color_by = 'agent',
-      shape_by = 'agent',
-      label_by = 'label',
-      color_vals = colors,
-      title = title
-    )
-    plots[[prot_type]][[plate]] <- plot
-    print(plot)
-  }
+  plot <- plot_pca(
+    experiment,
+    subset_by = 'plate',
+    subset_values = plate,
+    color_by = 'agent',
+    shape_by = 'agent',
+    label_by = 'label',
+    color_vals = colors,
+    title = title
+  )
+  plots[[plate]] <- plot
+  print(plot)
 }
 ```
 
@@ -504,7 +494,7 @@ for (prot_type in c('global')) {
       plate,
       ".png"
     )
-    ggsave(fname, plot = plots[[prot_type]][[plate]], height = 5, width = 5)
+    ggsave(fname, plot = plots[[plate]], height = 5, width = 5)
   }
 }
 ```
@@ -516,29 +506,27 @@ The final investigation we will do is to generate PCA plots for each agent and p
 ```{r}
 #| label: plot-pca-by-agent
 #| 
-for (prot_type in c('global')) {
-  for (agent in c('Mirda', 'TNO155', 'Palbo', 'Vorino')) {
-    for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
-      experiment <- experiments[[prot_type]]
-      exp <- experiment[, experiment$spheroid == spheroid]
-      plot <- plot_pca(
-        exp,
-        subset_by = 'agent',
-        subset_values = c(agent, "DMSO"),
-        color_by = 'agent',
-        color_vals = colors,
-        shape_by = 'timepoint',
-        label_by = 'replicate',
-        title = paste0(
-          "Global proteomics for ",
-          spheroid,
-          " treated with ",
-          agent
-        )
+
+for (agent in c('Mirda', 'TNO155', 'Palbo', 'Vorino')) {
+  for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
+    exp <- experiment[, experiment$spheroid == spheroid]
+    plot <- plot_pca(
+      exp,
+      subset_by = 'agent',
+      subset_values = c(agent, "DMSO"),
+      color_by = 'agent',
+      color_vals = colors,
+      shape_by = 'timepoint',
+      label_by = 'replicate',
+      title = paste0(
+        "Global proteomics for ",
+        spheroid,
+        " treated with ",
+        agent
       )
-      plots[[prot_type]][[agent]][[spheroid]] <- plot
-      print(plot)
-    }
+    )
+    plots[[agent]][[spheroid]] <- plot
+    print(plot)
   }
 }
 ```
@@ -565,11 +553,16 @@ for (prot_type in c('global')) {
       )
       ggsave(
         fname,
-        plot = plots[[prot_type]][[agent]][[spheroid]],
+        plot = plots[[agent]][[spheroid]],
         height = 5,
         width = 5
       )
     }
   }
 }
+```
+
+
+```{r}
+
 ```
