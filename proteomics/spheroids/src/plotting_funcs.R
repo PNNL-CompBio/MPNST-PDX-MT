@@ -1,6 +1,23 @@
-#-------------------
-# plotting functions
-#-------------------
+#' Plotting utilities for spheroid proteomics analyses.
+#'
+#' This file contains helper functions for visualizing proteomics data from the
+#' spheroid analysis workflow. The functions in this script cover PCA plotting,
+#' missing-value and outlier summaries, differential-expression visualization,
+#' and layout helpers for combining multiple figures into a single annotated
+#' output. Most functions operate on `SummarizedExperiment` objects and use
+#' metadata in `colData()` to label samples and groups.
+#'
+#' @docType package
+#' @name plotting_funcs
+#' @title Plotting helpers for spheroid proteomics workflows
+#' @keywords internal
+#'
+#' @description
+#' The plotting utilities in this file provide a consistent interface for
+#' exploratory data checks and downstream analysis summaries. They are designed
+#' to support PCA exploration, missingness diagnostics, sample outlier
+#' detection, and differential-expression visualization for both global
+#' proteomics and phosphoproteomics data.
 
 library(tibble)
 library(dplyr)
@@ -51,9 +68,38 @@ color_vals_default <- c(
 #' @param subset_by An optional column name in `colData(experiment)` used to
 #'   subset samples before PCA.
 #' @param subset_values A vector of values to keep when `subset_by` is supplied.
-#' @param ... Additional optional plotting arguments, including `color_by`,
-#'   `shape_by`, `label_by`, `color_vals`, `title`, `subtitle`, and `legend_position`.
+#' @param ... Additional optional plotting arguments. Supported values include:
+#'   \itemize{
+#'     \item{`color_by`}{Column name in `colData(experiment)` used to color
+#'       points in the PCA plot.}
+#'     \item{`shape_by`}{Column name in `colData(experiment)` used to set point
+#'       shape.}
+#'     \item{`label_by`}{Column name in `colData(experiment)` used to label
+#'       points with text or text-repulsion.}
+#'     \item{`color_vals`}{Optional named or unnamed vector of colors supplied
+#'       to `scale_color_manual()`. If omitted, default palette values are used.}
+#'     \item{`title`}{Custom plot title to override the default
+#'       `"Spheroid proteomics PCA"`.}
+#'     \item{`subtitle`}{Optional subtitle displayed below the title.}
+#'     \item{`legend_position`}{Position for the legend passed to
+#'       `theme(legend.position = ...)`. Common values include `"bottom"`,
+#'       `"right"`, and `"none"`.}
+#'   }
 #' @returns A `ggplot` object showing the first two principal components.
+#'
+#' @examples
+#' \dontrun{
+#' pca_plot <- plot_pca(
+#'   experiment = se,
+#'   subset_by = "agent",
+#'   subset_values = c("DMSO", "Trab"),
+#'   color_by = "agent",
+#'   shape_by = "timepoint",
+#'   label_by = "condition",
+#'   title = "PCA by agent",
+#'   subtitle = "Global proteomics"
+#' )
+#' }
 plot_pca <- function(
   experiment,
   subset_by = NULL,
@@ -156,7 +202,47 @@ plot_pca <- function(
   return(plot)
 }
 
-
+#' Plot PCA by agent (deprecated)
+#'
+#' This function is deprecated and should no longer be used. Prefer
+#' `plot_pca()` for PCA visualizations because it supports more flexible
+#' subsetting and metadata-driven aesthetics through a consistent `...` argument
+#' interface.
+#'
+#' @description
+#' Creates a PCA scatter plot for samples belonging to a specific agent, while
+#' also highlighting the corresponding control condition and any associated plate
+#' data. The plot is built from the first two principal components of the assay
+#' matrix and annotates samples by metadata columns such as `agent`,
+#' `timepoint`, and `condition`.
+#'
+#' @param experiment A `SummarizedExperiment` object containing assay values and
+#'   sample metadata in `colData()`.
+#' @param agent Character scalar naming the agent whose samples should be plotted.
+#' @param type Character scalar specifying the assay type. Must be either
+#'   `"global"` or `"phospho"`.
+#' @param missingness Character string describing the missingness filter applied
+#'   before plotting. This is included in the subtitle for recordkeeping.
+#' @param imputation Character string describing the imputation strategy used
+#'   before plotting. This is included in the subtitle for recordkeeping.
+#'
+#' @return A `ggplot` object showing the first two principal components for the
+#'   selected agent, with points colored by agent and shaped by timepoint.
+#'
+#' @details This helper builds a subset of the experiment containing the target
+#' agent and its control condition, then computes PCA on the assay matrix. It is
+#' retained only for backward compatibility and is not recommended for new code.
+#'
+#' @examples
+#' \dontrun{
+#' pca_plot <- plot_pca_by_agent(
+#'   experiment = se,
+#'   agent = "Trab",
+#'   type = "global",
+#'   missingness = "50%",
+#'   imputation = "SampMin"
+#' )
+#' }
 plot_pca_by_agent <- function(
   experiment,
   agent,
@@ -213,7 +299,50 @@ plot_pca_by_agent <- function(
   return(plot)
 }
 
-
+#' Plot PCA by plate (deprecated)
+#'
+#' This function is deprecated and should no longer be used. Prefer
+#' `plot_pca()` for PCA visualizations because it supports more flexible
+#' metadata-based customizations and a unified `...` interface.
+#'
+#' @description
+#' Creates a PCA scatter plot for a single plate by extracting the samples from
+#' that plate and visualizing the first two principal components. Points are
+#' colored by agent and labeled with the sample condition metadata, which makes
+#' it useful for quick plate-level exploratory checks.
+#'
+#' @param experiment A `SummarizedExperiment` object containing assay values and
+#'   sample metadata in `colData()`.
+#' @param plate Character or numeric scalar identifying the plate to subset.
+#' @param type Character scalar specifying the assay type. Must be either
+#'   `"global"` or `"phospho"`.
+#' @param missingness Character string describing the missingness filter applied
+#'   before plotting. This is stored in the subtitle for provenance.
+#' @param imputation Character string describing the imputation strategy used
+#'   before plotting. This is included in the subtitle for provenance.
+#' @param ... Additional optional plotting arguments. Supported values include
+#'   `title`, `subtitle`, `colors`, and `label`.
+#'
+#' @return A `ggplot` object showing the first two principal components for the
+#'   selected plate.
+#'
+#' @details This helper subsets the experiment to one plate, runs PCA on the
+#' assay matrix, and then overlays agent-based coloring and condition labels.
+#' It is retained only for backward compatibility and is not recommended for new
+#' code.
+#'
+#' @examples
+#' \dontrun{
+#' pca_plot <- plot_pca_by_plate(
+#'   experiment = se,
+#'   plate = 10,
+#'   type = "global",
+#'   missingness = "50%",
+#'   imputation = "SampMin",
+#'   title = "PCA for Plate 10",
+#'   label = "condition"
+#' )
+#' }
 plot_pca_by_plate <- function(
   experiment,
   plate,
@@ -291,7 +420,26 @@ plot_pca_by_plate <- function(
   return(plot)
 }
 
-
+#' Identify outlier values using the IQR rule
+#'
+#' @description
+#' Detects values in a numeric vector that fall outside the usual interquartile
+#' range bounds. This helper is useful for flagging obvious outliers in summary
+#' plots or exploratory checks before downstream filtering or visualization.
+#'
+#' @param x A numeric vector to evaluate for outliers.
+#'
+#' @return A logical vector of the same length as `x`, where `TRUE` indicates
+#'   that the value lies outside the lower or upper IQR threshold.
+#'
+#' @details The function uses the standard Tukey-style rule: any value below
+#' `Q1 - 1.5 * IQR` or above `Q3 + 1.5 * IQR` is considered an outlier.
+#'
+#' @examples
+#' \dontrun{
+#' x <- c(1, 2, 3, 4, 100)
+#' is_outlier(x)
+#' }
 is_outlier <- function(x) {
   return(
     x < quantile(x, 0.25) - 1.5 * IQR(x) |
@@ -299,6 +447,35 @@ is_outlier <- function(x) {
   )
 }
 
+
+#' Plot missing-value overview by plate
+#'
+#' @description
+#' Summarizes the number of missing values per sample and visualizes the
+#' distribution of missingness across plates. The plot highlights samples that
+#' appear to be outliers based on the IQR rule and is useful for identifying
+#' low-quality or irregular samples before downstream analysis.
+#'
+#' @param experiment A `SummarizedExperiment` object containing assay values and
+#'   sample metadata in `colData()`.
+#' @param type Character scalar specifying the assay type. Must be either
+#'   `"global"` or `"phospho"`.
+#'
+#' @return A `ggplot` object showing a boxplot of the number of missing values
+#'   per plate, with any outlier samples labeled by condition.
+#'
+#' @details The function calculates the total number of missing values for each
+#'   sample, joins this summary to the sample metadata, and generates a plate-
+#'   level boxplot. Samples flagged by `is_outlier()` are labeled with their
+#'   condition name.
+#'
+#' @examples
+#' \dontrun{
+#' na_plot <- plot_per_plate_na_overview(
+#'   experiment = se,
+#'   type = "global"
+#' )
+#' }
 plot_per_plate_na_overview <- function(
   experiment,
   type = c('global', 'phospho')
@@ -358,6 +535,50 @@ plot_per_plate_na_overview <- function(
   return(plot)
 }
 
+#' Plot differential-expression volcano plot for a single agent and timepoint.
+#'
+#' @description
+#' Builds a volcano-style visualization for a pairwise comparison between an
+#' experimental agent and its control group. The function computes a differential
+#' expression table for the requested comparison and plots log fold-change against
+#' negative log10-adjusted p-value, highlighting features that pass the chosen
+#' thresholds.
+#'
+#' @param experiment A `SummarizedExperiment` object containing proteomics assay
+#'   values and sample metadata in `colData()`.
+#' @param agent Character scalar naming the treatment agent to compare against its
+#'   control.
+#' @param timepoint Character scalar naming the timepoint to compare.
+#' @param log_fc Numeric scalar defining the absolute log2 fold-change cutoff for
+#'   highlighting differential features. Defaults to `1`.
+#' @param pval Numeric scalar specifying the adjusted p-value threshold for
+#'   significance. Defaults to `0.05`.
+#' @param prot_type Character scalar specifying the assay type. Must be either
+#'   `"global"` or `"phospho"`.
+#' @param spheroid Optional character scalar naming the spheroid label when a
+#'   nested group structure is present.
+#'
+#' @return A `ggplot` object showing the differential-expression summary for the
+#'   selected comparison, with vertical and horizontal threshold lines and color-
+#'   coded expression changes.
+#'
+#' @details The helper derives the appropriate control condition from `agent`,
+#' calls `calc_diff_ex()` for the requested comparison, and then formats the
+#' result with `extract_diff_ex_features()`. The resulting plot emphasizes genes
+#' or phosphosites whose log fold-change and adjusted p-value exceed the selected
+#' thresholds.
+#'
+#' @examples
+#' \dontrun{
+#' p <- plot_diff_ex(
+#'   experiment = se,
+#'   agent = "Trab",
+#'   timepoint = "24hr",
+#'   log_fc = 1,
+#'   pval = 0.05,
+#'   prot_type = "global"
+#' )
+#' }
 plot_diff_ex <- function(
   experiment,
   agent,
@@ -450,6 +671,37 @@ plot_diff_ex <- function(
   plot
 }
 
+#' Arrange multiple differential-expression plots in a grid
+#'
+#' @description
+#' Combines a list of ggplot objects into a single multi-panel layout and adds an
+#' optional figure title above the grid. Useful to combine multiple
+#' differential-expression volcano plots for different timepoints or agents
+#' into a single figure.
+#'
+#' @param plots A list of `ggplot` objects to arrange into a common grid.
+#' @param plot_title Optional character string used as the title for the final
+#'   combined figure. If `NULL`, no title is added.
+#'
+#' @return A `ggplot`/`ggpubr` figure object created by `ggpubr::annotate_figure()`
+#'   containing the arranged plots and an optional title.
+#'
+#' @details The function first lays out the plots with `ggpubr::ggarrange()`
+#' using three columns and a shared legend. It then adds a top title using
+#' `ggpubr::text_grob()`, returning the final combined figure object for display
+#' or export.
+#'
+#' @examples
+#' \dontrun{
+#' p1 <- plot_diff_ex(experiment = se, agent = "Trab", timepoint = "8hr")
+#' p2 <- plot_diff_ex(experiment = se, agent = "Trab", timepoint = "24hr")
+#' p3 <- plot_diff_ex(experiment = se, agent = "Trab", timepoint = "48hr")
+#'
+#' combined_plot <- plot_diff_ex_grid(
+#'   plots = list(p1, p2, p3),
+#'   plot_title = "Differential expression summary"
+#' )
+#' }
 plot_diff_ex_grid <- function(plots, plot_title = NULL) {
   plot_grid <- ggpubr::ggarrange(
     plotlist = plots,
