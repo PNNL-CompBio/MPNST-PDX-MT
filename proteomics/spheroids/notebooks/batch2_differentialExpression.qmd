@@ -188,17 +188,40 @@ Then we can generate a PCA plot for the global proteomics data using the `plot_p
 #| label: plot-pca-overview
 #| warning: false
 
+colors <- list(
+  "DMSO" = color_vals_black_first[1],
+  "Mirda" = color_vals_black_first[2],
+  "Palbo" = color_vals_black_first[3],
+  "TNO155" = color_vals_black_first[5],
+  "Vorino" = color_vals_black_first[7]
+)
+
 plot <- plot_pca(
   experiment,
   color_by = 'agent',
   shape_by = 'timepoint',
-  title = "Global proteomics PCA"
+  title = "Global proteomics PCA",
+  color_vals = colors
 )
 plot <- plot +
-  stat_ellipse(aes(group = spheroid, linetype = spheroid)) +
+  stat_ellipse(aes(group = spheroid, linetype = spheroid), color = "darkgrey") +
   theme(legend.position = "right")
 
 plot
+```
+
+Optionally we can save the PCA plot to a file in the output directory.
+
+```{r}
+#| label: save-pca-overview
+#| eval: !expr params$saveplots
+
+ggsave(
+  filename = paste0(output_dir, "batch2_overview_pca.png"),
+  plot = plot,
+  height = 4,
+  width = 6
+)
 ```
 
 As we can see from the PCA plot, as expected there is a clear separation of the samples based on the spheroid that they were derived from. There is also some separation based on the agent and timepoint, but this is less pronounced. Just to get a slighthly better overview we will generate individual PCA plots per spheroid.
@@ -206,6 +229,7 @@ As we can see from the PCA plot, as expected there is a clear separation of the 
 ```{r}
 #| label: plot-pca-overview-per-spheroid
 
+plots <- list()
 for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
   plot <- plot_pca(
     experiment,
@@ -213,10 +237,34 @@ for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
     subset_values = spheroid,
     color_by = 'agent',
     shape_by = 'timepoint',
-    label_by = 'condition',
+    color_vals = colors,
+    # label_by = 'condition',
     title = paste0("Global proteomics PCA for ", spheroid)
   )
+  plot <- plot +
+    stat_ellipse(
+      aes(group = timepoint, linetype = timepoint),
+      color = "darkgrey"
+    ) +
+    theme(legend.position = "right")
+
+  plots[[spheroid]] <- plot
   print(plot)
+}
+```
+
+Optionally we can save the individual PCA plots for each spheroid to files in the output directory.
+```{r}
+#| label: save-pca-overview-per-spheroid-plots
+#| eval: !expr params$saveplots
+
+for (spheroid in names(plots)) {
+  ggsave(
+    filename = paste0(output_dir, "batch2_overview_pca_", spheroid, ".png"),
+    plot = plots[[spheroid]],
+    height = 4,
+    width = 5
+  )
 }
 ```
 
