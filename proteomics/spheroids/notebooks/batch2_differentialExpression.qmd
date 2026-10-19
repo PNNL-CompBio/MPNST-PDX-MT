@@ -756,7 +756,7 @@ We will also set up some global parmeters for the pathway enrichment analysis, i
 #| label: pathway-enrichment-parameters
 log_fc <- 0.5
 pval <- 0.1
-geneset <- krbpaths
+geneset <- ncipid
 id_column <- "Genes"
 ```
 
@@ -852,4 +852,34 @@ for (spheroid in spheroids) {
   }
 }
 
+```
+
+After getting the overview of the enriched pathways across all spheroids, agents, and timepoints, we can see that one of the agents that shows the highest number of enriched pathways across spheroids is Mirda. We will now focus on the Mirda agent and generate a combined plot for all spheroids at the 48hr timepoint, which shows the top enriched pathways based on the adjusted p-value.
+
+```{r}
+#| label: combine-pathway-enrichment-mirda-plot
+
+plot_combined_mirda_spheroids <- plots[['MN4']][['Mirda']][[timepoints[3]]] +
+  plots[['WU225']][['Mirda']][[timepoints[3]]] +
+  plots[['JHU2002']][['Mirda']][[timepoints[3]]] +
+  plot_layout(nrow = 3) # +
+
+plot_combined_mirda_spheroids
+```
+
+And as always we will save the combined plot for Mirda at the 48hr timepoint across all spheroids to a file in the output directory.
+
+```{r}
+#| label: save-pathway-enrichment-combined-mirda-plot
+#| eval: !expr params$saveplots
+
+ggsave(
+  paste0(
+    output_dir,
+    "batch2_pathway_enrichment_global-proteomics_Mirda_48hr.png"
+  ),
+  plot = plot_combined_mirda_spheroids,
+  width = 12,
+  height = 10
+)
 ```
