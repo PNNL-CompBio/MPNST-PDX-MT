@@ -17,7 +17,7 @@ params:
   saveplots: false
 ---
 
-## Library & Data import
+# Library & Data import
 
 Depending on the directory this notebook is run / knitted from, the path to the source code and output directory may need to be adjusted. The default paths assume that this notebook is run from the `notebooks` directory.
 
@@ -66,6 +66,8 @@ library(leapR)
 library(SummarizedExperiment)
 library(ggrepel)
 library(magrittr)
+library(leapR)
+library(patchwork)
 ```
 
 Next we import the `synapseclient` Python package using the `reticulate` R package. This allows us to interact with Synapse, a collaborative platform for data sharing and analysis.
@@ -175,7 +177,7 @@ meta_data <- list(
 )
 ```
 
-## Dataset overview
+# Dataset overview
 As a first step, we will perform a PCA analysis on the global proteomics data to get an overview of the dataset. PCA is a dimensionality reduction technique that allows us to visualize the variation in the data and identify any potential outliers or batch effects. To that end we will first prepare the data for PCA analysis using the `prep_experiment_data` function. This function takes in the proteomics data, meta data, and various parameters for filtering and imputation, and returns a list of `SummarizedExperiment` objects that can be used for downstream analysis.
 
 Importantly we set the `missingness_cutoff` to 0 and the `imputation_method` to 'SampMin'. This means that we will not filter out any proteins based on missingness, and we will impute missing values using the sample minimum method. The imputation is needed for PCA analysis, as PCA cannot be performed on data with missing values. We also set the `samp_cutoff` to 0 for both global and phospho data, meaning that we will not filter out any samples based on missingness.
@@ -283,7 +285,7 @@ Investigating the individual PCA plots it is very clear that the driving factor 
 
 The other observation we can make from the PCA plots is that there are some outlier samples that are separated from the main cluster of samples. These outliers may need to be removed from the analysis, as they could be driving the separation of the samples and potentially biasing the results. We will investigate these outliers further in the next section.
 
-## Missingness and outlier investigation
+# Missingness and outlier investigation
 
 The first thing we want to do is to investigate the missingness in our data. Missingness can be a problem in proteomics data, as it can lead to biased results if not handled properly. We will look at the distribution of missing values across samples and proteins, and identify any outliers that may need to be removed from the analysis.
 
@@ -300,7 +302,7 @@ experiment <- prepare_proteomics_data(
 )
 ```
 
-### Missingness distribution
+## Missingness distribution
 
 With the data prepared, we can now look at the distribution of missing values across proteins. First, we calculate the missingness for each protein as the proportion of samples in which the protein is missing. We then calculate the z-score of the missingness values to identify outliers. 
 
@@ -413,7 +415,7 @@ ggsave(
 )
 ```
 
-### Missingness per plate (Spheroid)
+## Missingness per plate (Spheroid)
 
 Next we want to look at the missingness per plate (spheroid) to see if there are any plates with unusually high missingness. We will use the `plot_per_plate_na_overview` function to generate a bar plot showing the number of missing values per plate for each protein type (global and phospho). The function takes in a `SummarizedExperiment` object and the protein type as input, and returns a ggplot object.
 
@@ -443,7 +445,6 @@ As we can see from the plot some plates show a few samples with unusually high m
 Below we will calculate the number of missing values per sample and identify any outliers based on the z-score of the number of missing values. Importantly we are still only interested on those samples with high missingness, hence we set `sided = "right"`. We will then return a table showing the sample ID, plate, and number of missing values for any outlier samples.
 
 ```{r}
-
 summarized_data <- as_tibble(assay(experiment)) %>%
   summarise(across(everything(), ~ sum(is.na(.)))) %>%
   pivot_longer(cols = everything(), names_to = "sample_id", values_to = "NAs")
@@ -469,7 +470,7 @@ data[data$outlier == TRUE, ]
 
 We now can use the gathered information about the missingness distribution and the outlier samples to set a threshold for filtering out proteins with high missingness in downstream analysis. We will use the z-score based cutoff for filtering out proteins with high missingness, and we will remove any outlier samples identified based on the z-score of the number of missing values.
 
-## PCA plots
+# PCA plots (Spheroid)
 
 Now that we have determined the missingness cutoff for filtering out proteins with high missingness, we can prepare the data for PCA analysis. We will use the `prep_experiment_data` function again, this time with the `missingness_cutoff` set to the z-score based cutoff we determined earlier, and the `imputation_method` set to "SampMin". This means that we will filter out proteins with missingness greater than the cutoff, and we will impute missing values using the sample minimum method.
 
@@ -491,7 +492,7 @@ experiment <- prepare_proteomics_data(
 )
 ```
 
-### PCA plots per plate (Spheroid)
+## PCA plots per plate (Spheroid)
 
 Next we generate PCA plots for each plate (spheroid) and protein type (global and phospho - note phospho data is currently not being investigated). We will use the `plot_pca_by_plate` function to generate the PCA plots.
 
@@ -558,7 +559,7 @@ for (prot_type in c('global')) {
 }
 ```
 
-### PCA plots per agent
+## PCA plots per agent
 
 The final investigation we will do is to generate PCA plots for each agent and protein type (global and phospho - note phospho data is currently not being investigated). We will use the `plot_pca` function to generate the PCA plots.
 
@@ -621,7 +622,7 @@ for (prot_type in c('global')) {
 }
 ```
 
-## Differential expression analysis
+# Differential expression analysis
 Now that we have a good overview of the dataset, we can move on to the differential expression analysis. We will use the `plot_diff_ex` function to generate volcano plots for each agent and timepoint, comparing the treated samples to the control samples. 
 
 ```{r}
@@ -695,4 +696,160 @@ for (agent in agents) {
     )
   }
 }
+```
+
+# Pathway enrichment analysis
+
+Now we take the "most interesting" result from the differential expression analysis and perform pathway enrichment analysis on it. This will allow us to identify any biological pathways that are significantly enriched in the differentially expressed proteins, which can provide insights into the underlying biological processes affected by the treatments.
+
+## Data preparation
+
+As a first step we will generate the differential expression results for all agents and timepoints, and store them in a list for downstream analysis. We will use the `calc_diff_ex` function to calculate the differential expression results, which takes in a `SummarizedExperiment` object, the names of the two groups to compare, and various parameters for filtering and adjusting the results.
+
+Since we are dealing only with drugs (agents) that have a DMSO control, we will use DMSO as the control group for all comparisons. We will also set the `align_by` parameter to `"Protein.Group"`, which is the unified protein identifier used in the global proteomics data.
+
+```{r}
+#| label: calc-diff-ex-for-pathway-enrichment
+
+all_diff_ex <- list()
+ctrl <- "DMSO"
+
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    for (timepoint in timepoints) {
+      experiment_subset <- experiment[,
+        experiment$agent %in%
+          c(agent, ctrl) &
+          experiment$timepoint == timepoint
+      ]
+
+      group_1 <- paste0(spheroid, "_", timepoint, "_", ctrl)
+      group_2 <- paste0(spheroid, "_", timepoint, "_", agent)
+
+      diff_ex <- calc_diff_ex(
+        experiment_subset,
+        group_1,
+        group_2,
+        align_by = "Protein.Group"
+      )
+
+      all_diff_ex[[spheroid]][[agent]][[timepoint]] <- diff_ex
+    }
+  }
+}
+```
+
+## Pathway enrichment plots
+Now we can perform the run the pathway enrichment analysis. To get an overview of the enriched pathways, we will generate bar plots for each agent and timepoint, showing the top enriched pathways based on the adjusted p-value. We will use the `plot_leapr_bar` function to generate the bar plots, which takes in the results of the pathway enrichment analysis and various parameters for customizing the plot.
+
+But first we need to load the necessary data for the pathway enrichment analysis. We will use the `ncipid` and `krbpaths` datasets from the `leapR` package, which contain information about pathways and their associated proteins.
+
+```{r}
+#| label: load-pathway-enrichment-data
+data("ncipid")
+data("krbpaths")
+```
+
+We will also set up some global parmeters for the pathway enrichment analysis, including the log fold change and p-value cutoffs for selecting differentially expressed proteins.
+
+```{r}
+#| label: pathway-enrichment-parameters
+log_fc <- 0.5
+pval <- 0.1
+geneset <- krbpaths
+id_column <- "Genes"
+```
+
+Now we can generate the individual bar plots for each agent and timepoint, showing the top enriched pathways based on the adjusted p-value. We will store the plots in a list for later use where we will combine the plots for each spheroid and agent into a single plot. 
+
+```{r}
+#| label: pathway-enrichment-analysis
+
+plots <- list()
+
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    for (timepoint in timepoints) {
+      tryCatch(
+        {
+          enriched_pathways <- leapR(
+            geneset = geneset,
+            eset = all_diff_ex[[spheroid]][[agent]][[timepoint]],
+            enrichment_method = "enrichment_in_sets",
+            assay_name = 'proteomics',
+            id_column = id_column,
+            primary_column = "adj.P.Val",
+            threshold = pval,
+            greaterthan = FALSE
+          )
+          plot <- plot_leapr_bar(
+            enriched_pathways,
+            paste0(spheroid, ": ", agent, ' at ', timepoint)
+          )
+          plots[[spheroid]][[agent]][[timepoint]] <- plot
+        },
+        error = function(msg) {
+          message(
+            paste0(
+              "pval of '",
+              pval,
+              "' did not result in differentially expressed proteins for agent '",
+              agent,
+              "' at timepoint '",
+              timepoint,
+              "'"
+            )
+          )
+          return(NA)
+        }
+      )
+    }
+  }
+}
+```
+
+Once the individual plots are generated, we can combine them into a single plot for each spheroid and agent, showing the top enriched pathways across all timepoints. We will use the `plot_layout` function from the `patchwork` package to arrange the individual plots in a grid layout.
+
+```{r}
+#| label: combine-pathway-enrichment-plots
+
+combined_plots <- list()
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    plot_combined <- plots[[spheroid]][[agent]][[timepoints[1]]] +
+      plots[[spheroid]][[agent]][[timepoints[2]]] +
+      plots[[spheroid]][[agent]][[timepoints[3]]] +
+      plot_layout(nrow = 3) # +
+    # plot_annotation(
+    #   title = paste0(spheroid, ": ", agent),
+    #   theme = theme(plot.title = element_text(size = 14))
+    # )
+    combined_plots[[spheroid]][[agent]] <- plot_combined
+    print(plot_combined)
+  }
+}
+```
+
+```{r}
+#| label: save-pathway-enrichment-plots
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    fname <- paste0(
+      output_dir,
+      "batch2_pathway_enrichment_",
+      "global-proteomics_",
+      spheroid,
+      "_",
+      agent,
+      ".png"
+    )
+    ggsave(
+      fname,
+      plot = combined_plots[[spheroid]][[agent]],
+      width = 12,
+      height = 10
+    )
+  }
+}
+
 ```
