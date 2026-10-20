@@ -21,14 +21,14 @@ This notebook is an exploratory analysis of the differential expression of prote
 
 # Library & Data import
 
-Depending on the directory this notebook is run / knitted from, the path to the source code and output directory may need to be adjusted. The default paths assume that this notebook is run from the `notebooks` directory.
+Depending on the directory this notebook is run / knitted from, the path to the source code and output directory may need to be adjusted. The default paths assume that this notebook is run from the `notebooks` directory. 
 
 As an additional optional dataset we can include MN2 into the data (more on that in [Optional inclusion of MN2](#sec-optional-inclusion-of-mn2)). To make this step optional we will use a boolean variable `eval_mn2` to control whether or not the MN2 data is included in the analysis. If `eval_mn2` is set to `TRUE`, we will retrieve and clean up the MN2 data, and if it is set to `FALSE`, we will skip this step. Additionally we will store every generated figure into a separate output directory, which will be created if it does not exist.
 
 ```{r}
 #| label: eval_mn2
 
-eval_mn2 <- TRUE
+eval_mn2 <- FALSE
 
 if (!eval_mn2) {
   cat("MN2 data will not be included in the analysis.")
@@ -424,7 +424,7 @@ Optionally we can save the individual PCA plots for each spheroid to files in th
 
 for (spheroid in names(plots)) {
   ggsave(
-    filename = paste0(output_dir, "batch2_overview_pca_", spheroid, ".png"),
+    filename = paste0(output_dir, "batch2_overview_pca_", spheroid, ".pdf"),
     plot = plots[[spheroid]],
     height = 4,
     width = 5
@@ -559,7 +559,7 @@ Finally, we save the plot to a file in the output directory. (Note that the `eva
 #| eval: !expr params$saveplots
 
 ggsave(
-  filename = paste0(output_dir, "batch2_missingness_distribution.png"),
+  filename = paste0(output_dir, "batch2_missingness_distribution.pdf"),
   plot = plot,
   height = 3,
   width = 5
@@ -584,7 +584,7 @@ Finally, we save the plot to a file in the output directory. (Note that the `eva
 #| label: save-missingness-per-plate-plot
 #| eval: !expr params$saveplots
 ggsave(
-  filename = paste0(output_dir, "batch2_missingness_outliers_per_plate.png"),
+  filename = paste0(output_dir, "batch2_missingness_outliers_per_plate.pdf"),
   plot = plot,
   height = 4,
   width = 6
@@ -703,7 +703,7 @@ for (prot_type in c('global')) {
       prot_type,
       "_by_plate_",
       plate,
-      ".png"
+      ".pdf"
     )
     ggsave(fname, plot = plots[[plate]], height = 5, width = 5)
   }
@@ -759,7 +759,7 @@ for (prot_type in c('global')) {
         agent,
         "_",
         spheroid,
-        ".png"
+        ".pdf"
       )
       ggsave(
         fname,
@@ -834,7 +834,7 @@ for (agent in agents) {
       agent,
       "_",
       spheroid,
-      ".png"
+      ".pdf"
     )
     ggsave(
       fname,
@@ -989,7 +989,7 @@ for (spheroid in spheroids) {
       spheroid,
       "_",
       agent,
-      ".png"
+      ".pdf"
     )
     ggsave(
       fname,
@@ -1007,10 +1007,15 @@ After getting the overview of the enriched pathways across all spheroids, agents
 ```{r}
 #| label: combine-pathway-enrichment-mirda-plot
 
-plot_combined_mirda_spheroids <- plots[['MN4']][['TNO155']][[timepoints[3]]] +
-  plots[['WU225']][['TNO155']][[timepoints[3]]] +
-  plots[['JHU2002']][['TNO155']][[timepoints[3]]] +
-  plot_layout(nrow = 3) # +
+combine_plots <- function(plots, timepoint, agent) {
+  spheroids <- names(plots)
+  plot_combined <- plots[[spheroids[1]]][[agent]][[timepoint]]
+  for (i in 2:length(spheroids)) {
+    plot_combined <- plot_combined +
+      plots[[spheroids[i]]][[agent]][[timepoint]]
+  }
+  plot_combined <- plot_combined +
+    plot_layout(nrow = 3) # +
 
 plot_combined_mirda_spheroids
 ```
@@ -1024,9 +1029,19 @@ And as always we will save the combined plot for Mirda at the 48hr timepoint acr
 ggsave(
   paste0(
     output_dir,
-    "batch2_pathway_enrichment_global-proteomics_Mirda_48hr.png"
+    "batch2_pathway_enrichment_global-proteomics_Mirda_48hr.pdf"
   ),
-  plot = plot_combined_mirda_spheroids,
+  plot = combined_plots[["Mirda_48h"]],
+  width = 12,
+  height = 10
+)
+
+ggsave(
+  paste0(
+    output_dir,
+    "batch2_pathway_enrichment_global-proteomics_TNO155_48hr.pdf"
+  ),
+  plot = combined_plots[["TNO155_48h"]],
   width = 12,
   height = 10
 )
