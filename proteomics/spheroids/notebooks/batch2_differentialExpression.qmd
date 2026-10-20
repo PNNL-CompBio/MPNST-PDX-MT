@@ -17,21 +17,44 @@ params:
   saveplots: false
 ---
 
+This notebook is an exploratory analysis of the differential expression of proteins in spheroid proteomics data. The analysis is performed on the global proteomics data, and the results are visualized using PCA plots and heatmaps. The analysis is performed on the MN4, WU225, and JHU2002 spheroids, with an optional inclusion of the MN2 spheroid.
+
 # Library & Data import
 
 Depending on the directory this notebook is run / knitted from, the path to the source code and output directory may need to be adjusted. The default paths assume that this notebook is run from the `notebooks` directory.
+
+As an additional optional dataset we can include MN2 into the data (more on that in [Optional inclusion of MN2](#sec-optional-inclusion-of-mn2)). To make this step optional we will use a boolean variable `eval_mn2` to control whether or not the MN2 data is included in the analysis. If `eval_mn2` is set to `TRUE`, we will retrieve and clean up the MN2 data, and if it is set to `FALSE`, we will skip this step. Additionally we will store every generated figure into a separate output directory, which will be created if it does not exist.
+
+```{r}
+#| label: eval_mn2
+
+eval_mn2 <- TRUE
+
+if (!eval_mn2) {
+  cat("MN2 data will not be included in the analysis.")
+} else {
+  cat("MN2 data will be included in the analysis.")
+}
+```
 
 ```{r}
 #| label: path-setup
 
 src_dir <- "../src/"
 output_dir_root <- "../output_figures/"
-output_dir <- paste0(output_dir_root, "batch2_differential_expression/")
 
 if (!dir.exists(output_dir_root)) {
   stop(paste0("Root of output directory does not exist: ", output_dir_root))
 }
 
+if (!eval_mn2) {
+  output_dir <- paste0(output_dir_root, "batch2_differential_expression/")
+} else {
+  output_dir <- paste0(
+    output_dir_root,
+    "batch2_differential_expression_including_MN2/"
+  )
+}
 if (!dir.exists(output_dir)) {
   dir.create(output_dir)
 }
@@ -183,13 +206,7 @@ meta_data_global <- meta_dat %>%
 
 ## Optional inclusion of MN2
 
-As an additional optional spheroid we can include the MN2 spheroid in our analysis. The data for this spheroid is stored in separate files on Synapse, and we will need to retrieve and clean up the data in a similar way as we did for the other spheroids. To make this step optional we will use a boolean variable `eval_mn2` to control whether or not the MN2 data is included in the analysis. If `eval_mn2` is set to `TRUE`, we will retrieve and clean up the MN2 data, and if it is set to `FALSE`, we will skip this step.
-
-```{r}
-#| label: eval-mn2
-
-eval_mn2 <- FALSE
-```
+As an additional optional spheroid we can include the MN2 spheroid in our analysis. The data for this spheroid is stored in separate files on Synapse, and we will need to retrieve and clean up the data in a similar way as we did for the other spheroids. 
 
 The following code chunks provide the steps for retrieving and cleaning up the MN2 data, similar to what we did for the other spheroids. We will retrieve the global proteomics data and meta data for the MN2 spheroid from Synapse, clean up the column names, and create new columns for downstream analysis.
 
@@ -359,11 +376,8 @@ Optionally we can save the PCA plot to a file in the output directory.
 #| label: save-pca-overview
 #| eval: !expr params$saveplots
 
-if (eval_mn2) {
-  fname <- paste0(output_dir, "batch2_overview_including_mn2_pca.png")
-} else {
-  fname <- paste0(output_dir, "batch2_overview_pca.png")
-}
+fname <- paste0(output_dir, "batch2_overview_pca.pdf")
+
 ggsave(
   filename = fname,
   plot = plot,
@@ -377,8 +391,10 @@ As we can see from the PCA plot, as expected there is a clear separation of the 
 ```{r}
 #| label: plot-pca-overview-per-spheroid
 
+spheroids <- as_tibble(colData(experiment)) %>% pull(spheroid) %>% unique()
+
 plots <- list()
-for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
+for (spheroid in spheroids) {
   plot <- plot_pca(
     experiment,
     subset_by = 'spheroid',
