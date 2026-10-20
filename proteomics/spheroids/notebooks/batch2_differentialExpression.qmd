@@ -111,11 +111,18 @@ The following code chunks provide a summary of the imported data, including the 
 ```{r}
 #| label: data-summary
 head(global_dat)
-
 head(meta_dat)
 ```
 
-As we could see from the summary, the global proteomics data has a number of columns with file paths and other information that we don't need for our analysis. We will clean up the column names to make them more informative and easier to work with. 
+# Data preparation generation of the `SummarizedExperiment` object
+
+## MN4, WU225, and JHU2002 spheroids
+
+As this notebook is focused primarily on the MN4, WU225, and JHU2002 spheroids, we will spend some time and provide more detail on the data preparation steps for these spheroids. The optional data preparation steps for the MN2 spheroid are similar, and will be described in a separate section.
+
+### Proteomics data cleanup
+
+As we could see from the summary, the global proteomics data has a number of columns with file paths and other information that we don't need for our analysis. We will clean up the column names to make them more informative and easier to work with. Additionally we remove a few columns that are not needed for our analysis, such as the first protein description and the number of sequences and proteotypic sequences.
 ```{r}
 #| label: proteomics-data-cleanup
 #| 
@@ -127,14 +134,16 @@ names(global_dat) %<>%
   gsub("_Maggie_50SPD_[0-9]+Aug[0-9]+_ES906-3408_[0-9]*.raw", "", .)
 
 
-# storing the proteomics data in a list for easier access later on
-prot_data <- list(
-  "global" = global_dat
-  # "phospho" = phospho_dat
-)
+global_dat %<>%
+  dplyr::select(
+    -c('First.Protein.Description', 'N.Sequences', 'N.Proteotypic.Sequences')
+  )
 ```
 
+### Meta data cleanup
+
 Then we do the same thing for the meta data, cleaning up the column names and creating new columns for downstream analysis. We also create a new column that combines the spheroid, timepoint, and agent information into a single string, which will be useful for grouping samples in our analysis.
+
 ```{r}
 #| label: meta-data-cleanup
 
@@ -170,11 +179,127 @@ meta_data_global <- meta_dat %>%
   dplyr::rename(., sample = global_sample_id) %>%
   dplyr::rename(., plate = plate_by_spheroid)
 
-# storing the meta data in a list for easier access later on
-meta_data <- list(
-  "global" = meta_data_global
-  # "phospho" = meta_data_phospho
-)
+```
+
+## Optional inclusion of MN2
+
+As an additional optional spheroid we can include the MN2 spheroid in our analysis. The data for this spheroid is stored in separate files on Synapse, and we will need to retrieve and clean up the data in a similar way as we did for the other spheroids. To make this step optional we will use a boolean variable `eval_mn2` to control whether or not the MN2 data is included in the analysis. If `eval_mn2` is set to `TRUE`, we will retrieve and clean up the MN2 data, and if it is set to `FALSE`, we will skip this step.
+
+```{r}
+#| label: eval-mn2
+
+eval_mn2 <- FALSE
+```
+
+The following code chunks provide the steps for retrieving and cleaning up the MN2 data, similar to what we did for the other spheroids. We will retrieve the global proteomics data and meta data for the MN2 spheroid from Synapse, clean up the column names, and create new columns for downstream analysis.
+
+```{r}
+#| label: synapse-file-retrieval-mn2
+#| warning: false
+#| error: false
+
+if (!eval_mn2) {
+  cat("MN2 data will not be included in the analysis.")
+} else {
+  syn <- sc$Synapse()
+  syn$login(silent = TRUE)
+
+  # getting the global proteomics abundance data
+  synapseFileID <- "syn74552028"
+  fileEntity <- syn$get(synapseFileID)
+  mn2_global_dat <- readr::read_tsv(
+    fileEntity$path,
+    na = c("0", "", NA), # the file stored on synapse has '0's instead of NA or ''
+  )
+
+  # getting the meta data
+  synapseFileID <- "syn74755705"
+  fileEntity <- syn$get(synapseFileID)
+  mn2_meta_dat <- read_xlsx(fileEntity$path, sheet = 2)
+
+  syn$logout()
+
+  names(mn2_global_dat) <- names(mn2_global_dat) %>%
+    gsub("D:\\\\Data_D\\\\LeDay\\\\spheroid_MN02\\\\rawdata\\\\", "", .) %>%
+    gsub("_16Apr26_Monty_ES906_2014_50SPD[x]*.raw", "", .) %>%
+    gsub("^[0-9]*_cNF_spheroid_", "G_", .)
+
+  mn2_global_dat %<>%
+    dplyr::select(
+      -c('First.Protein.Description', 'N.Sequences', 'N.Proteotypic.Sequences')
+    )
+
+  new_col_names <- c(
+    sample = 'Sample ID \r\n(abbrev)',
+    global_sample_id = "Proteomics Sample ID",
+    phospho_sample_id = "Phosphoproteomics Sample ID",
+    agent = "Drug",
+    timepoint = "Time",
+    plate = "Plate"
+  )
+
+  mn2_meta_dat %<>%
+    rowwise() %>%
+    mutate(Drug = gsub(" ", "", Drug), Time = paste0(Time, "hr")) %>%
+    mutate(spheroid = "MN2") %>%
+    mutate(group = paste(Time, Drug, sep = "_")) %>%
+    mutate(Plate = paste(spheroid, Plate, sep = "_")) %>%
+    group_by(group) %>%
+    mutate(replicate = paste0('r', 1:n())) %>%
+    mutate(condition = paste(spheroid, Time, Drug, replicate, sep = '_')) %>%
+    dplyr::rename(., all_of(new_col_names)) %>%
+    ungroup()
+}
+```
+
+One crucial difference between the MN2 dataset and the other spheroid dataset is that we have proteomics data for a larger set of drugs that the MN2 spheroid has been treated with. To ensure that we are only including the drugs that are also present in the other spheroid datasets, we will filter the MN2 data to only include the drugs that are present in the meta data for the other spheroids. We know that the drugs that are present in the other spheroid datasets are *DMSO* (the control), *Mirda*, *Palbo*, *TNO155*, and *Vorino* at the *8h*, *24h* and *48h* time points. The corresponding plates for the MN2 spheroid are *MN2_1*, *MN2_4*, and *MN2_6*. We will filter the MN2 meta data to only include these plates, and then we will select the corresponding columns from the MN2 global proteomics data.
+
+```{r}
+#| label: proteomics-data-cleanup-mn2-select-cols
+if (!eval_mn2) {
+  cat("MN2 data will not be included in the analysis.")
+} else {
+  mn2_meta_dat <- mn2_meta_dat[
+    mn2_meta_dat$plate %in% c("MN2_1", "MN2_4", "MN2_6"),
+  ]
+
+  mn2_meta_data_global <- mn2_meta_dat %>%
+    select(., global_sample_id, condition, plate) %>%
+    dplyr::rename(., sample = global_sample_id) %>%
+    mutate(sample = gsub("cNF_spheroid_", "G_", sample))
+
+  cols_to_keep <- c(
+    'Protein.Group',
+    'Protein.Names',
+    'Genes',
+    mn2_meta_data_global$sample
+  )
+  mn2_global_dat %<>%
+    dplyr::select(all_of(cols_to_keep))
+}
+```
+
+Finally we will combine both the meta data and the global proteomics data for the MN2 spheroid with the meta data and global proteomics data for the other spheroids. This will allow us to generate one combined `SummarizedExperiment` object that includes all of the spheroids and drugs that we are interested in analyzing. We will use a full join to combine the data, which will ensure that we keep all of the proteins and samples from both datasets.
+
+```{r}
+#| label: combine-mn2-data
+#| 
+if (!eval_mn2) {
+  cat("MN2 data will not be included in the analysis.")
+} else {
+  global_dat %<>%
+    full_join(
+      .,
+      mn2_global_dat,
+      by = c('Protein.Group', 'Protein.Names', 'Genes')
+    )
+
+  meta_data_global %<>%
+    rbind(
+      .,
+      mn2_meta_data_global
+    )
+}
 ```
 
 # Dataset overview
@@ -184,10 +309,15 @@ Importantly we set the `missingness_cutoff` to 0 and the `imputation_method` to 
 
 ```{r}
 #| label: prep-data-for-pca-overview
+prot_data <- list()
+meta_data <- list()
+
+prot_data[['global']] <- global_dat
+meta_data[['global']] <- meta_data_global
 
 experiment <- prepare_proteomics_data(
-  prot_data[['global']],
-  meta_data[['global']],
+  proteomics_data = prot_data[['global']],
+  proteomics_meta = meta_data[['global']],
   type = 'global',
   imputation_method = 'SampMin',
   sample_col_prefix = "G_",
@@ -229,11 +359,16 @@ Optionally we can save the PCA plot to a file in the output directory.
 #| label: save-pca-overview
 #| eval: !expr params$saveplots
 
+if (eval_mn2) {
+  fname <- paste0(output_dir, "batch2_overview_including_mn2_pca.png")
+} else {
+  fname <- paste0(output_dir, "batch2_overview_pca.png")
+}
 ggsave(
-  filename = paste0(output_dir, "batch2_overview_pca.png"),
+  filename = fname,
   plot = plot,
-  height = 4,
-  width = 6
+  height = 6,
+  width = 8
 )
 ```
 
@@ -294,8 +429,8 @@ Since we specifically want to investigate missingness, we set the `missingness_c
 #| label: prep-data-for-missingness-investigation
 
 experiment <- prepare_proteomics_data(
-  prot_data[['global']],
-  meta_data[['global']],
+  proteomics_data = prot_data[['global']],
+  proteomics_meta = meta_data[['global']],
   type = 'global',
   sample_col_prefix = "G_",
   group_contains_spheroid = TRUE
@@ -481,8 +616,8 @@ f_missingness_cutoff <- z_score_based_missingness_cutoffs['Z > 2']
 s_to_exclude <- data[data$outlier == TRUE, ] %>% pull(sample_id)
 
 experiment <- prepare_proteomics_data(
-  prot_data[['global']],
-  meta_data[['global']],
+  proteomics_data = prot_data[['global']],
+  proteomics_meta = meta_data[['global']],
   type = 'global',
   sample_col_prefix = "G_",
   group_contains_spheroid = TRUE,
@@ -565,10 +700,10 @@ The final investigation we will do is to generate PCA plots for each agent and p
 
 ```{r}
 #| label: plot-pca-by-agent
-#| 
+spheroids <- as_tibble(colData(experiment)) %>% pull(spheroid) %>% unique()
 
 for (agent in c('Mirda', 'TNO155', 'Palbo', 'Vorino')) {
-  for (spheroid in c('MN4', 'WU225', 'JHU2002')) {
+  for (spheroid in spheroids) {
     exp <- experiment[, experiment$spheroid == spheroid]
     plot <- plot_pca(
       exp,
@@ -598,7 +733,6 @@ for (agent in c('Mirda', 'TNO155', 'Palbo', 'Vorino')) {
 
 for (prot_type in c('global')) {
   agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
-  spheroids <- c('MN4', 'WU225', 'JHU2002')
   for (agent in agents) {
     for (spheroid in spheroids) {
       fname <- paste0(
@@ -627,7 +761,6 @@ Now that we have a good overview of the dataset, we can move on to the different
 
 ```{r}
 agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
-spheroids <- c('MN4', 'WU225', 'JHU2002')
 timepoints <- c("8hr", "24hr", "48hr")
 log_fc <- .5
 pval <- 0.1
@@ -676,7 +809,6 @@ And as always we will save the plots to files in the output directory. (Note tha
 #| eval: !expr params$saveplots
 
 agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
-spheroids <- c('MN4', 'WU225', 'JHU2002')
 for (agent in agents) {
   for (spheroid in spheroids) {
     fname <- paste0(
@@ -859,9 +991,9 @@ After getting the overview of the enriched pathways across all spheroids, agents
 ```{r}
 #| label: combine-pathway-enrichment-mirda-plot
 
-plot_combined_mirda_spheroids <- plots[['MN4']][['Mirda']][[timepoints[3]]] +
-  plots[['WU225']][['Mirda']][[timepoints[3]]] +
-  plots[['JHU2002']][['Mirda']][[timepoints[3]]] +
+plot_combined_mirda_spheroids <- plots[['MN4']][['TNO155']][[timepoints[3]]] +
+  plots[['WU225']][['TNO155']][[timepoints[3]]] +
+  plots[['JHU2002']][['TNO155']][[timepoints[3]]] +
   plot_layout(nrow = 3) # +
 
 plot_combined_mirda_spheroids
