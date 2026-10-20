@@ -1015,9 +1015,27 @@ combine_plots <- function(plots, timepoint, agent) {
       plots[[spheroids[i]]][[agent]][[timepoint]]
   }
   plot_combined <- plot_combined +
-    plot_layout(nrow = 3) # +
+    plot_layout(nrow = length(spheroids)) # +
 
-plot_combined_mirda_spheroids
+  return(plot_combined)
+}
+
+combined_plots <- list()
+combined_plots[["Mirda_48h"]] <- combine_plots(
+  plots,
+  timepoint = timepoints[3],
+  agent = "Mirda"
+)
+
+combined_plots[["TNO155_48h"]] <- combine_plots(
+  plots,
+  timepoint = timepoints[3],
+  agent = "TNO155"
+)
+
+for (plot in combined_plots) {
+  print(plot)
+}
 ```
 
 And as always we will save the combined plot for Mirda at the 48hr timepoint across all spheroids to a file in the output directory.
@@ -1033,7 +1051,7 @@ ggsave(
   ),
   plot = combined_plots[["Mirda_48h"]],
   width = 12,
-  height = 10
+  height = length(spheroids) * 3
 )
 
 ggsave(
@@ -1043,6 +1061,6 @@ ggsave(
   ),
   plot = combined_plots[["TNO155_48h"]],
   width = 12,
-  height = 10
+  height = length(spheroids) * 3
 )
 ```
