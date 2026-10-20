@@ -273,6 +273,7 @@ One crucial difference between the MN2 dataset and the other spheroid dataset is
 
 ```{r}
 #| label: proteomics-data-cleanup-mn2-select-cols
+
 if (!eval_mn2) {
   cat("MN2 data will not be included in the analysis.")
 } else {
@@ -300,7 +301,7 @@ Finally we will combine both the meta data and the global proteomics data for th
 
 ```{r}
 #| label: combine-mn2-data
-#| 
+
 if (!eval_mn2) {
   cat("MN2 data will not be included in the analysis.")
 } else {
@@ -596,6 +597,8 @@ As we can see from the plot some plates show a few samples with unusually high m
 Below we will calculate the number of missing values per sample and identify any outliers based on the z-score of the number of missing values. Importantly we are still only interested on those samples with high missingness, hence we set `sided = "right"`. We will then return a table showing the sample ID, plate, and number of missing values for any outlier samples.
 
 ```{r}
+#| label: calculate-missingness-outliers-per-plate
+#| 
 summarized_data <- as_tibble(assay(experiment)) %>%
   summarise(across(everything(), ~ sum(is.na(.)))) %>%
   pivot_longer(cols = everything(), names_to = "sample_id", values_to = "NAs")
@@ -776,6 +779,8 @@ for (prot_type in c('global')) {
 Now that we have a good overview of the dataset, we can move on to the differential expression analysis. We will use the `plot_diff_ex` function to generate volcano plots for each agent and timepoint, comparing the treated samples to the control samples. 
 
 ```{r}
+#| label: plot-diff-ex-plots
+
 agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
 timepoints <- c("8hr", "24hr", "48hr")
 log_fc <- .5
