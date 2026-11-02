@@ -339,7 +339,8 @@ experiment <- prepare_proteomics_data(
   type = 'global',
   imputation_method = 'SampMin',
   sample_col_prefix = "G_",
-  group_contains_spheroid = TRUE
+  group_contains_spheroid = TRUE,
+  median_center_sample = TRUE
 )
 ```
 
@@ -642,7 +643,8 @@ experiment <- prepare_proteomics_data(
   group_contains_spheroid = TRUE,
   feature_missingness_cutoff = f_missingness_cutoff,
   samples_to_exclude = s_to_exclude,
-  imputation_method = "SampMin"
+  imputation_method = "SampMin",
+  median_center = TRUE
 )
 ```
 

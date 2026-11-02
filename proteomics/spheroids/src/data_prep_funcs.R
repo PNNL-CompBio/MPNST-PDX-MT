@@ -198,6 +198,18 @@ prepare_proteomics_data <- function(
     }
   }
 
+  if (!is.null(extra_args$median_center)) {
+    median_center <- extra_args$median_center
+    if (
+      !is.logical(median_center) ||
+        length(median_center) != 1L
+    ) {
+      stop("`median_center` must be a single TRUE or FALSE value.")
+    }
+  } else {
+    median_center <- NULL
+  }
+
   # cleaning up the metadata by splitting the condition column into group, replicate, and if applicable spheroid, timepoint, and agent
   proteomics_meta_clean <- clean_meta_data(
     data = proteomics_meta,
@@ -251,6 +263,22 @@ prepare_proteomics_data <- function(
     experiment %<>%
       impute_proteomics(., assay = "proteomics", imputation_method) %>%
       log_transform(., assay = "proteomics")
+  }
+
+  if (is.null(median_center)) {
+    warning(
+      "Median centering is disabled. Proceeding without median centering.",
+      call. = FALSE
+    )
+  } else if (
+    !is.null(median_center) && is.logical(median_center) && median_center
+  ) {
+    experiment %<>%
+      median_center_sample(
+        .,
+        assay = "proteomics",
+        log_transform = FALSE
+      )
   }
 
   return(experiment)
@@ -526,6 +554,41 @@ log_transform <- function(experiment, assay = "proteomics") {
     experiment,
     withDimnames = FALSE
   ) <- proteomics_data
+  SummarizedExperiment::assayNames(experiment) <- assay
+  return(experiment)
+}
+
+median_center_sample <- function(
+  experiment,
+  assay = "proteomics",
+  log_transform = TRUE
+) {
+  if (log_transform) {
+    experiment <- log_transform(experiment, assay)
+  } else {
+    warning(
+      "Log transformation is disabled. ",
+      "Proceeding with median centering on raw values. ",
+      "Ensure that input has already been log-transformed if required."
+    )
+  }
+
+  proteomics_data <-
+    SummarizedExperiment::assay(experiment, assay) %>%
+    {
+      # passes the assay data along unchanged if log_transform is TRUE
+      # (data is already coerced to numeric), otherwise coerces to numeric
+      if (log_transform) . else mutate(., across(everything(), as.numeric))
+    } %>%
+    # median center each sample (column) by subtracting
+    # the median of that column
+    mutate(across(everything(), ~ . - median(., na.rm = TRUE)))
+
+  SummarizedExperiment::assay(
+    experiment,
+    withDimnames = FALSE
+  ) <- proteomics_data
+
   SummarizedExperiment::assayNames(experiment) <- assay
   return(experiment)
 }
