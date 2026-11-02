@@ -357,18 +357,18 @@ colors <- list(
   "Vorino" = color_vals_black_first[7]
 )
 
-plot <- plot_pca(
+plot_global_pca <- plot_pca(
   experiment,
   color_by = 'agent',
   shape_by = 'timepoint',
   title = "Global proteomics PCA",
   color_vals = colors
 )
-plot <- plot +
+plot_global_pca <- plot_global_pca +
   stat_ellipse(aes(group = spheroid, linetype = spheroid), color = "darkgrey") +
   theme(legend.position = "right")
 
-plot
+plot_global_pca
 ```
 
 Optionally we can save the PCA plot to a file in the output directory.
@@ -381,7 +381,7 @@ fname <- paste0(output_dir, "batch2_overview_pca.pdf")
 
 ggsave(
   filename = fname,
-  plot = plot,
+  plot = plot_global_pca,
   height = 6,
   width = 8
 )
@@ -645,6 +645,38 @@ experiment <- prepare_proteomics_data(
   imputation_method = "SampMin"
 )
 ```
+
+## PCA plots after missingness filtering
+
+Now that we have filtered out proteins with high missingness and removed any outlier samples, we can generate a PCA plot for the global proteomics data after missingness filtering. We will use the `plot_pca` function again, this time with the filtered `SummarizedExperiment` object.
+This way we can compare the PCA plot before and after missingness filtering to see if the filtering has improved the separation of the samples based on spheroid, agent, and timepoint.
+Below we will do that and combine the two PCA plots into a single plot for easier comparison. On the left we will have the PCA plot before missingness filtering, and on the right we will have the PCA plot after missingness filtering. We will also add ellipses to the plots to indicate the grouping of samples by spheroid.
+
+```{r}
+#| label: plot-pca-after-missingness-filtering
+
+plot_global_pca_after_missingness_filtering <- plot_pca(
+  experiment,
+  color_by = 'agent',
+  shape_by = 'timepoint',
+  title = "Global proteomics PCA after missingness filtering",
+  color_vals = colors
+)
+plot_global_pca_after_missingness_filtering <- plot_global_pca_after_missingness_filtering +
+  stat_ellipse(aes(group = spheroid, linetype = spheroid), color = "darkgrey") +
+  theme(legend.position = "right")
+
+plot_combined <- plot_global_pca +
+  plot_global_pca_after_missingness_filtering +
+  plot_annotation(
+    title = "Global proteomics PCA before and after missingness filtering",
+    theme = theme(plot.title = element_text(size = 16))
+  ) +
+  plot_layout(guides = "collect")
+plot_combined
+```
+
+We can see from the comparison plot that the overall structure of the PCA plot has not changed significantly after missingness filtering. The separation of the samples based on spheroid, agent, and timepoint is still present, and the outlier samples have been removed. The one other difference visible is that the variance explained by the principal components may have changed slightly and the PCA is overall a bit more compressed. However given the overall similarity, this indicates that the missingness filtering has not introduced any bias into the data, and we can proceed with downstream analysis using the filtered data.
 
 ## PCA plots per plate (Spheroid)
 
