@@ -120,7 +120,12 @@ plot_pca <- function(
 
   # Run the PCA analysis on the transposed assay data (prcomp expects samples as rows) of the experiment object.
   # Then combine the results with the column data of the experiment object (i.e. the metadata).
-  principal_components <- prcomp(t(assay(exp))) %$%
+  pc <- prcomp(t(assay(exp, "proteomics")))
+  importance <- list(
+    'PC1' = summary(pc)$importance[2, 1],
+    'PC2' = summary(pc)$importance[2, 2]
+  )
+  principal_components <- pc %$%
     cbind(x, colData(exp))
 
   # Setup the aesthetics for the PCA plot based on the user-defined parameters.
@@ -196,7 +201,9 @@ plot_pca <- function(
   plot <- plot +
     labs(
       title = plot_title,
-      subtitle = plot_subtitle
+      subtitle = plot_subtitle,
+      x = paste0("PC1 (", round(importance$PC1 * 100, 2), "%)"),
+      y = paste0("PC2 (", round(importance$PC2 * 100, 2), "%)")
     )
 
   return(plot)
