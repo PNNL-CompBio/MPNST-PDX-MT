@@ -1473,3 +1473,134 @@ ggsave(
   width = 8
 )
 ```
+
+## Heatmap of differentially expressed proteins in enriched pathways
+
+Now that we have identified the differentially expressed proteins and the enriched pathways, we can generate a heatmap of the differentially expressed proteins in the enriched pathways.
+
+Given the information that we have gathered so far, we will focus on the 48hr timepoint, as it has the most significantly enriched pathways and differentially expressed proteins. We will gather the differentially expressed proteins in the enriched pathways into a single data frame, and then generate a heatmap of the differentially expressed proteins in the enriched pathways.
+
+```{r}
+#| label: gather-diff-ex-prots-in-enriched-pathways
+#| 
+timepoint <- "48hr"
+
+dfs <- list()
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    prot_data <- all_enriched_pathways[[spheroid]][[agent]][[timepoint]] %>%
+      rownames_to_column(., var = "pathway") %>%
+      as_tibble(.) %>%
+      arrange(BH_pvalue) %>%
+      filter(BH_pvalue < 0.05) %>%
+      select(
+        pathway,
+        ingroupnames
+      ) %>%
+      separate_rows(ingroupnames, sep = ", ") %>%
+      rename(., ingroupnames = "protein")
+    dfs[[paste0(spheroid, "_", agent)]] <- prot_data
+  }
+}
+prots_data <- bind_rows(dfs, .id = "spheroid_agent") %>%
+  separate(spheroid_agent, into = c("spheroid", "agent"), sep = "_")
+
+prots <- unique(prots_data$protein)
+
+se_diff_ex_prots <- experiment[
+  rowData(experiment)$Genes %in% prots,
+  colData(experiment)$timepoint == "48hr"
+]
+```
+
+With the data gathered we can generate a heatmap of the differentially expressed proteins in the enriched pathways. Below we define a helper function to generate the heatmap, which takes in a `SummarizedExperiment` object and returns a `pheatmap` object.
+
+```{r}
+#| label: plot-heatmap-helper-function
+#| 
+plot_heatmap <- function(se) {
+  annotations_col <- as.data.frame(colData(se)) %>%
+    select(spheroid, agent) %>%
+    mutate(
+      spheroid = factor(
+        spheroid,
+        levels = unique(colData(se)$spheroid)
+      ),
+      agent = factor(agent, levels = unique(colData(se)$agent))
+    )
+  annotations_row <- prots_data %>%
+    select(pathway, protein) %>%
+    unique() %>%
+    mutate(exists = 1) %>%
+    pivot_wider(names_from = pathway, values_from = exists, values_fill = 0)
+
+  annotation_colors <- list(
+    agent = c(
+      "DMSO" = color_vals_black_first[1],
+      "Mirda" = color_vals_black_first[2],
+      "Palbo" = color_vals_black_first[3],
+      "TNO155" = color_vals_black_first[5],
+      "Vorino" = color_vals_black_first[7]
+    ),
+    spheroid = if (eval_mn2) {
+      c(
+        "JHU2002" = "#E41A1C",
+        "MN4" = "#377EB8",
+        "WU225" = "#4DAF4A",
+        "MN2" = "#984EA3"
+      )
+    } else {
+      c(
+        "JHU2002" = "#E41A1C",
+        "MN4" = "#377EB8",
+        "WU225" = "#4DAF4A"
+      )
+    }
+  )
+
+  p_heatmap <- pheatmap(
+    assay(se),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    annotation_colors = annotation_colors,
+    show_rownames = TRUE,
+    show_colnames = FALSE,
+    annotation_col = annotations_col,
+    cutree_cols = if (eval_mn2) 4 else 3,
+    main = "Differentially expressed proteins in enriched pathways"
+  )
+
+  return(p_heatmap)
+}
+```
+
+Using the helper function defined above, we can generate the heatmap of the differentially expressed proteins in the enriched pathways.
+
+This heatmap will give us a broad overview of the differentially expressed proteins in the enriched pathways across spheroids and agents at the 48hr timepoint, allowing us to identify any patterns or trends in the data.
+
+```{r}
+#| label: plot-diff-ex-prots-in-enriched-pathways-heatmap
+#| fig.height: 12
+#| fig.width: 8
+#| fig.align: "center"
+#| fig.cap: "Heatmap of differentially expressed proteins in enriched pathways across spheroids and agents at the 48hr timepoint."
+#| 
+p_heatmap <- plot_heatmap(se_diff_ex_prots)
+print(p_heatmap)
+```
+
+```{r}
+#| label: save-diff-ex-prots-heatmap
+#| eval: !expr params$saveplots
+#| echo: false
+
+ggsave(
+  filename = paste0(
+    diff_expression_dir,
+    "batch2_diff_ex_prots_heatmap_enriched_pathways_48hr.png"
+  ),
+  plot = p_heatmap$gtable,
+  height = 16,
+  width = 10
+)
+```
