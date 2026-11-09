@@ -1134,3 +1134,342 @@ ggsave(
   height = length(spheroids) * 3
 )
 ```
+
+## Visualizing the number of significantly enriched pathways across spheroids, agents and timepoints
+
+Here we will visualize the number of significantly enriched pathways across spheroids, agents and timepoints. We will first gather the significantly enriched pathways into a single data frame, and then generate a bar plot showing the number of significantly enriched pathways for each spheroid, agent and timepoint.
+
+The code cell below gathers the significantly enriched pathways into a single data frame, and filters for pathways with a BH adjusted p-value less than 0.05.
+```{r}
+#| label: gather-sig-pathways
+#| 
+
+dfs_sig_pathways <- list()
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    for (timepoint in timepoints) {
+      tmp <- all_enriched_pathways[[spheroid]][[agent]][[
+        timepoint
+      ]] %>%
+        rownames_to_column(., var = "pathway") %>%
+        as_tibble(.) %>%
+        arrange(BH_pvalue) %>%
+        filter(BH_pvalue < 0.05)
+      dfs_sig_pathways[[paste0(spheroid, "_", agent, "_", timepoint)]] <- tmp
+    }
+  }
+}
+
+sig_pathways <- bind_rows(
+  dfs_sig_pathways,
+  .id = "spheroid_agent_timepoint"
+) %>%
+  separate(
+    spheroid_agent_timepoint,
+    into = c("spheroid", "agent", "timepoint"),
+    sep = "_"
+  ) %>%
+  select(
+    pathway,
+    spheroid,
+    agent,
+    timepoint
+  )
+sig_pathways
+```
+
+Now we can generate a bar plot showing the number of significantly enriched pathways for each spheroid, agent and timepoint.
+
+```{r}
+#| label: plot-sig-pathway-counts
+#| fig-height: 6
+#| fig-width: 8
+#| fig-align: "center"
+#| fig-cap: "Significant enriched pathways across spheroids, agents and timepoints."
+
+patterns <- c(
+  "JHU2202" = "none",
+  "MN4" = "stripe",
+  "WU225" = "crosshatch",
+  "MN2" = "circle"
+)
+
+sig_pathways_grouped <- sig_pathways %>%
+  group_by(spheroid, agent, timepoint) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+plot_sig_pathway_counts <- ggplot(
+  sig_pathways_grouped,
+  aes(x = factor(timepoint, levels = c("8hr", "24hr", "48hr")), y = count)
+) +
+  geom_col_pattern(
+    aes(fill = agent, pattern = spheroid),
+    position = position_dodge2(preserve = "single"),
+    color = "black",
+    pattern_color = "black",
+    pattern_fill = "black",
+    # pattern_size = 0.5,
+    pattern_angle = 45,
+    pattern_density = 0.05,
+    pattern_spacing = 0.02
+  ) +
+  scale_pattern_manual(
+    values = patterns,
+    guide = guide_legend(override.aes = list(fill = "grey70")) # <- make lighter
+  ) +
+  scale_fill_manual(
+    values = colors,
+    guide = guide_legend(override.aes = list(pattern = "none")) # <- hide pattern
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  ) +
+  labs(
+    title = "Significantly enriched pathways across spheroids, agents and timepoints",
+    x = "Timepoint",
+    y = "Count of significantly enriched pathways",
+    fill = "Agent",
+    pattern = "Spheroid"
+  )
+print(plot_sig_pathway_counts)
+```
+
+As we can see from the plot above, the time point with the most significantly enriched pathways is the 48hr time point, and the agent with the most significantly enriched pathways is Mirda. Specifically the fact that the 48hr timepoint has the most significantly enriched pathways is consistent with the fact that the 48hr timepoint also has the most differentially expressed proteins. 
+
+```{r}
+#| label: save-sig-pathway-counts-plot
+#| eval: !expr params$saveplots
+#| echo: false
+
+ggsave(
+  filename = paste0(diff_expression_dir, "batch2_sig_pathway_counts.png"),
+  plot = plot_sig_pathway_counts,
+  height = 6,
+  width = 8
+)
+```
+
+## Visualizing the number of differentially expressed proteins across spheroids, agents and timepoints
+
+Similarly to the significantly enriched pathways, we can visualize the number of differentially expressed proteins across spheroids, agents and timepoints. We will first gather the differentially expressed proteins into a single data frame, and then generate a bar plot showing the number of differentially expressed proteins for each spheroid, agent and timepoint.
+
+The code cell below gathers the differentially expressed proteins into a single data frame, and filters for proteins with an adjusted p-value less than 0.1 and an absolute log fold change greater than 0.5. The resulting data frame contains the spheroid, agent, timepoint, protein group, protein names, genes, log fold change, and adjusted p-value for each differentially expressed protein across all spheroids, agents and timepoints, based on the enriched pathways we previously identified.
+
+```{r}
+#| label: gather-diff-ex-prots
+#| 
+
+tmp <- list()
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    for (timepoint in timepoints) {
+      tmp[[paste0(
+        spheroid,
+        "_",
+        agent,
+        "_",
+        timepoint
+      )]] <- all_diff_ex[[spheroid]][[agent]][[timepoint]] %>%
+        rowData(.) %>%
+        as_tibble(.) %>%
+        select(
+          Protein.Group,
+          Protein.Names,
+          Genes,
+          logFC,
+          adj.P.Val
+        ) %>%
+        arrange(adj.P.Val) %>%
+        filter(adj.P.Val < 0.1) %>%
+        filter(abs(logFC) > 0.5)
+    }
+  }
+}
+
+diff_ex_prots <- bind_rows(
+  tmp,
+  .id = "spheroid_agent_timepoint"
+) %>%
+  separate(
+    spheroid_agent_timepoint,
+    into = c("spheroid", "agent", "timepoint"),
+    sep = "_"
+  ) %>%
+  select(
+    spheroid,
+    agent,
+    timepoint,
+    Protein.Group,
+    Protein.Names,
+    Genes,
+    logFC,
+    adj.P.Val
+  )
+```
+
+To prepare the data for plotting, we will group the differentially expressed proteins by spheroid, agent, timepoint and direction (up or down), and count the number of differentially expressed proteins in each group. We will also complete the data frame to include all combinations of spheroid, agent, timepoint and direction, filling in any missing combinations with a count of 0. Finally, we will convert the direction and timepoint columns to factors with specified levels, and set the count of down-regulated proteins to be negative for plotting purposes.
+
+```{r}
+#| label: prep-diff-ex-prots-for-plotting
+#| 
+diff_ex_prots_grouped <- diff_ex_prots %>%
+  mutate(
+    direction = case_when(
+      logFC > 0 ~ "up",
+      logFC < 0 ~ "down",
+      TRUE ~ "no_change"
+    )
+  ) %>%
+  group_by(spheroid, agent, timepoint, direction) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  complete(spheroid, agent, timepoint, direction, fill = list(count = 0)) %>%
+  ungroup() %>%
+  mutate(
+    direction = factor(direction, levels = c("up", "down", "no_change"))
+  ) %>%
+  mutate(
+    timepoint = factor(timepoint, levels = c("8hr", "24hr", "48hr"))
+  ) %>%
+  mutate(count = ifelse(direction == "down", -count, count))
+```
+
+### Differentially Expressed Proteins Count
+
+First we will generate a bar plot showing the number of differentially expressed proteins for each spheroid, agent and timepoint, grouped by direction (up or down). We will use the `geom_col_pattern` function from the `ggpattern` package to create a bar plot with patterns for each spheroid, and colors for each agent. We will also use a pseudo-log scale for the y-axis to better visualize the counts of differentially expressed proteins.
+
+Crucially, we will use the `facet_wrap` function to create separate panels for up-regulated and down-regulated proteins, allowing us to easily compare the number of differentially expressed proteins in each direction across spheroids, agents and timepoints, but won't be grouping (facetting) by spheroid.
+
+```{r}
+#| label: plot-diff-ex-prots-count
+#| fig.height: 6
+#| fig.width: 8
+#| fig.align: "center"
+#| fig.cap: "Differentially expressed proteins across spheroids, agents and timepoints."
+#| 
+
+plot_diff_ex_prots_count <- ggplot(
+  diff_ex_prots_grouped,
+  aes(x = timepoint, y = count, fill = agent)
+) +
+  geom_col_pattern(
+    aes(pattern = spheroid),
+    position = position_dodge2(preserve = "single"),
+    color = "black",
+    pattern_color = "black",
+    pattern_fill = "black",
+    # pattern_size = 0.5,
+    pattern_angle = 45,
+    pattern_density = 0.05,
+    pattern_spacing = 0.02
+  ) +
+  scale_y_continuous(trans = "pseudo_log") +
+  guides(y = guide_axis_logticks(negative.small = 1)) +
+  scale_pattern_manual(
+    values = patterns,
+    guide = guide_legend(override.aes = list(fill = "grey70")) # <- make lighter
+  ) +
+  scale_fill_manual(
+    values = colors,
+    guide = guide_legend(override.aes = list(pattern = "none")) # <- hide pattern
+  ) +
+  facet_wrap(~direction, ncol = 1, scales = "free_y") +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    strip.text = element_blank()
+  ) +
+  labs(
+    title = "Differentially expressed proteins across spheroids, agents and timepoints",
+    x = "Timepoint",
+    y = "Count of differentially expressed proteins",
+    fill = "Agent"
+  )
+print(plot_diff_ex_prots_count)
+```
+
+```{r}
+#| label: save-diff-ex-prots-count-plot
+#| eval: !expr params$saveplots
+#| echo: false
+#| 
+ggsave(
+  filename = paste0(diff_expression_dir, "batch2_diff_ex_prots_counts.png"),
+  plot = plot_diff_ex_prots_count,
+  height = 6,
+  width = 8
+)
+```
+
+### Differentially Expressed Proteins Count Grouped by Spheroids
+Next we will repeat the previous plot, but this time we will group the differentially expressed proteins by spheroid as well. This will allow us to see how the number of differentially expressed proteins varies across spheroids, agents and timepoints, and also how it varies between up-regulated and down-regulated proteins.
+
+```{r}
+#| label: plot-diff-ex-prots-count-grouped-by-spheroids
+#| fig.height: 6
+#| fig.width: 8
+#| fig.align: "center"
+#| fig.cap: "Differentially expressed proteins across spheroids, agents and timepoints."
+
+plot_diff_ex_prots_count_grouped_by_spheroids <- ggplot(
+  diff_ex_prots_grouped,
+  aes(x = timepoint, y = count, fill = agent)
+) +
+  geom_col_pattern(
+    aes(pattern = spheroid),
+    position = position_dodge2(preserve = "single"),
+    color = "black",
+    pattern_color = "black",
+    pattern_fill = "black",
+    pattern_angle = 45,
+    pattern_density = 0.05,
+    pattern_spacing = 0.02
+  ) +
+  scale_pattern_manual(
+    values = patterns,
+    guide = guide_legend(override.aes = list(fill = "grey70")) # <- make lighter
+  ) +
+  scale_fill_manual(
+    values = colors,
+    guide = guide_legend(override.aes = list(pattern = "none")) # <- hide pattern
+  ) +
+  facet_wrap(
+    ~ direction + spheroid,
+    ncol = ifelse(eval_mn2, 4, 3),
+    scales = "free_y"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    strip.text = element_blank()
+  ) +
+  labs(
+    title = "Differentially expressed proteins across spheroids, agents and timepoints",
+    x = "Timepoint",
+    y = "Count of differentially expressed proteins",
+    fill = "Agent"
+  )
+print(plot_diff_ex_prots_count_grouped_by_spheroids)
+```
+
+```{r}
+#| label: save-diff-ex-prots-count-grouped-by-spheroids-plot
+#| eval: !expr params$saveplots
+#| echo: false
+#| 
+ggsave(
+  filename = paste0(
+    diff_expression_dir,
+    "batch2_diff_ex_prots_counts_grouped_by_spheroids.png"
+  ),
+  plot = plot_diff_ex_prots_count_grouped_by_spheroids,
+  height = 6,
+  width = 8
+)
+```
