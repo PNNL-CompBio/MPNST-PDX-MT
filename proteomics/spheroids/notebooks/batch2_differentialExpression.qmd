@@ -1531,12 +1531,8 @@ plot_heatmap <- function(
       ),
       agent = factor(agent, levels = unique(colData(se)$agent))
     )
-  annotations_row <- prots_data %>%
-    select(pathway, protein) %>%
-    unique() %>%
-    mutate(exists = 1) %>%
-    pivot_wider(names_from = pathway, values_from = exists, values_fill = 0)
 
+  # setting the color scheme for the annotations
   annotation_colors <- list(
     agent = c(
       "DMSO" = color_vals_black_first[1],
@@ -1561,8 +1557,13 @@ plot_heatmap <- function(
     }
   )
 
+  # map gene names to rownames of the assay data
+  data_mat <- assay(se)
+  rownames(data_mat) <- rowData(se)$Genes
+
+  # generate the actual plot using pheatmap
   p_heatmap <- pheatmap(
-    assay(se),
+    data_mat,
     cluster_rows = TRUE,
     cluster_cols = TRUE,
     annotation_colors = annotation_colors,
@@ -1607,12 +1608,8 @@ ggsave(
 ### Heatmap of individual enriched pathways
 
 ```{r}
-pathways <- unique(prots_data$pathway)
-pathways
-```
-
-```{r}
 se_diff_ex_prots_per_pathway <- list()
+pathways <- unique(sig_pathways$pathway)
 timepoint <- "48hr"
 
 for (pathway_name in pathways) {
