@@ -1,0 +1,90 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{r}
+library(leapR)
+library(tidyverse)
+library(msigdbr)
+```
+
+
+```{r}
+data("ncipid")
+```
+
+
+```{r}
+ncipid_overview <- as.tibble(
+  ncipid$matrix[1:5, 1:20]
+) %>%
+  add_column(pathway = ncipid$names[1:5], .before = 1) %>%
+  add_column(size = ncipid$sizes[1:5], .after = 1)
+
+t(ncipid_overview)
+```
+
+```{r}
+a4b7 <- c("ITGA4", "PXN", "ITGB7", "RHOA", "MADCAM1", "VACM1")
+other_prots <- t(ncipid$matrix)[, 2:3] %>%
+  as_tibble() %>%
+  mutate(across(everything(), ~ na_if(., "null"))) %>%
+  mutate(across(everything(), ~ na_if(., ""))) %>%
+  unlist() %>%
+  unname() %>%
+  as.vector()
+
+other_prots <- na.omit(other_prots)
+other_prots
+```
+
+
+```{r}
+msigdbr_df <- msigdbr(species = "Homo sapiens", subcollection = "CP:PID") %>%
+  select(gs_name, gene_symbol) %>%
+  distinct()
+msigdbr_list <- split(x = msigdbr_df$gene_symbol, f = msigdbr_df$gs_name)
+```
+
+```{r}
+write_gmt <- function(gene_list, filename) {
+  # Open file connection
+  con <- file(filename, "w")
+
+  for (set_name in names(gene_list)) {
+    genes <- gene_list[[set_name]]
+    # GMT format requires: Name, Description (or NA), followed by genes
+    row_data <- c(set_name, "NA", genes)
+    # Write as a tab-separated line
+    writeLines(paste(row_data, collapse = "\t"), con)
+  }
+
+  close(con)
+}
+```
+
+```{r}
+write_gmt(msigdbr_list, "msigdbr_list.gmt")
+```
+
+```{r}
+pid_pathways <- leapR::read_gene_sets("msigdbr_list.gmt")
+```
+
+```{r}
+pid_pathways$names[1:5]
+
+```
+
+```{r}
+pid_pathways$sizes[1:5]
+```
+
+```{r}
+pid_pathways$matrix <- t(pid_pathways$matrix)
+```
+
+```{r}
+pid_pathways
+```

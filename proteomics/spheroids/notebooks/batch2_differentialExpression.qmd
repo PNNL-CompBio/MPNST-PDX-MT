@@ -77,6 +77,7 @@ source(paste0(src_dir, 'helper_funcs.R'))
 source(paste0(src_dir, 'data_prep_funcs.R'))
 source(paste0(src_dir, 'stats_funcs.R'))
 source(paste0(src_dir, 'plotting_funcs.R'))
+source(paste0(src_dir, 'msigdbr_to_leapr.R'))
 ```
 
 ```{r}
@@ -961,6 +962,10 @@ But first we need to load the necessary data for the pathway enrichment analysis
 #| label: load-pathway-enrichment-data
 data("ncipid")
 data("krbpaths")
+msigdb_pid <- get_genesets_from_msigdb(
+  species = "Homo sapiens",
+  msigdb_subcollection = "CP:PID"
+)
 ```
 
 We will also set up some global parmeters for the pathway enrichment analysis, including the log fold change and p-value cutoffs for selecting differentially expressed proteins.
@@ -969,7 +974,7 @@ We will also set up some global parmeters for the pathway enrichment analysis, i
 #| label: pathway-enrichment-parameters
 log_fc <- 0.5
 pval <- 0.1
-geneset <- ncipid
+geneset <- msigdb_pid
 id_column <- "Genes"
 ```
 
