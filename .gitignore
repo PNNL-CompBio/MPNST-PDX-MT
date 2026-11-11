@@ -76,5 +76,11 @@ RNAseq/synapse_based_code/Normalized_adherent_CCLE_RNAseq_19Q4_samples_in_PRISM_
 *.cys
 /exp_1
 
+# Quarto rendering output in Spheroids project
+proteomics/spheroids/notebooks/*_files/
+
+# positai
+.positai
+
 # Exception for requirements
 !*requirements.txt
