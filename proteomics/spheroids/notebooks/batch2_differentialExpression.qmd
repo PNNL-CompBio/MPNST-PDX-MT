@@ -1564,7 +1564,9 @@ plot_heatmap <- function(
 
   # map gene names to rownames of the assay data
   data_mat <- assay(se)
-  rownames(data_mat) <- rowData(se)$Genes
+  gl <- rowData(se)$Genes
+  gl[duplicated(gl)] <- paste0(gl[duplicated(gl)],'-dupe')
+  rownames(data_mat) <- gl
 
   # generate the actual plot using pheatmap
   p_heatmap <- pheatmap(
