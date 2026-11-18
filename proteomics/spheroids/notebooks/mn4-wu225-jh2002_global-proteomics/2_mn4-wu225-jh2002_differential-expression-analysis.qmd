@@ -755,7 +755,7 @@ plot
 ggsave(
   filename = paste0(
     diff_expression_dir,
-    "enriched_in_set_pathways_heatmap_24hr.png"
+    "enriched_in_order_pathways_heatmap_24hr.png"
   ),
   plot = plot,
   height = 10,
@@ -770,7 +770,7 @@ plot
 ggsave(
   filename = paste0(
     diff_expression_dir,
-    "enriched_in_set_pathways_heatmap_48hr.png"
+    "enriched_in_order_pathways_heatmap_48hr.png"
   ),
   plot = plot,
   height = 10,
