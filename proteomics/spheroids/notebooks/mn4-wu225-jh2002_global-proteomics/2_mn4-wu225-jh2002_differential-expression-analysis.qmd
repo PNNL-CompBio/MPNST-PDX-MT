@@ -603,6 +603,124 @@ annotations_cols <- df_subset %>%
 plot <- plot_pathway_enrichement_heatmap(sig_pathways, '48hr')
 plot
 ```
+
+## Ranked Pathway enrichment
+
+```{r}
+all_ranked_enriched_pathways <- list()
+
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    for (timepoint in timepoints) {
+      tryCatch(
+        {
+          enriched_pathways <- leapR(
+            geneset = geneset,
+            eset = all_diff_ex[[spheroid]][[agent]][[timepoint]],
+            enrichment_method = "enrichment_in_order",
+            assay_name = 'proteomics',
+            id_column = id_column,
+            primary_columns = "logFC"
+          )
+          all_ranked_enriched_pathways[[spheroid]][[agent]][[
+            timepoint
+          ]] <- enriched_pathways
+        },
+        error = function(msg) {
+          message(
+            paste0(
+              "pval of '",
+              pval,
+              "' did not result in differentially expressed proteins for agent '",
+              agent,
+              "' at timepoint '",
+              timepoint,
+              "' in spheroid '",
+              spheroid,
+              "'"
+            )
+          )
+          return(NA)
+        }
+      )
+    }
+  }
+}
+```
+
+```{r}
+dfs_sig_pathways_rank_enrichment <- list()
+
+for (spheroid in spheroids) {
+  for (agent in agents) {
+    for (timepoint in timepoints) {
+      df_enriched <- all_ranked_enriched_pathways[[spheroid]][[agent]][[
+        timepoint
+      ]]
+      if (is.null(df_enriched)) {
+        pathways_enriched <- NULL
+      } else {
+        pathways_enriched <- filter_pathways(
+          df_enriched,
+          "enriched",
+          filter_col = "zscore",
+          threshold = 0.75,
+          larger_than = TRUE
+        )
+        pathways_depleted <- filter_pathways(
+          df_enriched,
+          "depleted",
+          filter_col = "zscore",
+          threshold = -0.75
+        )
+      }
+
+      label <- paste0(
+        spheroid,
+        "_",
+        agent,
+        "_",
+        timepoint
+      )
+
+      if (!is.null(pathways_enriched) & !is.null(pathways_depleted)) {
+        dfs_sig_pathways_rank_enrichment[[label]] <- rbind(
+          pathways_enriched,
+          pathways_depleted
+        )
+      } else if (!is.null(pathways_enriched)) {
+        dfs_sig_pathways_rank_enrichment[[label]] <- pathways_enriched
+      } else if (!is.null(pathways_depleted)) {
+        dfs_sig_pathways_rank_enrichment[[label]] <- pathways_depleted
+      } else {
+        next
+      }
+    }
+  }
+}
+
+sig_pathways_rank_enrichment <- bind_rows(
+  dfs_sig_pathways_rank_enrichment,
+  .id = "spheroid_agent_timepoint"
+) %>%
+  separate(
+    spheroid_agent_timepoint,
+    into = c("spheroid", "agent", "timepoint"),
+    sep = "_"
+  ) %>%
+  select(
+    pathway,
+    spheroid,
+    agent,
+    timepoint,
+    category
+  )
+sig_pathways_rank_enrichment
+```
+
+```{r}
+plot <- plot_pathway_enrichement_heatmap(sig_pathways_rank_enrichment, '48hr')
+plot
 ```
 
 ## Visualizing the number of differentially expressed proteins across spheroids, agents and timepoints
