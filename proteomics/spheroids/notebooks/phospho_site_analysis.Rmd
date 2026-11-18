@@ -40,6 +40,7 @@ library(sva)
 
 ```{r sourcing-cross-notebook-functions, results='hide'}
 source('../src/helper_funcs.R')
+source('../src/plotting_funcs.R')
 ```
 
 
