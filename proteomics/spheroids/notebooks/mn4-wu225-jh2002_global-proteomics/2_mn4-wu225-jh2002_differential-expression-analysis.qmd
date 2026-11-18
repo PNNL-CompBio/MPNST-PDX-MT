@@ -101,12 +101,25 @@ Finally we define the colors for the agents, used in plots to keep a consistent 
 ```{r}
 #| label: colors
 
-colors <- c(
+agent_colors <- c(
   "DMSO" = color_vals_black_first[1],
   "Mirda" = color_vals_black_first[2],
   "Palbo" = color_vals_black_first[3],
   "TNO155" = color_vals_black_first[5],
   "Vorino" = color_vals_black_first[7]
+)
+
+spheroid_colors <- c(
+  "JHU2002" = "#EE8866",
+  "MN4" = "#77AADD",
+  "WU225" = "#EEDD88",
+  "MN2" = "#44BB99"
+)
+
+expression_colors <- c(
+  "down" = "#0077BB",
+  "not significant" = '#BBBBBB',
+  "up" = '#CC3311'
 )
 ```
 
@@ -498,7 +511,7 @@ plot_sig_pathway_counts <- ggplot(
     guide = guide_legend(override.aes = list(fill = "grey70")) # <- make lighter
   ) +
   scale_fill_manual(
-    values = colors,
+    values = agent_colors,
     guide = guide_legend(override.aes = list(pattern = "none")) # <- hide pattern
   ) +
   facet_wrap(~category, ncol = 1, scales = "free_y", strip.position = "left") +
@@ -538,60 +551,48 @@ ggsave(
 plot_pathway_enrichement_heatmap <- function(pathways, time = '48hr') {
   df_subset <- pathways %>%
     filter(timepoint == time) %>%
-  mutate(
-    spheroid_agent = paste0(spheroid, "_", agent)
-  )
-
-df_plot <- df_subset %>%
-  select(pathway, spheroid_agent, category) %>%
-  unique() %>%
-  mutate(category = ifelse(category == "enriched", 1, -1)) %>%
-  pivot_wider(
-    names_from = spheroid_agent,
-    values_from = category,
-    values_fill = 0
-  ) %>%
-  column_to_rownames(var = "pathway")
-
-annotations_cols <- df_subset %>%
-  select(spheroid_agent, spheroid, agent) %>%
-  unique() %>%
-  column_to_rownames(var = "spheroid_agent")
-
-  print(annotations_cols)
-
-  agent_cols <- c(
-    "DMSO" = color_vals_black_first[1],
-    "Mirda" = color_vals_black_first[2],
-    "Palbo" = color_vals_black_first[3],
-    "TNO155" = color_vals_black_first[5],
-    "Vorino" = color_vals_black_first[7]
-  )
-  spheroid_cols <- c(
-    "JHU2002" = "#EE8866",
-    "MN4" = "#77AADD",
-    "WU225" = "#EEDD88",
-    "MN2" = "#44BB99"
+    mutate(
+      spheroid_agent = paste0(spheroid, "_", agent)
     )
 
+  df_plot <- df_subset %>%
+    select(pathway, spheroid_agent, category) %>%
+    unique() %>%
+    mutate(category = ifelse(category == "enriched", 1, -1)) %>%
+    pivot_wider(
+      names_from = spheroid_agent,
+      values_from = category,
+      values_fill = 0
+    ) %>%
+    column_to_rownames(var = "pathway")
+
+  annotations_cols <- df_subset %>%
+    select(spheroid_agent, spheroid, agent) %>%
+    unique() %>%
+    column_to_rownames(var = "spheroid_agent")
+
   annotation_colors <- list(
-    agent = agent_cols[unique(annotations_cols$agent)],
-    spheroid = spheroid_cols[unique(annotations_cols$spheroid)]
+    agent = agent_colors[unique(annotations_cols$agent)],
+    spheroid = spheroid_colors[unique(annotations_cols$spheroid)]
   )
 
   plot <- pheatmap(
-  mat = df_plot,
-  cluster_rows = TRUE,
-  cluster_cols = TRUE,
-  show_rownames = TRUE,
-  show_colnames = FALSE,
-  annotation_col = annotations_cols,
-  annotation_colors = annotation_colors,
-  scale = "none",
-  clustering_distance_cols = "correlation",
-    color = c('#0077BB', '#BBBBBB', '#CC3311'),
-  breaks = c(-1.5, -0.5, 0.5, 1.5),
-  legend_breaks = c(-1, 0, 1),
+    mat = df_plot,
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_rownames = TRUE,
+    show_colnames = FALSE,
+    annotation_col = annotations_cols,
+    annotation_colors = annotation_colors,
+    scale = "none",
+    clustering_distance_cols = "correlation",
+    color = c(
+      expression_colors['down'],
+      expression_colors['not significant'],
+      expression_colors['up']
+    ),
+    breaks = c(-1.5, -0.5, 0.5, 1.5),
+    legend_breaks = c(-1, 0, 1),
     legend_labels = c("Down regulated", "Non-significant", "Up regulated"),
     main = paste("Pathway Enrichment at", time)
   )
@@ -603,6 +604,7 @@ annotations_cols <- df_subset %>%
 plot <- plot_pathway_enrichement_heatmap(sig_pathways, '48hr')
 plot
 ```
+
 
 ## Ranked Pathway enrichment
 
@@ -843,7 +845,7 @@ plot_diff_ex_prots_count <- ggplot(
     guide = guide_legend(override.aes = list(fill = "grey70")) # <- make lighter
   ) +
   scale_fill_manual(
-    values = colors,
+    values = agent_colors,
     guide = guide_legend(override.aes = list(pattern = "none")) # <- hide pattern
   ) +
   facet_wrap(~direction, ncol = 1, scales = "free_y") +
@@ -905,7 +907,7 @@ plot_diff_ex_prots_count_grouped_by_spheroids <- ggplot(
     guide = guide_legend(override.aes = list(fill = "grey70")) # <- make lighter
   ) +
   scale_fill_manual(
-    values = colors,
+    values = agent_colors,
     guide = guide_legend(override.aes = list(pattern = "none")) # <- hide pattern
   ) +
   facet_wrap(
