@@ -135,7 +135,7 @@ spheroids <- as_tibble(colData(experiment)) %>% pull(spheroid) %>% unique()
 agents <- c('Mirda', 'TNO155', 'Palbo', 'Vorino')
 timepoints <- c("8hr", "24hr", "48hr")
 log_fc <- 1
-pval <- 0.05
+pval <- 0.1
 ```
 
 With the parameters set, we can generate the differential expression plots.
@@ -401,6 +401,14 @@ filter_pathways <- function(
         !!sym(filter_col) < threshold
       }
     ) %>%
+    # in some weird edge cases leapR produces good pvalues for enriched sets
+    # (using enrichment_in_sets) despite that the ingroup (i.e. proteins that
+    # are detected to be significantly differentially expressed and in the
+    # geneset that defines a pathway) is 0. Those edge cases are filtered out
+    # with the next `filter()` call
+    dplyr::filter(
+      ingroup_n > 0
+    ) %>%
     mutate(category = label)
   if (nrow(df_ret) == 0) {
     return(NULL)
@@ -487,9 +495,10 @@ sig_pathways_grouped <- sig_pathways %>%
   summarise(count = n(), .groups = "drop") %>%
   complete(spheroid, agent, timepoint, category, fill = list(count = 0)) %>%
   ungroup() %>%
-  mutate(category = factor(category, levels = c("enriched", "depleted"))) %>%
+  mutate(category = ifelse(category == "enriched", "up", "down")) %>%
+  mutate(category = factor(category, levels = c("up", "down"))) %>%
   mutate(timepoint = factor(timepoint, levels = c("8hr", "24hr", "48hr"))) %>%
-  mutate(count = ifelse(category == "enriched", count, -count))
+  mutate(count = ifelse(category == "up", count, -count))
 
 plot_sig_pathway_counts <- ggplot(
   sig_pathways_grouped,
@@ -521,9 +530,9 @@ plot_sig_pathway_counts <- ggplot(
     legend.position = "bottom"
   ) +
   labs(
-    title = "Enriched / depleted pathways across spheroids, agents and timepoints",
+    title = "Up / down regulated pathways across spheroids, agents and timepoints",
     x = "Timepoint",
-    y = "Count of enriched / depleted pathways",
+    y = "Count of up / down regulated pathways",
     fill = "Agent",
     pattern = "Spheroid"
   )
