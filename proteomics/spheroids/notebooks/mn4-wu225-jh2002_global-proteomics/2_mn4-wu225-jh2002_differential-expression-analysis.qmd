@@ -548,6 +548,8 @@ ggsave(
 ## Enriched Pathways shared across spheroids, agents and timepoints
 
 ```{r}
+#| label: pathway-heatmap-plot-func
+#| 
 plot_pathway_enrichement_heatmap <- function(pathways, time = '48hr') {
   df_subset <- pathways %>%
     filter(timepoint == time) %>%
@@ -601,8 +603,34 @@ plot_pathway_enrichement_heatmap <- function(pathways, time = '48hr') {
 ```
 
 ```{r}
+plot <- plot_pathway_enrichement_heatmap(sig_pathways, '24hr')
+plot
+
+ggsave(
+  filename = paste0(
+    diff_expression_dir,
+    "enriched_in_set_pathways_heatmap_24hr.png"
+  ),
+  plot = plot,
+  height = 10,
+  width = 8
+)
+```
+
+```{r}
+#| label: pathway-heatmap-plot-48hr
 plot <- plot_pathway_enrichement_heatmap(sig_pathways, '48hr')
 plot
+
+ggsave(
+  filename = paste0(
+    diff_expression_dir,
+    "enriched_in_set_pathways_heatmap_48hr.png"
+  ),
+  plot = plot,
+  height = 10,
+  width = 8
+)
 ```
 
 
@@ -721,8 +749,33 @@ sig_pathways_rank_enrichment
 ```
 
 ```{r}
+plot <- plot_pathway_enrichement_heatmap(sig_pathways_rank_enrichment, '24hr')
+plot
+
+ggsave(
+  filename = paste0(
+    diff_expression_dir,
+    "enriched_in_set_pathways_heatmap_24hr.png"
+  ),
+  plot = plot,
+  height = 10,
+  width = 8
+)
+```
+
+```{r}
 plot <- plot_pathway_enrichement_heatmap(sig_pathways_rank_enrichment, '48hr')
 plot
+
+ggsave(
+  filename = paste0(
+    diff_expression_dir,
+    "enriched_in_set_pathways_heatmap_48hr.png"
+  ),
+  plot = plot,
+  height = 10,
+  width = 8
+)
 ```
 
 ## Visualizing the number of differentially expressed proteins across spheroids, agents and timepoints
