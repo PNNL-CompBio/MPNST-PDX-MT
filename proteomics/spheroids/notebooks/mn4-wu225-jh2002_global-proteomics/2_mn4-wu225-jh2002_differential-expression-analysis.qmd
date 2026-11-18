@@ -242,7 +242,7 @@ for (spheroid in spheroids) {
         group_2,
         align_by = "Protein.Group"
       ) %>%
-        sgn_pval(.) # adding a signed pval column for enrichment
+        sgn_pval(.) # adding a signed pval column for enrichment_in_sets
 
       all_diff_ex[[spheroid]][[agent]][[timepoint]] <- diff_ex
     }
@@ -370,14 +370,25 @@ The code cell below gathers the significantly enriched pathways into a single da
 ```{r}
 #| label: gather-sig-pathways
 
-filter_pathways <- function(df, label, bh_pval = 0.05) {
+filter_pathways <- function(
+  df,
+  label,
+  filter_col = "BH_pvalue",
+  threshold = 0.05,
+  larger_than = FALSE
+) {
   df_ret <- df %>%
     rownames_to_column(., var = "pathway") %>%
     as_tibble(.) %>%
-    arrange(BH_pvalue) %>%
-    filter(BH_pvalue < 0.05) %>%
+    dplyr::arrange(!!sym(filter_col)) %>%
+    dplyr::filter(
+      if (larger_than) {
+        !!sym(filter_col) > threshold
+      } else {
+        !!sym(filter_col) < threshold
+      }
+    ) %>%
     mutate(category = label)
-
   if (nrow(df_ret) == 0) {
     return(NULL)
   }
@@ -524,13 +535,13 @@ ggsave(
 ## Enriched Pathways shared across spheroids, agents and timepoints
 
 ```{r}
-df_subset <- sig_pathways %>%
-  filter(timepoint == "48hr") %>%
+plot_pathway_enrichement_heatmap <- function(pathways, time = '48hr') {
+  df_subset <- pathways %>%
+    filter(timepoint == time) %>%
   mutate(
     spheroid_agent = paste0(spheroid, "_", agent)
   )
 
-df_subset
 df_plot <- df_subset %>%
   select(pathway, spheroid_agent, category) %>%
   unique() %>%
@@ -546,34 +557,29 @@ annotations_cols <- df_subset %>%
   select(spheroid_agent, spheroid, agent) %>%
   unique() %>%
   column_to_rownames(var = "spheroid_agent")
-```
 
-```{r}
-annotation_colors <- list(
-  agent = c(
+  print(annotations_cols)
+
+  agent_cols <- c(
     "DMSO" = color_vals_black_first[1],
     "Mirda" = color_vals_black_first[2],
     "Palbo" = color_vals_black_first[3],
     "TNO155" = color_vals_black_first[5],
     "Vorino" = color_vals_black_first[7]
-  ),
-  spheroid = if (eval_mn2) {
-    c(
-      "JHU2002" = "#E41A1C",
-      "MN4" = "#377EB8",
-      "WU225" = "#4DAF4A",
-      "MN2" = "#984EA3"
+  )
+  spheroid_cols <- c(
+    "JHU2002" = "#EE8866",
+    "MN4" = "#77AADD",
+    "WU225" = "#EEDD88",
+    "MN2" = "#44BB99"
     )
-  } else {
-    c(
-      "JHU2002" = "#E41A1C",
-      "MN4" = "#377EB8",
-      "WU225" = "#4DAF4A"
-    )
-  }
-)
 
-pheatmap(
+  annotation_colors <- list(
+    agent = agent_cols[unique(annotations_cols$agent)],
+    spheroid = spheroid_cols[unique(annotations_cols$spheroid)]
+  )
+
+  plot <- pheatmap(
   mat = df_plot,
   cluster_rows = TRUE,
   cluster_cols = TRUE,
@@ -583,12 +589,20 @@ pheatmap(
   annotation_colors = annotation_colors,
   scale = "none",
   clustering_distance_cols = "correlation",
-  color = c('steelblue', 'lightgrey', 'red'),
+    color = c('#0077BB', '#BBBBBB', '#CC3311'),
   breaks = c(-1.5, -0.5, 0.5, 1.5),
   legend_breaks = c(-1, 0, 1),
-  legend_labels = c("Depleted", "Non-significant", "Enriched"),
-  main = "Enriched Pathways across spheroids and agents at 48hr"
-)
+    legend_labels = c("Down regulated", "Non-significant", "Up regulated"),
+    main = paste("Pathway Enrichment at", time)
+  )
+  return(plot)
+}
+```
+
+```{r}
+plot <- plot_pathway_enrichement_heatmap(sig_pathways, '48hr')
+plot
+```
 ```
 
 ## Visualizing the number of differentially expressed proteins across spheroids, agents and timepoints
